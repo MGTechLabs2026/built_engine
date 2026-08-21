@@ -101,6 +101,20 @@ void main() {
 
       expect(killed, isEmpty);
     });
+
+    test('EntityDamaged reports the amount actually applied, not requested',
+        () {
+      final harness = _Harness();
+      final subject = harness.entities.create();
+      harness.components
+          .add(subject, const HealthComponent(current: 10, max: 100));
+      final damaged = <num>[];
+      harness.events.subscribe<EntityDamaged>((e) => damaged.add(e.amount));
+
+      const Damage(50).apply(harness.contextFor(subject));
+
+      expect(damaged, equals([10]));
+    });
   });
 
   group('Heal', () {
@@ -119,6 +133,20 @@ void main() {
         equals(100),
       );
       expect(healed, equals([subject]));
+    });
+
+    test('EntityHealed reports the amount actually applied, not requested',
+        () {
+      final harness = _Harness();
+      final subject = harness.entities.create();
+      harness.components
+          .add(subject, const HealthComponent(current: 90, max: 100));
+      final healed = <num>[];
+      harness.events.subscribe<EntityHealed>((e) => healed.add(e.amount));
+
+      const Heal(30).apply(harness.contextFor(subject));
+
+      expect(healed, equals([10]));
     });
   });
 

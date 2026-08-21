@@ -30,11 +30,12 @@ class Damage implements Effect {
     if (health == null) return;
     final wasAlreadyDead = health.current <= 0;
     final newCurrent = (health.current - amount).clamp(0, health.max);
+    final applied = health.current - newCurrent;
     context.components.add(
       subject,
       HealthComponent(current: newCurrent, max: health.max),
     );
-    context.events.publish(EntityDamaged(subject, amount));
+    context.events.publish(EntityDamaged(subject, applied));
     if (newCurrent == 0 && !wasAlreadyDead) {
       context.events.publish(EntityKilled(subject));
     }
@@ -56,11 +57,12 @@ class Heal implements Effect {
     final health = context.components.get<HealthComponent>(subject);
     if (health == null) return;
     final newCurrent = (health.current + amount).clamp(0, health.max);
+    final applied = newCurrent - health.current;
     context.components.add(
       subject,
       HealthComponent(current: newCurrent, max: health.max),
     );
-    context.events.publish(EntityHealed(subject, amount));
+    context.events.publish(EntityHealed(subject, applied));
   }
 }
 

@@ -114,7 +114,10 @@ enum CountComparison {
 /// Matches based on how many times [eventType] has been published since
 /// this rule was registered (see `EventCounter` — counting is not
 /// retroactive; `RuleEngine` auto-tracks [eventType] when a rule using
-/// this condition is registered).
+/// this condition is registered). That auto-tracking only scans the top
+/// level of a rule's `conditions` list — an `EventCount` nested inside a
+/// composite condition is not discovered automatically, so the caller
+/// must track its event type itself via `RuleEngine.eventCounts.trackType`.
 class EventCount implements Condition {
   const EventCount({
     required this.eventType,

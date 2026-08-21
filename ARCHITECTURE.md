@@ -38,6 +38,9 @@ every such handler. There is no dispatch across a type hierarchy (a
 subscriber for a supertype will not receive a subtype's events) — every
 event type used so far is a concrete, non-hierarchical class, so this has
 not been a limitation. Revisit if a future plugin needs otherwise.
+`subscribeDynamic(Type, handler)` also exists, for callers that only know
+the event type at runtime rather than at compile time (e.g. `RuleEngine`
+dispatching on a `Rule.trigger` value read from data).
 
 ### Plugin system (`lib/src/plugin/`)
 `GamePlugin`, `PluginContext`, and `PluginManager` — see `PLUGIN_SYSTEM.md`
@@ -74,7 +77,7 @@ combinators plus six concrete queries: `HasComponentQuery`, `HasTagQuery`,
 every matching entity in a candidate set (typically `EntityRegistry.all`)
 — independently useful without any Rule involved.
 
-### Query / Condition / Rule / Effect Engine (`lib/src/rule/`)
+### Condition / Rule / Effect Engine (`lib/src/rule/`)
 `Condition` and `Effect` are public interfaces — plugins implement them
 directly, compose `Rule` objects (`trigger`, `subjectOf`, `conditions`,
 `effects`) in code, and hand them to `RuleEngine.register`. The six
@@ -85,10 +88,10 @@ implement `Condition` directly. `RuleEngine` subscribes each rule via
 `EventBus.subscribeDynamic` (dispatch on a `Type` known only at runtime),
 evaluates every condition (AND) in list order, and runs every effect (in
 list order) only if they all pass — no other source of nondeterminism
-beyond whatever `RngService` itself produces. See `PLUGIN_SYSTEM.md`'s
-sibling note on how plugins register their own conditions/effects — there
-is no registry: the interfaces are simply public, the same way
-`GamePlugin` already is.
+beyond whatever `RngService` itself produces. There is no registry:
+plugins register their own conditions/effects simply by implementing the
+public `Condition`/`Effect` interfaces, the same way `GamePlugin` already
+is public.
 
 ## Integrating EntityRegistry and ComponentStore
 

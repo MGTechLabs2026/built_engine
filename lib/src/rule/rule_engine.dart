@@ -29,16 +29,25 @@ class RuleEngine {
   final RngService _rng;
   final EventCounter _eventCounts;
 
+  /// The shared event counter used by every [EventCount] condition this
+  /// engine's rules reference. Exposed so a caller can call
+  /// `eventCounts.trackType(SomeEvent)` directly for an `EventCount` nested
+  /// inside a composite condition — `register`'s automatic tracking only
+  /// scans the top level of a rule's `conditions` list.
+  EventCounter get eventCounts => _eventCounts;
+
   /// Registers [rule], auto-tracking (via `EventCounter.trackType`) the
   /// event type of every [EventCount] condition it uses, then subscribing
   /// to [Rule.trigger] so [rule] fires whenever that event is published.
-  void register(Rule rule) {
+  /// Returns the [EventSubscription] so a caller can later unsubscribe
+  /// (e.g. on plugin stop/unregister).
+  EventSubscription register(Rule rule) {
     for (final condition in rule.conditions) {
       if (condition is EventCount) {
         _eventCounts.trackType(condition.eventType);
       }
     }
-    _events.subscribeDynamic(rule.trigger, (event) => _fire(rule, event));
+    return _events.subscribeDynamic(rule.trigger, (event) => _fire(rule, event));
   }
 
   void _fire(Rule rule, Object event) {
