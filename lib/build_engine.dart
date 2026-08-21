@@ -17,5 +17,8 @@ export 'src/plugin/game_plugin.dart';
 export 'src/plugin/plugin_context.dart';
 export 'src/plugin/plugin_exceptions.dart';
 export 'src/plugin/plugin_manager.dart';
+export 'src/query/queries.dart';
+export 'src/query/query.dart';
+export 'src/query/query_engine.dart';
 export 'src/rng/rng_service.dart';
 export 'src/rule/event_counter.dart';
