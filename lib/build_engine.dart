@@ -11,3 +11,4 @@ export 'src/event/event_bus.dart';
 export 'src/plugin/game_plugin.dart';
 export 'src/plugin/plugin_context.dart';
 export 'src/plugin/plugin_exceptions.dart';
+export 'src/plugin/plugin_manager.dart';
