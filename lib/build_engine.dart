@@ -8,3 +8,4 @@ export 'src/component/component_store.dart';
 export 'src/entity/entity_id.dart';
 export 'src/entity/entity_registry.dart';
 export 'src/event/event_bus.dart';
+export 'src/plugin/plugin_exceptions.dart';
