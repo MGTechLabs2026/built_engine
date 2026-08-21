@@ -1,7 +1,7 @@
 # Build Engine — Architecture
 
 This document describes the engine foundation implemented so far. See
-`CLAUDE.md` for the full architecture contract this engine follows, and
+`claude.md` for the full architecture contract this engine follows, and
 `PLUGIN_SYSTEM.md` for the plugin lifecycle in detail.
 
 ## Core Principle
