@@ -18,15 +18,16 @@ class EventSubscription {
 /// explicitly (`bus.subscribe<FooEvent>(...)`) — an untyped closure parameter
 /// infers as `dynamic` and will not match published events correctly.
 class EventBus {
-  final Map<Type, List<Function>> _handlers = {};
+  final Map<Type, List<void Function(Object?)>> _handlers = {};
 
   /// Registers [handler] to be called for every event published with
   /// [publish] whose runtime type is exactly `T`. Returns a subscription
   /// that can be [EventSubscription.cancel]ed.
   EventSubscription subscribe<T>(void Function(T event) handler) {
-    final handlers = _handlers.putIfAbsent(T, () => <Function>[]);
-    handlers.add(handler);
-    return EventSubscription._(() => handlers.remove(handler));
+    void wrapped(Object? event) => handler(event as T);
+    final handlers = _handlers.putIfAbsent(T, () => <void Function(Object?)>[]);
+    handlers.add(wrapped);
+    return EventSubscription._(() => handlers.remove(wrapped));
   }
 
   /// Dispatches [event] to every handler subscribed for its exact runtime
@@ -34,8 +35,8 @@ class EventBus {
   void publish<T>(T event) {
     final handlers = _handlers[event.runtimeType];
     if (handlers == null) return;
-    for (final handler in List<Function>.from(handlers)) {
-      (handler as void Function(T))(event);
+    for (final handler in List<void Function(Object?)>.from(handlers)) {
+      handler(event);
     }
   }
 }
