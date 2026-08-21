@@ -91,5 +91,37 @@ void main() {
       expect(receivedA, isEmpty);
       expect(receivedB, equals([1]));
     });
+
+    test('subscribeDynamic dispatches by a Type known only at runtime', () {
+      final bus = EventBus();
+      final received = <int>[];
+      bus.subscribeDynamic(_Ping, (event) => received.add((event as _Ping).n));
+
+      bus.publish(const _Ping(7));
+
+      expect(received, equals([7]));
+    });
+
+    test('subscribeDynamic subscription can be cancelled', () {
+      final bus = EventBus();
+      final received = <int>[];
+      final subscription =
+          bus.subscribeDynamic(_Ping, (event) => received.add((event as _Ping).n));
+
+      subscription.cancel();
+      bus.publish(const _Ping(1));
+
+      expect(received, isEmpty);
+    });
+
+    test('subscribeDynamic does not receive events of a different type', () {
+      final bus = EventBus();
+      final pings = <int>[];
+      bus.subscribeDynamic(_Ping, (event) => pings.add((event as _Ping).n));
+
+      bus.publish(const _Pong(1));
+
+      expect(pings, isEmpty);
+    });
   });
 }

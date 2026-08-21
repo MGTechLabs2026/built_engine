@@ -30,6 +30,20 @@ class EventBus {
     return EventSubscription._(() => handlers.remove(wrapped));
   }
 
+  /// Like [subscribe], but for callers that only know the event type at
+  /// runtime (e.g. a rule engine dispatching on a [Type] value read from
+  /// data rather than known at compile time). [handler] receives the
+  /// event as `Object`.
+  EventSubscription subscribeDynamic(
+    Type type,
+    void Function(Object event) handler,
+  ) {
+    final handlers = _handlers.putIfAbsent(type, () => <void Function(Object?)>[]);
+    void wrapped(Object? event) => handler(event!);
+    handlers.add(wrapped);
+    return EventSubscription._(() => handlers.remove(wrapped));
+  }
+
   /// Dispatches [event] to every handler subscribed for its exact runtime
   /// type. No-op if there are no such subscribers.
   void publish<T>(T event) {
