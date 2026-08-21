@@ -3,3 +3,5 @@
 /// The core provides generic verbs (entities, components, events, plugins);
 /// game-specific content belongs in plugins, not here.
 library;
+
+export 'src/entity/entity_id.dart';
