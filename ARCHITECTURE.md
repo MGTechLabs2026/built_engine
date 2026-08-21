@@ -46,6 +46,50 @@ types. In brief: `PluginManager` topologically sorts registered plugins by
 their declared `dependencies` and drives `register`/`initialize`/`start`
 (forward, dependency order) and `stop`/`unregister` (reverse order).
 
+### Supporting components (`lib/src/components/`)
+`TagSet`, `HealthComponent`, `ResourceComponent`, `StatComponent`,
+`StatusComponent` — plain immutable value objects stored via
+`ComponentStore`, no game-specific defaults. `StatComponent` is a
+stopgap: it's a raw value store until a future Modifier Engine adds
+proper `base + modifiers = derived` stat computation; `ModifyStat`
+mutates it directly for now.
+
+### RngService (`lib/src/rng/rng_service.dart`)
+The only place `dart:math`'s `Random` is allowed to appear in this
+package. Seeded and injectable — gameplay code asks `RngService` for
+randomness, never `dart:math` directly, so a run stays reproducible from
+its seed.
+
+### EventCounter (`lib/src/rule/event_counter.dart`)
+Tallies published-event counts per `Type`, but only for types explicitly
+`trackType`-registered — there is no retroactive counting. `RuleEngine`
+auto-tracks whatever type an `EventCount` condition names, at the moment
+the owning rule is registered.
+
+### Query Engine (`lib/src/query/`)
+`Query` is a composable predicate over a single entity (`and`/`or`/`not`
+combinators plus six concrete queries: `HasComponentQuery`, `HasTagQuery`,
+`ResourceAboveQuery`, `ResourceBelowQuery`, `HealthBelowQuery`,
+`StatusActiveQuery`). `QueryEngine.evaluate(candidates, query)` finds
+every matching entity in a candidate set (typically `EntityRegistry.all`)
+— independently useful without any Rule involved.
+
+### Query / Condition / Rule / Effect Engine (`lib/src/rule/`)
+`Condition` and `Effect` are public interfaces — plugins implement them
+directly, compose `Rule` objects (`trigger`, `subjectOf`, `conditions`,
+`effects`) in code, and hand them to `RuleEngine.register`. The six
+entity-scoped conditions (`HasTag`, `HasComponent`, `ResourceAbove`,
+`ResourceBelow`, `HealthBelow`, `StatusActive`) delegate to the matching
+`Query`; `EventCount` and `RandomChance` are not entity queries and
+implement `Condition` directly. `RuleEngine` subscribes each rule via
+`EventBus.subscribeDynamic` (dispatch on a `Type` known only at runtime),
+evaluates every condition (AND) in list order, and runs every effect (in
+list order) only if they all pass — no other source of nondeterminism
+beyond whatever `RngService` itself produces. See `PLUGIN_SYSTEM.md`'s
+sibling note on how plugins register their own conditions/effects — there
+is no registry: the interfaces are simply public, the same way
+`GamePlugin` already is.
+
 ## Integrating EntityRegistry and ComponentStore
 
 Because `ComponentStore` does not know about `EntityRegistry`, component
@@ -97,7 +141,10 @@ are built.
 
 ## What's deliberately not here yet
 
-Rule Engine, Effect Engine, Modifier Engine, Query Engine, Spatial/Container
-Engine, Resource Engine, Scheduler, RNG Service, Asset/Data Registry,
-Serialization. Each is a separate future subsystem, to be brainstormed and
+Modifier Engine (proper `base + modifiers` stat derivation — `ModifyStat`
+is a deliberate stopgap pending it), Spatial/Container Engine, a
+dedicated Resource Engine *service* (this pass added only the
+`ResourceComponent` data shape), Scheduler, Asset/Data Registry,
+Serialization, and any registry/factory/data-driven rule deserialization
+mechanism. Each is a separate future subsystem, to be brainstormed and
 planned on its own rather than stubbed out speculatively here.
