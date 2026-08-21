@@ -134,10 +134,9 @@ example `EntityRegistry` depends on `EventBus`, never the reverse. See
 
 `EntityId` allocation is sequential, not random, specifically so that a
 run's entity ids are reproducible given the same sequence of `create()`
-calls. No service in this pass uses `dart:math`'s `Random()` or any other
-non-deterministic source — there is no RNG service yet; one will be added,
-injectable rather than global, when gameplay systems that need randomness
-are built.
+calls. All randomness is centralized in `RngService` (see above) — gameplay
+code asks it for random values, never `dart:math`'s `Random()` directly, so
+a run stays reproducible from its seed plus initial state plus actions.
 
 ## What's deliberately not here yet
 
