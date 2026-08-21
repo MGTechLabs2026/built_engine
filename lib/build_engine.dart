@@ -5,3 +5,4 @@
 library;
 
 export 'src/entity/entity_id.dart';
+export 'src/event/event_bus.dart';
