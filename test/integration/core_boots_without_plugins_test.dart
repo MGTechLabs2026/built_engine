@@ -93,6 +93,11 @@ void main() {
 
       expect(base.createdEntity, isNotNull);
       expect(dependent.createdEntity, isNotNull);
+      expect(
+        base.createdEntity!.value,
+        lessThan(dependent.createdEntity!.value),
+        reason: 'base must initialize before dependent, per the declared dependency',
+      );
       expect(context.entities.isAlive(base.createdEntity!), isTrue);
       expect(context.entities.isAlive(dependent.createdEntity!), isTrue);
       expect(context.components.get<_MarkerComponent>(base.createdEntity!)!.label,

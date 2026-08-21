@@ -39,6 +39,13 @@ subscriber for a supertype will not receive a subtype's events) — every
 event type used so far is a concrete, non-hierarchical class, so this has
 not been a limitation. Revisit if a future plugin needs otherwise.
 
+### Plugin system (`lib/src/plugin/`)
+`GamePlugin`, `PluginContext`, and `PluginManager` — see `PLUGIN_SYSTEM.md`
+for the full lifecycle, dependency-resolution algorithm, and exception
+types. In brief: `PluginManager` topologically sorts registered plugins by
+their declared `dependencies` and drives `register`/`initialize`/`start`
+(forward, dependency order) and `stop`/`unregister` (reverse order).
+
 ## Integrating EntityRegistry and ComponentStore
 
 Because `ComponentStore` does not know about `EntityRegistry`, component

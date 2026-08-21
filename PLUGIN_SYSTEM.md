@@ -76,7 +76,10 @@ insertion-ordered, so the result is deterministic for a fixed sequence of
 - `MissingPluginDependencyException` if a plugin depends on an `id` that was
   never registered.
 - `CyclicPluginDependencyException` if dependencies form a cycle — the
-  exception lists every plugin id in the cycle, in order.
+  exception carries the dependency path that led to the cycle, in traversal
+  order, with the id that closed the cycle repeated at the end (the path
+  may include ids that are not themselves part of the cycle, e.g. a
+  non-cyclic prefix leading into it).
 
 `initialize`, `start`, `stop`, and `unregister` all call
 `resolveLoadOrder()` internally, so you never call it yourself in normal

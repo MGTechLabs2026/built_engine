@@ -12,6 +12,14 @@ class ComponentStore {
 
   /// Stores [component] as entity [id]'s component of type `T`, overwriting
   /// any component of that same type already stored for [id].
+  ///
+  /// `T` is whatever type is inferred or declared at the call site — if
+  /// [component] is held at a widened static type (e.g. a variable typed
+  /// `Object`), it will be keyed under that wider type instead of its
+  /// concrete type, and a later `get<ConcreteType>(id)` will return `null`
+  /// as if the component were absent, with no error or warning. Pass
+  /// [component] at its concrete type, or specify `T` explicitly
+  /// (`store.add<ConcreteType>(id, component)`).
   void add<T extends Object>(EntityId id, T component) {
     final byId = _components.putIfAbsent(T, () => <EntityId, Object>{});
     byId[id] = component;
@@ -35,6 +43,9 @@ class ComponentStore {
   }
 
   /// Every entity that currently has a component of type `T`.
+  ///
+  /// Returns an unmodifiable snapshot, not a live view — safe to iterate
+  /// while mutating the store (e.g. calling [remove]) in the same loop.
   Iterable<EntityId> entitiesWith<T extends Object>() =>
-      _components[T]?.keys ?? const <EntityId>[];
+      List<EntityId>.unmodifiable(_components[T]?.keys ?? const <EntityId>[]);
 }

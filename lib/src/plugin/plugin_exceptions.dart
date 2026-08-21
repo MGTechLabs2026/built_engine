@@ -26,8 +26,10 @@ class MissingPluginDependencyException extends PluginSystemException {
 }
 
 /// Thrown by [PluginManager.resolveLoadOrder] when plugin dependencies form
-/// a cycle. [cycle] lists the plugin ids in the cycle, in order, with the
-/// first id repeated at the end to show where it closes.
+/// a cycle. [cycle] is the dependency path that led to the cycle, in
+/// traversal order, with the id that closed the cycle repeated at the end
+/// — the path may include ids that are not themselves part of the cycle
+/// (e.g. a non-cyclic prefix leading into it).
 class CyclicPluginDependencyException extends PluginSystemException {
   CyclicPluginDependencyException(List<String> cycle)
       : super('Cyclic plugin dependency detected: ${cycle.join(' -> ')}');

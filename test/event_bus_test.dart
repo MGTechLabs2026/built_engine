@@ -66,5 +66,30 @@ void main() {
 
       expect(received, isEmpty);
     });
+
+    test('publishing through a statically-widened type still dispatches', () {
+      final bus = EventBus();
+      final received = <int>[];
+      bus.subscribe<_Ping>((event) => received.add(event.n));
+
+      final Object widened = const _Ping(1);
+      bus.publish(widened);
+
+      expect(received, equals([1]));
+    });
+
+    test('cancelling one of two subscribers to the same type leaves the other active', () {
+      final bus = EventBus();
+      final receivedA = <int>[];
+      final receivedB = <int>[];
+
+      final subscriptionA = bus.subscribe<_Ping>((event) => receivedA.add(event.n));
+      bus.subscribe<_Ping>((event) => receivedB.add(event.n));
+      subscriptionA.cancel();
+      bus.publish(const _Ping(1));
+
+      expect(receivedA, isEmpty);
+      expect(receivedB, equals([1]));
+    });
   });
 }

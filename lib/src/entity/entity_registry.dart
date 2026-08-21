@@ -52,5 +52,8 @@ class EntityRegistry {
   bool isAlive(EntityId id) => _alive.contains(id);
 
   /// Every currently-alive entity.
-  Iterable<EntityId> get all => _alive;
+  ///
+  /// Returns an unmodifiable snapshot, not a live view — safe to iterate
+  /// while calling [destroy] for entries in the same loop.
+  Iterable<EntityId> get all => List.unmodifiable(_alive);
 }
