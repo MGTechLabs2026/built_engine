@@ -28,13 +28,14 @@ class Damage implements Effect {
     if (subject == null) return;
     final health = context.components.get<HealthComponent>(subject);
     if (health == null) return;
+    final wasAlreadyDead = health.current <= 0;
     final newCurrent = (health.current - amount).clamp(0, health.max);
     context.components.add(
       subject,
       HealthComponent(current: newCurrent, max: health.max),
     );
     context.events.publish(EntityDamaged(subject, amount));
-    if (newCurrent == 0) {
+    if (newCurrent == 0 && !wasAlreadyDead) {
       context.events.publish(EntityKilled(subject));
     }
   }

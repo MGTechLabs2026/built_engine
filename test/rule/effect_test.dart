@@ -88,6 +88,19 @@ void main() {
       );
       expect(harness.components.has<HealthComponent>(subject), isFalse);
     });
+
+    test('does not re-publish EntityKilled on an already-dead subject', () {
+      final harness = _Harness();
+      final subject = harness.entities.create();
+      harness.components
+          .add(subject, const HealthComponent(current: 0, max: 100));
+      final killed = <EntityId>[];
+      harness.events.subscribe<EntityKilled>((e) => killed.add(e.id));
+
+      const Damage(10).apply(harness.contextFor(subject));
+
+      expect(killed, isEmpty);
+    });
   });
 
   group('Heal', () {
