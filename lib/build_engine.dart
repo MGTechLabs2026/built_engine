@@ -22,5 +22,7 @@ export 'src/query/query.dart';
 export 'src/query/query_engine.dart';
 export 'src/rng/rng_service.dart';
 export 'src/rule/condition.dart';
+export 'src/rule/effect.dart';
+export 'src/rule/effect_events.dart';
 export 'src/rule/event_counter.dart';
 export 'src/rule/rule_context.dart';
