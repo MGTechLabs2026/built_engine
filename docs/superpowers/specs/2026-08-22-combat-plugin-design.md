@@ -148,21 +148,27 @@ by whichever caller builds the action (AI, UI, a future plugin). This is a
 deliberate YAGNI call: nothing today needs "all opponents"/"self" resolver
 strategies, and adding one later is non-breaking.
 
-```dart
-class CombatAction {
-  const CombatAction({
-    required this.actor,
-    required this.targets,
-    this.conditions = const [],
-    this.costEffects = const [],
-    required this.effects,
-  });
+`CombatAction` is abstract, mirroring the existing `Condition`/`Effect`
+pattern ("plugins implement this directly — no registry required"):
 
-  final EntityId actor;
-  final List<EntityId> targets;
-  final List<Condition> conditions;   // gate whether costEffects/effects run
-  final List<Effect> costEffects;     // applied once, to actor
-  final List<Effect> effects;         // applied once per target
+```dart
+abstract class CombatAction {
+  EntityId get actor;
+  List<EntityId> get targets;
+
+  /// Checked against [actor] before anything else applies. Every
+  /// condition must pass (AND) for costEffects/target effects to run.
+  List<Condition> get conditions => const [];
+
+  /// Applied once to [actor] if [conditions] all pass.
+  List<Effect> get costEffects => const [];
+
+  /// Applied once per entry in [targets] if [conditions] all pass.
+  /// [context] is the owning PluginContext — passed here (rather than
+  /// resolved once at construction) so an action can read
+  /// execution-time state, e.g. Modifier Engine-derived values, exactly
+  /// when it actually runs.
+  List<Effect> effectsFor(EntityId target, PluginContext context);
 }
 ```
 
@@ -171,41 +177,61 @@ no bespoke accuracy mechanism needed; RNG usage falls straight out of the
 existing `Condition` system.
 
 `AttackAction` is the required generic demonstration — no Sword/Punch/
-Fireball:
+Fireball, and no core change beyond the `PluginContext` extension above:
 
 ```dart
-class AttackAction extends CombatAction {
+class AttackAction implements CombatAction {
   AttackAction({
-    required EntityId actor,
-    required List<EntityId> targets,
-    required num baseDamage,
-    required String damageStat,
-    List<Condition> conditions = const [],
-    List<Effect> costEffects = const [],
-  }) : super(
-         actor: actor,
-         targets: targets,
-         conditions: conditions,
-         costEffects: costEffects,
-         effects: [_ModifierResolvedDamage(actor, baseDamage, damageStat)],
-       );
+    required this.actor,
+    required this.targets,
+    required this.baseDamage,
+    required this.damageStat,
+    this.conditions = const [],
+    this.costEffects = const [],
+  });
+
+  @override
+  final EntityId actor;
+  @override
+  final List<EntityId> targets;
+  final num baseDamage;
+  final String damageStat;
+  @override
+  final List<Condition> conditions;
+  @override
+  final List<Effect> costEffects;
+
+  @override
+  List<Effect> effectsFor(EntityId target, PluginContext context) {
+    final resolved = const ModifierResolver().resolve(
+      baseDamage,
+      context.modifiers.activeModifiersFor(actor, damageStat, context.components),
+    );
+    return [Damage(resolved)];
+  }
 }
 ```
 
-`_ModifierResolvedDamage` (private `Effect`) computes the final damage as
-`ModifierResolver().resolve(baseDamage, context.modifiers.activeModifiersFor(actor, damageStat, context.components))`
-— feeding `baseDamage` directly into the resolver's `base` parameter, the
+Feeding `baseDamage` directly into `ModifierResolver.resolve`'s `base`
+parameter (rather than resolving a bonus separately and adding it) is the
 same `base + modifiers = derived` convention `claude.md`'s MODIFIER SYSTEM
-section and `ModifierResolver`'s own pipeline already define — then
-delegates the resolved number to the existing core `Damage` effect against
-`context.subject` (the target). Feeding `baseDamage` in as the pipeline's
-base (rather than resolving a bonus separately and adding it) is what
-makes `multiply`/`override`/`min`/`max` modifiers behave correctly against
-the real damage value. This is the concrete payoff of routing damage
+section and `ModifierResolver`'s own pipeline already define — it's also
+what makes `multiply`/`override`/`min`/`max` modifiers behave correctly
+against the real damage value. `AttackAction` reuses the existing core
+`Damage` effect unmodified. This is the concrete payoff of routing damage
 through the Modifier Engine: a future Magic or Cultivation plugin can
 register a `Modifier(target: actor, stat: damageStat, operation: multiply,
 value: 1.25)` and Combat's damage calculation picks it up automatically,
-with zero Combat-side knowledge that Magic exists.
+with zero Combat-side knowledge that Magic exists — and it needed no
+changes to `RuleContext` or `RuleEngine`, only the `PluginContext`
+extension already planned above.
+
+"Healing" (the other concept `claude.md` asks Combat to implement) needs no
+dedicated `HealAction` class — any `CombatAction` implementation whose
+`effectsFor` returns `[Heal(x)]` runs through the exact same
+`CombatSystem.executeAction` pipeline as `AttackAction`. The integration
+test proves this directly rather than adding a speculative production
+class nothing else asks for.
 
 ### `CombatSystem` (`combat_system.dart`)
 
@@ -230,8 +256,9 @@ same as any `PluginManager` caller already does.
      (`subject: actor`, `triggerEvent: action`, `rng`/`eventCounts` from
      `context.rng`/`context.rules.eventCounts`) — the same public
      `RuleContext` type `RuleEngine` itself uses, no new machinery.
-  4. If conditions pass: applies `costEffects` to `actor`, then applies
-     `effects` once per entry in `targets`, each via its own
+  4. If conditions pass: applies `action.costEffects` to `actor`, then for
+     each entry in `action.targets` calls `action.effectsFor(target,
+     context)` and applies the returned effects via their own
      `RuleContext(subject: target, ...)` — reusing `Damage`/`Heal`/
      `ModifyResource` etc. as-is.
   5. Publishes `ActionCompleted`.
@@ -279,13 +306,16 @@ class CombatPlugin extends GamePlugin {
 ## Testing plan
 
 - Unit tests: `CombatantComponent`, `CombatStateComponent` (including
-  `toJson`/`fromJson` round-trips), `CombatAction`/`AttackAction`
-  construction, `CombatSystem` turn-order (initiative sort + ties),
-  `executeAction` illegal-use throwing, condition-gated cost (insufficient
-  resource via `ResourceBelow` → no `ModifyResource`/`Damage` applied, turn
-  still advances), RNG-gated miss via `RandomChance` (same: effects skipped,
-  events still fire), modifier-resolved damage (a registered `Modifier`
-  changes the `EntityDamaged` amount from a plain `AttackAction` call).
+  `toJson`/`fromJson` round-trips), `AttackAction.effectsFor` (flat damage
+  with no modifiers registered, and modifier-resolved damage once a
+  `Modifier` is registered against the actor's chosen stat), `CombatSystem`
+  turn-order (initiative sort + ties), `executeAction` illegal-use throwing,
+  condition-gated cost (insufficient resource via `ResourceBelow` → no
+  `ModifyResource`/`Damage` applied, turn still advances), RNG-gated miss
+  via `RandomChance` (same: effects skipped, events still fire), and a
+  minimal test-only `CombatAction` implementation whose `effectsFor`
+  returns `[Heal(x)]` to prove the same execution pipeline handles healing
+  without a dedicated `HealAction` class.
 - Plugin lifecycle tests: registration/initialization, `dependencies` is
   empty, Combat boots and runs correctly with **no other plugin present**
   (mirrors `core_boots_without_plugins_test.dart`'s pattern, applied one
