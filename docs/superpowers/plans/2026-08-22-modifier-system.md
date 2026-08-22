@@ -323,8 +323,11 @@ void main() {
         _mod(operation: ModifierOperation.override, value: 1, priority: 10),
         _mod(operation: ModifierOperation.override, value: 2, priority: 1),
       ]);
-      // priority 1 applies first (value=1), then priority 10 applies (value=2)
-      expect(result, equals(2));
+      // Sorted ascending by priority: priority 1 (value=2) applies first,
+      // then priority 10 (value=1) applies last and wins — proving this is
+      // ordered by priority, not by input/list position (a list-position-only
+      // implementation would incorrectly produce 2 here).
+      expect(result, equals(1));
     });
 
     test('equal-priority modifiers break ties by input order, deterministically',
