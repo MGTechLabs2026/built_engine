@@ -17,11 +17,21 @@ class CombatPlugin extends GamePlugin {
 
   /// Constructed in [initialize]; the only way calling code reaches
   /// Combat's behavior — there's no service-locator in core, so whoever
-  /// holds this [CombatPlugin] instance holds `system` too.
-  late final CombatSystem system;
+  /// holds this [CombatPlugin] instance holds `system` too. Not `final` —
+  /// a [CombatPlugin] can be `initialize`d again after `unregister` (see
+  /// [unregister]), and `late final` would throw on the second assignment.
+  late CombatSystem system;
 
   @override
   void initialize(PluginContext context) {
     system = CombatSystem(context);
+  }
+
+  /// Mirrors [initialize]: tears down the `EntityKilled` subscription
+  /// `system` took out, so a stopped/unregistered `CombatPlugin` stops
+  /// reacting to events.
+  @override
+  void unregister(PluginContext context) {
+    system.dispose();
   }
 }

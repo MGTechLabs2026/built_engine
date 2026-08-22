@@ -75,5 +75,40 @@ void main() {
       expect(() => manager.stop(context), returnsNormally);
       expect(() => manager.unregister(context), returnsNormally);
     });
+
+    test(
+        'after stop + unregister, CombatSystem no longer reacts to '
+        'EntityKilled for a still-active battle', () {
+      final context = _newContext();
+      final manager = PluginManager();
+      final plugin = CombatPlugin();
+      manager.register(plugin);
+
+      manager.initialize(context);
+      manager.start(context);
+
+      final a = context.entities.create();
+      final b = context.entities.create();
+      context.components.add(a, const CombatantComponent(team: 'alpha'));
+      context.components.add(b, const CombatantComponent(team: 'beta'));
+      context.components.add(a, const HealthComponent(current: 100, max: 100));
+      context.components.add(b, const HealthComponent(current: 100, max: 100));
+      final battle = plugin.system.startBattle([a, b]);
+      expect(context.components.get<CombatStateComponent>(battle)!.active, isTrue);
+
+      manager.stop(context);
+      manager.unregister(context);
+
+      final won = <BattleWon>[];
+      final lost = <BattleLost>[];
+      context.events.subscribe<BattleWon>(won.add);
+      context.events.subscribe<BattleLost>(lost.add);
+
+      context.events.publish(EntityKilled(b));
+
+      expect(won, isEmpty);
+      expect(lost, isEmpty);
+      expect(context.components.get<CombatStateComponent>(battle)!.active, isTrue);
+    });
   });
 }

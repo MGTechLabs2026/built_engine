@@ -16,10 +16,20 @@ import 'illegal_action_exception.dart';
 /// — required for both initiative ordering and win/loss grouping.
 class CombatSystem {
   CombatSystem(this._context) {
-    _context.events.subscribe<EntityKilled>(_onEntityKilled);
+    _killedSubscription =
+        _context.events.subscribe<EntityKilled>(_onEntityKilled);
   }
 
   final PluginContext _context;
+
+  late final EventSubscription _killedSubscription;
+
+  /// Cancels the `EntityKilled` subscription taken out in the constructor
+  /// — call on plugin stop/unregister so a torn-down `CombatSystem` stops
+  /// reacting to events.
+  void dispose() {
+    _killedSubscription.cancel();
+  }
 
   /// While an `executeAction` call is applying an action's effects, the
   /// per-kill battle-end check below is suppressed — `executeAction` runs
