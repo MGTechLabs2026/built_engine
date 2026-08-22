@@ -162,6 +162,64 @@ class Container implements ContainerView {
     return relation.holds(posA, posB);
   }
 
+  /// A plain, stable-ID-based structure: every slot's id and position (if
+  /// any), and every current placement. Self-contained to this module —
+  /// it does not integrate with any engine-wide Serialization service.
+  Map<String, dynamic> toJson() {
+    return {
+      'slots': [
+        for (final slot in _slots.values)
+          {
+            'id': slot.id.id,
+            if (slot.position != null)
+              'position': {'row': slot.position!.row, 'col': slot.position!.col},
+          },
+      ],
+      'placements': [
+        for (final entry in _placements.entries)
+          {
+            'item': entry.key.value,
+            'anchor': entry.value.anchor.id,
+            'size': {'width': entry.value.size.width, 'height': entry.value.size.height},
+            'rotation': entry.value.rotation.name,
+          },
+      ],
+    };
+  }
+
+  /// Reconstructs an equivalent [Container] from [toJson]'s output. Does
+  /// not need to know whether the original was built via [Container.grid]
+  /// or [Container.namedSlots] — the serialized slot list already
+  /// captures the full layout directly.
+  factory Container.fromJson(Map<String, dynamic> json) {
+    final slots = [
+      for (final rawSlot in json['slots'] as List<dynamic>)
+        _slotFromJson(rawSlot as Map<String, dynamic>),
+    ];
+    final container = Container(slots);
+    for (final rawPlacement in json['placements'] as List<dynamic>) {
+      final placement = rawPlacement as Map<String, dynamic>;
+      final size = placement['size'] as Map<String, dynamic>;
+      container.place(
+        EntityId(placement['item'] as int),
+        SlotId(placement['anchor'] as String),
+        size: ItemSize(size['width'] as int, size['height'] as int),
+        rotation: Rotation.values.byName(placement['rotation'] as String),
+      );
+    }
+    return container;
+  }
+
+  static Slot _slotFromJson(Map<String, dynamic> json) {
+    final rawPosition = json['position'] as Map<String, dynamic>?;
+    return Slot(
+      SlotId(json['id'] as String),
+      position: rawPosition == null
+          ? null
+          : Position(rawPosition['row'] as int, rawPosition['col'] as int),
+    );
+  }
+
   /// The footprint [anchor]+[size]+[rotation] would occupy, or `null` if
   /// [anchor] doesn't exist, or is a position-less slot and the requested
   /// size/rotation isn't the trivial 1x1-at-0-degrees case. In the
