@@ -193,5 +193,38 @@ void main() {
 
       expect(active, equals([first, second]));
     });
+
+    test('activeModifiersFor returns a snapshot, safe to iterate while mutating '
+        'the collection', () {
+      final collection = ModifierCollection();
+      const target = EntityId(1);
+      collection.add(Modifier(
+        source: const ModifierSource('a'),
+        target: target,
+        stat: 'damage',
+        operation: ModifierOperation.add,
+        value: 5,
+      ));
+      collection.add(Modifier(
+        source: const ModifierSource('b'),
+        target: target,
+        stat: 'damage',
+        operation: ModifierOperation.add,
+        value: 3,
+      ));
+
+      final snapshot =
+          collection.activeModifiersFor(target, 'damage', ComponentStore());
+
+      expect(
+        () {
+          for (final modifier in snapshot) {
+            collection.removeBySource(modifier.source);
+          }
+        },
+        returnsNormally,
+      );
+      expect(snapshot.length, equals(2));
+    });
   });
 }

@@ -119,6 +119,12 @@ void main() {
       ];
       final resultA = resolver.resolve(10, modifiers);
       final resultB = resolver.resolve(10, modifiers);
+      // The fixed macro order (ADD always before MULTIPLY, regardless of
+      // priority) gives (10 + 5) * 1.5 = 22.5 — a priority-driven reordering
+      // (MULTIPLY before ADD, since its priority is lower) would instead give
+      // 10 * 1.5 + 5 = 20. Pinning the value, not just equality, is what
+      // actually catches a regression of the fixed-order guarantee.
+      expect(resultA, equals(22.5));
       expect(resultA, equals(resultB));
     });
   });

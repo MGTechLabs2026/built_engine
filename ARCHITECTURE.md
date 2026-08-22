@@ -53,7 +53,7 @@ their declared `dependencies` and drives `register`/`initialize`/`start`
 `TagSet`, `HealthComponent`, `ResourceComponent`, `StatComponent`,
 `StatusComponent` — plain immutable value objects stored via
 `ComponentStore`, no game-specific defaults. `StatComponent` is a
-stopgap: it's a raw value store until a future Modifier Engine adds
+stopgap: it's a raw value store until the Modifier Engine adds
 proper `base + modifiers = derived` stat computation; `ModifyStat`
 mutates it directly for now.
 

@@ -31,6 +31,10 @@ class ModifierCollection {
   /// target+stat, not yet expired, and whose `condition` (if any) currently
   /// matches via [components]. Returned in registration order — the order
   /// `ModifierResolver` relies on for deterministic tie-breaking.
+  ///
+  /// Returns an unmodifiable snapshot, not a live view — safe to iterate
+  /// while calling [removeBySource]/[tick] on this same collection in the
+  /// same loop.
   Iterable<Modifier> activeModifiersFor(
     EntityId target,
     String stat,
@@ -53,7 +57,8 @@ class ModifierCollection {
           }
           return true;
         })
-        .map((entry) => entry.modifier);
+        .map((entry) => entry.modifier)
+        .toList(growable: false);
   }
 
   /// Decrements every timed modifier's remaining duration by 1, removing

@@ -10,6 +10,11 @@ enum ModifierOperation { add, multiply, override, min, max }
 /// A single stat adjustment. Fields match claude.md's MODIFIER SYSTEM
 /// section: source, target, stat, operation, value, priority, duration,
 /// condition.
+///
+/// Deliberately has no custom `==`/`hashCode`: identity equality is
+/// sufficient since instances aren't looked up by value, only by `source`
+/// (via `ModifierCollection.removeBySource`) or by `target`/`stat` (via
+/// `activeModifiersFor`).
 class Modifier {
   const Modifier({
     required this.source,
@@ -25,8 +30,8 @@ class Modifier {
   final ModifierSource source;
   final EntityId target;
 
-  /// An arbitrary, engine-agnostic string key — e.g. "damage", "armor",
-  /// "qi". The engine never interprets this value.
+  /// An arbitrary, engine-agnostic string key — e.g. "damage", "armor".
+  /// The engine never interprets this value.
   final String stat;
 
   final ModifierOperation operation;
