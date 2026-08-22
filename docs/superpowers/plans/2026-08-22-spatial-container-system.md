@@ -1540,18 +1540,21 @@ void main() {
     final grid = Container.grid(4, 4);
 
     grid.place(sword, const SlotId('0,0'), size: const ItemSize(2, 1));
-    grid.place(shield, const SlotId('0,2'));
+    grid.place(shield, const SlotId('1,0'));
 
     expect(grid.itemAt(const SlotId('0,0')), equals(sword));
     expect(grid.itemAt(const SlotId('0,1')), equals(sword));
     expect(grid.contains(shield), isTrue);
 
-    // Collision: shield's cell can't take a third item.
-    expect(grid.canPlace(helmet, const SlotId('0,2')), isFalse);
+    // Collision: sword's second footprint cell can't take a third item.
+    expect(grid.canPlace(helmet, const SlotId('0,1')), isFalse);
 
-    // Adjacency: sword's rightmost cell (0,1) is adjacent to shield (0,2).
+    // Adjacency: relatesTo compares anchor positions, not full footprints
+    // — sword's anchor (0,0) and shield's anchor (1,0) are one row apart,
+    // same column, so they ARE adjacent (unlike sword's non-anchor
+    // footprint cell (0,1), which relatesTo never looks at).
     expect(grid.relatesTo(const Adjacent(), sword, shield), isTrue);
-    expect(distance(grid.positionOf(sword)!, grid.positionOf(shield)!), equals(2));
+    expect(distance(grid.positionOf(sword)!, grid.positionOf(shield)!), equals(1));
 
     // Movement.
     grid.move(sword, const SlotId('2,0'), size: const ItemSize(2, 1));
@@ -1561,7 +1564,7 @@ void main() {
     // Removal.
     grid.remove(shield);
     expect(grid.contains(shield), isFalse);
-    expect(grid.itemAt(const SlotId('0,2')), isNull);
+    expect(grid.itemAt(const SlotId('1,0')), isNull);
 
     // Serialization round-trip.
     final restoredGrid = Container.fromJson(grid.toJson());
