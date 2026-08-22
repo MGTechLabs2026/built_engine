@@ -13,6 +13,8 @@ export 'src/components/tag_set.dart';
 export 'src/entity/entity_id.dart';
 export 'src/entity/entity_registry.dart';
 export 'src/event/event_bus.dart';
+export 'src/modifier/modifier.dart';
+export 'src/modifier/modifier_source.dart';
 export 'src/plugin/game_plugin.dart';
 export 'src/plugin/plugin_context.dart';
 export 'src/plugin/plugin_exceptions.dart';
