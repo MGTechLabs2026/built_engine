@@ -1,0 +1,312 @@
+# Combat Plugin — Design
+
+## Purpose
+
+Implement Combat as an ordinary plugin on top of the existing Build Engine
+core (Entity Registry, Component Store, Event Bus, Query Engine, Rule
+Engine, Modifier Engine, Resource data, RNG Service). Core remains
+completely unaware of "combat", "turn", "battle", "action", or "attack" —
+those concepts are defined entirely inside the Combat plugin, per
+`claude.md`'s CORE PROVIDES VERBS / PLUGINS PROVIDE NOUNS contract.
+
+Combat must not implement martial arts, magic, cultivation, or weapons.
+Those are separate future plugins that will *depend on* Combat (per
+claude.md's DEPENDENCY RULE: `Magic -> Combat -> Core`, never the reverse).
+
+## Context: what already exists
+
+The engine (package `build_engine`, Dart) already has, independent of any
+plugin: `EntityRegistry`/`EntityId`, `ComponentStore`, `EventBus`,
+`RngService`, `Query`/`QueryEngine` (with `HasComponentQuery`, `HasTagQuery`,
+`ResourceAboveQuery`, `ResourceBelowQuery`, `HealthBelowQuery`,
+`StatusActiveQuery`), `Condition`/`Effect`/`Rule`/`RuleEngine`/`RuleContext`
+(with `Damage`, `Heal`, `ModifyStat`, `ModifyResource`, `ApplyStatus`,
+`RemoveStatus`, `AddTag`, `RemoveTag`, `CreateEntity`, `DestroyEntity`,
+`TransformEntity` effects, and `HasTag`, `HasComponent`, `ResourceAbove`,
+`ResourceBelow`, `HealthBelow`, `StatusActive`, `EventCount`,
+`RandomChance` conditions), `Modifier`/`ModifierCollection`/
+`ModifierResolver`, and a generic `Container`/spatial system. `GamePlugin`/
+`PluginContext`/`PluginManager` implement the plugin lifecycle, but no real
+plugin has been built yet — Combat is the first.
+
+`PluginContext` currently exposes only `entities`, `components`, `events`
+— RngService, RuleEngine, QueryEngine, and ModifierCollection exist in core
+but aren't reachable from a plugin's lifecycle methods yet. `ARCHITECTURE.md`
+explicitly anticipates this: "When those services are built, `PluginContext`
+grows to expose them."
+
+## Core change: extend `PluginContext`
+
+Add four fields to `PluginContext` (`lib/src/plugin/plugin_context.dart`):
+
+```dart
+class PluginContext {
+  const PluginContext({
+    required this.entities,
+    required this.components,
+    required this.events,
+    required this.rng,
+    required this.rules,
+    required this.queries,
+    required this.modifiers,
+  });
+
+  final EntityRegistry entities;
+  final ComponentStore components;
+  final EventBus events;
+  final RngService rng;
+  final RuleEngine rules;
+  final QueryEngine queries;
+  final ModifierCollection modifiers;
+}
+```
+
+`ModifierResolver` is deliberately **not** added — it's a stateless pure
+function (`const ModifierResolver()`), instantiated locally wherever it's
+needed rather than shared as a service.
+
+This is additive but source-breaking for existing direct `PluginContext(...)`
+constructor calls (test setup code) — those call sites are updated as part
+of this work, not left broken. No plugin lifecycle signatures change.
+
+## New plugin: `lib/src/plugins/combat/`
+
+Combat lives in the same package (no workspace/multi-package tooling exists
+yet, and nothing in `claude.md` requires separate packages — the plugin
+boundary is enforced by the `GamePlugin`/`PluginContext` contract and the
+"plugins use only public contracts" convention, not by package boundaries).
+Combat imports core exclusively via the public `package:build_engine/build_engine.dart`
+barrel, never `src/`, keeping the same isolation discipline
+`PLUGIN_SYSTEM.md` already asks of plugin-to-plugin access.
+
+```
+lib/src/plugins/combat/
+  combatant_component.dart
+  combat_state_component.dart
+  combat_events.dart
+  combat_action.dart
+  combat_system.dart
+  combat_plugin.dart
+  illegal_action_exception.dart
+lib/combat_plugin.dart   # public export barrel for this plugin
+```
+
+### `CombatantComponent`
+
+```dart
+class CombatantComponent {
+  const CombatantComponent({required this.team, this.initiative = 0});
+  final String team;     // arbitrary label; Combat never interprets its value
+  final num initiative;  // turn order: higher acts first
+}
+```
+
+### `CombatStateComponent`
+
+Attached to a **battle entity** — a battle is itself an `EntityId`, so
+multiple concurrent battles are supported with zero extra machinery.
+
+```dart
+class CombatStateComponent {
+  const CombatStateComponent({
+    required this.participants,      // List<EntityId>, fixed initiative order
+    required this.currentTurnIndex,
+    required this.round,
+    required this.active,
+  });
+}
+```
+
+Both components get `toJson`/`fromJson` (entity ids serialized as their
+stable `int` `.value`), mirroring `Container.toJson`/`fromJson`'s precedent
+of module-local, stable-ID-based serialization — not an integration point
+for the engine-wide Serialization service (still deferred, per
+`ARCHITECTURE.md`).
+
+### Events (`combat_events.dart`)
+
+Plain, generic event classes — no content vocabulary:
+
+- `ActionStarted(EntityId battle, EntityId actor, List<EntityId> targets, CombatAction action)`
+- `ActionCompleted(EntityId battle, EntityId actor, List<EntityId> targets, CombatAction action)`
+- `TurnStarted(EntityId battle, EntityId actor, int round)`
+- `TurnEnded(EntityId battle, EntityId actor, int round)`
+- `BattleStarted(EntityId battle, List<EntityId> participants)`
+- `BattleWon(EntityId battle, String team)`
+- `BattleLost(EntityId battle, String team)`
+
+`ActionStarted`/`ActionCompleted` fire whether or not the action's
+conditions passed, so observers can distinguish "attempted but failed
+conditions" (both events, no `EntityDamaged`/etc. in between) from "never
+attempted" (an `IllegalActionException` was thrown instead, nothing
+published).
+
+### Action / Target model (`combat_action.dart`)
+
+No dedicated `Target` class — a target set is just `List<EntityId>`, chosen
+by whichever caller builds the action (AI, UI, a future plugin). This is a
+deliberate YAGNI call: nothing today needs "all opponents"/"self" resolver
+strategies, and adding one later is non-breaking.
+
+```dart
+class CombatAction {
+  const CombatAction({
+    required this.actor,
+    required this.targets,
+    this.conditions = const [],
+    this.costEffects = const [],
+    required this.effects,
+  });
+
+  final EntityId actor;
+  final List<EntityId> targets;
+  final List<Condition> conditions;   // gate whether costEffects/effects run
+  final List<Effect> costEffects;     // applied once, to actor
+  final List<Effect> effects;         // applied once per target
+}
+```
+
+A caller models "chance to miss" by adding a `RandomChance(p)` condition —
+no bespoke accuracy mechanism needed; RNG usage falls straight out of the
+existing `Condition` system.
+
+`AttackAction` is the required generic demonstration — no Sword/Punch/
+Fireball:
+
+```dart
+class AttackAction extends CombatAction {
+  AttackAction({
+    required EntityId actor,
+    required List<EntityId> targets,
+    required num baseDamage,
+    required String damageStat,
+    List<Condition> conditions = const [],
+    List<Effect> costEffects = const [],
+  }) : super(
+         actor: actor,
+         targets: targets,
+         conditions: conditions,
+         costEffects: costEffects,
+         effects: [_ModifierResolvedDamage(actor, baseDamage, damageStat)],
+       );
+}
+```
+
+`_ModifierResolvedDamage` (private `Effect`) computes the final damage as
+`ModifierResolver().resolve(baseDamage, context.modifiers.activeModifiersFor(actor, damageStat, context.components))`
+— feeding `baseDamage` directly into the resolver's `base` parameter, the
+same `base + modifiers = derived` convention `claude.md`'s MODIFIER SYSTEM
+section and `ModifierResolver`'s own pipeline already define — then
+delegates the resolved number to the existing core `Damage` effect against
+`context.subject` (the target). Feeding `baseDamage` in as the pipeline's
+base (rather than resolving a bonus separately and adding it) is what
+makes `multiply`/`override`/`min`/`max` modifiers behave correctly against
+the real damage value. This is the concrete payoff of routing damage
+through the Modifier Engine: a future Magic or Cultivation plugin can
+register a `Modifier(target: actor, stat: damageStat, operation: multiply,
+value: 1.25)` and Combat's damage calculation picks it up automatically,
+with zero Combat-side knowledge that Magic exists.
+
+### `CombatSystem` (`combat_system.dart`)
+
+Constructed once by `CombatPlugin.initialize()` and exposed as a public
+getter on the plugin instance (`combatPlugin.system`) — there's no
+service-locator in core, so callers hold the `CombatPlugin` object directly,
+same as any `PluginManager` caller already does.
+
+- **`startBattle(List<EntityId> participants) → EntityId`** — creates the
+  battle entity, stable-sorts `participants` by descending
+  `CombatantComponent.initiative` (ties broken by input order — same
+  convention `ModifierResolver` already uses), stores `CombatStateComponent`,
+  publishes `BattleStarted`, then `TurnStarted` for the first participant.
+
+- **`executeAction(EntityId battle, CombatAction action)`**:
+  1. Throws `IllegalActionException` if the battle is inactive or it isn't
+     `action.actor`'s turn (programmer-error case — mirrors `Spatial`'s
+     `InvalidPlacementException` convention: illegal *use* throws, a
+     legal-but-unsuccessful *outcome* does not).
+  2. Publishes `ActionStarted`.
+  3. Evaluates `action.conditions` against `actor` via a `RuleContext`
+     (`subject: actor`, `triggerEvent: action`, `rng`/`eventCounts` from
+     `context.rng`/`context.rules.eventCounts`) — the same public
+     `RuleContext` type `RuleEngine` itself uses, no new machinery.
+  4. If conditions pass: applies `costEffects` to `actor`, then applies
+     `effects` once per entry in `targets`, each via its own
+     `RuleContext(subject: target, ...)` — reusing `Damage`/`Heal`/
+     `ModifyResource` etc. as-is.
+  5. Publishes `ActionCompleted`.
+  6. Advances the turn: publishes `TurnEnded` for the current actor, skips
+     any participant that's no longer living, publishes `TurnStarted` for
+     the next one. If no living participants remain (shouldn't normally
+     happen — defeat handling below ends the battle first), the battle is
+     left inactive with no further `TurnStarted`.
+
+- **Defeat / battle end**: `CombatSystem` subscribes to core's
+  `EntityKilled` at construction. On each kill, for every active battle
+  containing that entity as a participant: recompute living participants
+  via `QueryEngine.evaluate(participants, HealthBelowQuery(1).not())`
+  (reusing the existing Query system rather than inventing an "IsAlive"
+  query type), group them by `CombatantComponent.team`. If the number of
+  distinct teams remaining is ≤ 1: mark the battle inactive, publish
+  `BattleWon(battle, team)` for the sole surviving team (if any), and
+  `BattleLost(battle, team)` for every team that had a living participant
+  at battle start but has none now. Mutual annihilation (zero teams
+  remaining) publishes `BattleLost` for every starting team and no
+  `BattleWon`.
+
+## Plugin (`combat_plugin.dart`)
+
+```dart
+class CombatPlugin extends GamePlugin {
+  @override
+  String get id => 'combat';
+
+  @override
+  String get version => '0.1.0';
+
+  // No dependencies — Combat sits directly on Core, matching
+  // claude.md's `Combat -> Core` (never `Combat -> Magic`).
+
+  late final CombatSystem system;
+
+  @override
+  void initialize(PluginContext context) {
+    system = CombatSystem(context);
+  }
+}
+```
+
+## Testing plan
+
+- Unit tests: `CombatantComponent`, `CombatStateComponent` (including
+  `toJson`/`fromJson` round-trips), `CombatAction`/`AttackAction`
+  construction, `CombatSystem` turn-order (initiative sort + ties),
+  `executeAction` illegal-use throwing, condition-gated cost (insufficient
+  resource via `ResourceBelow` → no `ModifyResource`/`Damage` applied, turn
+  still advances), RNG-gated miss via `RandomChance` (same: effects skipped,
+  events still fire), modifier-resolved damage (a registered `Modifier`
+  changes the `EntityDamaged` amount from a plain `AttackAction` call).
+- Plugin lifecycle tests: registration/initialization, `dependencies` is
+  empty, Combat boots and runs correctly with **no other plugin present**
+  (mirrors `core_boots_without_plugins_test.dart`'s pattern, applied one
+  level up).
+- Integration test: two generic combatants only (`CombatantComponent(team:
+  "alpha"/"beta")`, `HealthComponent`, `TagSet` optionally) — start a
+  battle, run `AttackAction`s back and forth, assert
+  `ActionStarted`/`ActionCompleted`/`EntityDamaged`/`TurnEnded`/
+  `TurnStarted` fire in order, reduce one side to 0 health, assert
+  `EntityKilled` → `BattleWon`/`BattleLost` and the battle goes inactive.
+  No Sword/Punch/Fireball or any domain vocabulary appears anywhere in this
+  test.
+
+## Explicitly out of scope
+
+- Serialization into the engine-wide save format (still deferred generally;
+  Combat's own `toJson`/`fromJson` on its two components is local-only,
+  same as `Container`'s).
+- Multi-action turns, fleeing, AI decision-making, targeting-resolver
+  strategies (`AllOpponents`, `Self`, etc.) — nothing today needs them, and
+  `List<EntityId>` targets keeps the door open for a non-breaking future
+  addition.
+- Any martial-arts/magic/cultivation/weapon content — those are separate
+  future plugins that depend on Combat.
