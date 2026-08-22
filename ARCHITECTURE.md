@@ -133,6 +133,50 @@ the Modifier Engine now exists, but rewiring the already-shipped
 `ModifyStat` effect to route through it is a deliberate, separate design
 decision for a future pass, not a mechanical follow-on to this one.
 
+### Spatial/Container Engine (`lib/src/spatial/`)
+`Container` is a single class with two factory constructors, not a
+`GridContainer`/`SlotContainer` subclass split: `Container.grid(width,
+height)` generates one `Slot` per cell with a derived `SlotId` and a
+non-null `Position`; `Container.namedSlots(ids)` generates one `Slot` per
+given id with `position: null`. Both are the same underlying structure —
+a future Backpack, Tome, Weapon Rack, or Equipment Board plugin is just a
+different factory call plus its own content, with zero
+container-shape-specific code anywhere in this module.
+
+The 9 requested spatial queries split by their actual mathematical shape
+rather than one artificial interface: `Above`/`Below`/`Left`/`Right`/
+`Adjacent`/`SameRow`/`SameColumn` are boolean `SpatialRelation`s between
+two `Position`s (row 0 is the top; `Adjacent` is orthogonal only, no
+diagonals); `distance` is a plain top-level Manhattan-distance function,
+not a `SpatialRelation`; `ContainedBy` is entity-container membership —
+`Container.contains(EntityId)` — not a relation between two positions.
+`Container.relatesTo(relation, a, b)` looks up each item's position and
+returns `false` (not a crash) if either item lacks one, so asking about
+adjacency on a named-slot container is well-defined.
+
+`ItemSize` + `Rotation` model only an axis-aligned bounding box — a
+rotation swaps width/height at 90°/270°, no per-cell/Tetris-style
+footprints. Placement validation runs through `PlacementRule`
+(`WithinBounds`, `NoCollision`, matching the `Condition`/`Effect`
+no-registry pattern), always AND'd with any caller-supplied extra rules —
+the plugin extension point for content-specific placement constraints.
+`PlacementRule.isSatisfied` takes a minimal `ContainerView` interface
+(`hasSlot`/`itemAt`), not the concrete `Container` — this is what lets
+`placement_rule.dart` have zero dependency on `container.dart`, avoiding
+a circular dependency (`Container implements ContainerView`) rather than
+needing any forward-reference workaround. `place`/`move` throw
+`InvalidPlacementException` carrying the failing rule(s); `canPlace`
+never throws. `move` validates the new placement before clearing the
+item's old footprint, so moving an item to overlap its own current
+position succeeds correctly, and a rejected move leaves the item
+unchanged (atomic — no partial mutation).
+
+`Container.toJson()`/`Container.fromJson()` are a self-contained
+capability of this module only — a plain, stable-ID-based structure
+(slots + placements) — not an integration point for the engine-wide
+Serialization service `claude.md` describes (engine version, RNG state,
+etc.), which remains a separate future pass.
+
 ## Integrating EntityRegistry and ComponentStore
 
 Because `ComponentStore` does not know about `EntityRegistry`, component
@@ -183,9 +227,8 @@ a run stays reproducible from its seed plus initial state plus actions.
 
 ## What's deliberately not here yet
 
-Spatial/Container Engine, a dedicated Resource Engine *service* (this pass
-added only the `ResourceComponent` data shape), Scheduler, Asset/Data
-Registry, Serialization, and any registry/factory/data-driven rule
-deserialization mechanism. Each is a separate future subsystem, to be
-brainstormed and planned on its own rather than stubbed out speculatively
-here.
+A dedicated Resource Engine *service* (this pass added only the
+`ResourceComponent` data shape), Scheduler, Asset/Data Registry,
+Serialization, and any registry/factory/data-driven rule deserialization
+mechanism. Each is a separate future subsystem, to be brainstormed and
+planned on its own rather than stubbed out speculatively here.
