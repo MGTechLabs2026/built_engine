@@ -93,6 +93,46 @@ plugins register their own conditions/effects simply by implementing the
 public `Condition`/`Effect` interfaces, the same way `GamePlugin` already
 is public.
 
+### Modifier Engine (`lib/src/modifier/`)
+`Modifier` (`source`, `target`, `stat`, `operation`, `value`, `priority`,
+`duration`, `condition` — matching claude.md's MODIFIER SYSTEM field list
+exactly) is a plain immutable value; `ModifierSource` is a small string-id
+wrapper used for bulk removal, not tied to `EntityId`. `ModifierCollection`
+is the single repository of every registered modifier across every entity
+and stat (not per-entity) — `add`, `removeBySource`, and
+`activeModifiersFor(target, stat, components)` (filtering by target+stat,
+expiry, and `condition`, in registration order). `condition` reuses the
+existing `Query` system rather than a new predicate type, since a
+conditional modifier is a continuous "is this entity in state X" check, not
+an event-triggered `Rule` condition. `tick()` is the only mechanism for
+temporary modifiers — decrements durations, drops expired ones; no
+Scheduler exists yet, so callers invoke it directly.
+
+`ModifierResolver` is a pure function (`resolve(base, modifiers)`) with no
+storage dependency, implementing a fixed, documented pipeline:
+
+```
+base -> ADD (sum) -> MULTIPLY (product) -> OVERRIDE (highest priority wins)
+     -> MIN (ceiling) -> MAX (floor) -> final value
+```
+
+`priority` only orders modifiers within their own operation group — it
+never changes this macro order. MIN/MAX stacking is order-independent
+(`math.min`/`math.max` are associative); only the MIN-before-MAX group
+ordering is a fixed, documented convention (relevant only for
+contradictory content where a ceiling is below a floor). Ties within a
+group (equal priority) break by each modifier's position in the input
+iterable — `ModifierResolver` runs its own explicit stable sort rather
+than relying on `List.sort`'s unspecified stability, and
+`ModifierCollection` naturally hands back modifiers in registration
+order, so the whole pipeline is deterministic without any extra
+sequence-number field on `Modifier` itself.
+
+`StatComponent`'s "stopgap" status (see above) is unchanged by this pass:
+the Modifier Engine now exists, but rewiring the already-shipped
+`ModifyStat` effect to route through it is a deliberate, separate design
+decision for a future pass, not a mechanical follow-on to this one.
+
 ## Integrating EntityRegistry and ComponentStore
 
 Because `ComponentStore` does not know about `EntityRegistry`, component
@@ -143,10 +183,9 @@ a run stays reproducible from its seed plus initial state plus actions.
 
 ## What's deliberately not here yet
 
-Modifier Engine (proper `base + modifiers` stat derivation — `ModifyStat`
-is a deliberate stopgap pending it), Spatial/Container Engine, a
-dedicated Resource Engine *service* (this pass added only the
-`ResourceComponent` data shape), Scheduler, Asset/Data Registry,
-Serialization, and any registry/factory/data-driven rule deserialization
-mechanism. Each is a separate future subsystem, to be brainstormed and
-planned on its own rather than stubbed out speculatively here.
+Spatial/Container Engine, a dedicated Resource Engine *service* (this pass
+added only the `ResourceComponent` data shape), Scheduler, Asset/Data
+Registry, Serialization, and any registry/factory/data-driven rule
+deserialization mechanism. Each is a separate future subsystem, to be
+brainstormed and planned on its own rather than stubbed out speculatively
+here.
