@@ -154,7 +154,9 @@ class Container implements ContainerView {
 
   /// Whether [relation] holds between [a]'s and [b]'s positions. `false`
   /// if either item isn't in this container, or has no position (e.g. a
-  /// named slot).
+  /// named slot). Compares each item's anchor position only — not its
+  /// full multi-cell footprint. A multi-cell item's non-anchor cells are
+  /// never considered.
   bool relatesTo(SpatialRelation relation, EntityId a, EntityId b) {
     final posA = positionOf(a);
     final posB = positionOf(b);
@@ -222,9 +224,11 @@ class Container implements ContainerView {
 
   /// The footprint [anchor]+[size]+[rotation] would occupy, or `null` if
   /// [anchor] doesn't exist, or is a position-less slot and the requested
-  /// size/rotation isn't the trivial 1x1-at-0-degrees case. In the
-  /// position-less branch below, `null` is returned directly — it is
-  /// never computed by offsetting from a position (there is none) and
+  /// size/rotation isn't the trivial 1x1-at-0-degrees case, or [size] has
+  /// a non-positive width/height (a degenerate size would otherwise yield
+  /// an empty footprint that vacuously satisfies every [PlacementRule]).
+  /// In the position-less branch below, `null` is returned directly — it
+  /// is never computed by offsetting from a position (there is none) and
   /// then having [WithinBounds] reject the result. [_failedRules] reports
   /// a `null` footprint as `['WithinBounds']` purely as a label choice,
   /// to match what a real [WithinBounds] rejection would report; that
@@ -239,6 +243,7 @@ class Container implements ContainerView {
       }
       return null;
     }
+    if (size.width < 1 || size.height < 1) return null;
     final effective = size.rotated(rotation);
     final footprint = <SlotId>{};
     for (var dRow = 0; dRow < effective.height; dRow++) {

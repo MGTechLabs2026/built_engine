@@ -288,5 +288,31 @@ void main() {
         isFalse,
       );
     });
+
+    test('rejects a zero-width ItemSize instead of producing an empty '
+        'footprint', () {
+      final container = Container.grid(2, 2);
+      expect(
+        container.canPlace(
+          const EntityId(1),
+          const SlotId('0,0'),
+          size: const ItemSize(0, 1),
+        ),
+        isFalse,
+      );
+    });
+
+    test('rejects a negative-width ItemSize instead of producing an empty '
+        'footprint', () {
+      final container = Container.grid(2, 2);
+      expect(
+        container.canPlace(
+          const EntityId(1),
+          const SlotId('0,0'),
+          size: const ItemSize(-1, 1),
+        ),
+        isFalse,
+      );
+    });
   });
 }

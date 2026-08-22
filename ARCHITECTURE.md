@@ -143,16 +143,23 @@ a future Backpack, Tome, Weapon Rack, or Equipment Board plugin is just a
 different factory call plus its own content, with zero
 container-shape-specific code anywhere in this module.
 
-The 9 requested spatial queries split by their actual mathematical shape
-rather than one artificial interface: `Above`/`Below`/`Left`/`Right`/
-`Adjacent`/`SameRow`/`SameColumn` are boolean `SpatialRelation`s between
-two `Position`s (row 0 is the top; `Adjacent` is orthogonal only, no
+9 of the 11 queryable relationships CLAUDE.md's SPATIAL/CONTAINER SYSTEM
+section lists split by their actual mathematical shape rather than one
+artificial interface: `Above`/`Below`/`Left`/`Right`/`Adjacent`/
+`SameRow`/`SameColumn` are boolean `SpatialRelation`s between two
+`Position`s (row 0 is the top; `Adjacent` is orthogonal only, no
 diagonals); `distance` is a plain top-level Manhattan-distance function,
 not a `SpatialRelation`; `ContainedBy` is entity-container membership —
 `Container.contains(EntityId)` — not a relation between two positions.
-`Container.relatesTo(relation, a, b)` looks up each item's position and
-returns `false` (not a crash) if either item lacks one, so asking about
-adjacency on a named-slot container is well-defined.
+Of the remaining two, `EquippedTo` is expressible as membership in a
+named slot (`Container.namedSlots(['weapon', ...])` + `Container.
+contains`) rather than a distinct query, and `ConnectedTo` (socket/
+connection graphs) is a deliberately deferred future pass, not
+implemented by this module.
+`Container.relatesTo(relation, a, b)` looks up each item's anchor
+position — never its full multi-cell footprint — and returns `false`
+(not a crash) if either item lacks a position, so asking about adjacency
+on a named-slot container is well-defined.
 
 `ItemSize` + `Rotation` model only an axis-aligned bounding box — a
 rotation swaps width/height at 90°/270°, no per-cell/Tetris-style
