@@ -42,6 +42,15 @@ class CombatSystem {
   /// isn't part of any such batch, so it's always checked immediately.
   bool _executingAction = false;
 
+  /// Entities killed while [_executingAction] was `true`. Combat supports
+  /// multiple concurrent battles (a battle is just an [EntityId]), so an
+  /// action executed in one battle can, as a side effect, kill a
+  /// participant of a different, unrelated battle. `executeAction` only
+  /// runs its authoritative end-of-batch check against the battle it was
+  /// called with, so every other battle those kills might have ended is
+  /// re-checked here once the suppression lifts. Cleared after each batch.
+  final Set<EntityId> _pendingChecks = {};
+
   /// Creates a battle entity, orders [participants] by descending
   /// `CombatantComponent.initiative` (ties broken by their position in
   /// [participants]), stores its `CombatStateComponent`, and publishes
@@ -107,6 +116,7 @@ class CombatSystem {
     }
 
     _checkBattleEndFor(battle);
+    _checkPendingBattlesOtherThan(battle);
 
     _context.events.publish(
       ActionCompleted(battle, action.actor, action.targets, action),
@@ -163,7 +173,10 @@ class CombatSystem {
   }
 
   void _onEntityKilled(EntityKilled event) {
-    if (_executingAction) return;
+    if (_executingAction) {
+      _pendingChecks.add(event.id);
+      return;
+    }
     for (final battle
         in _context.components.entitiesWith<CombatStateComponent>()) {
       final state = _context.components.get<CombatStateComponent>(battle)!;
@@ -178,6 +191,29 @@ class CombatSystem {
     if (state != null && state.active) {
       _checkBattleEnd(battle, state);
     }
+  }
+
+  /// After `executeAction`'s own batch (`battle`) has already been
+  /// checked, re-checks every OTHER active battle that a suppressed
+  /// `EntityKilled` (recorded in [_pendingChecks]) might have ended — see
+  /// [_pendingChecks] for why this is needed. Each such battle is checked
+  /// at most once even if multiple pending kills belong to it.
+  void _checkPendingBattlesOtherThan(EntityId battle) {
+    if (_pendingChecks.isEmpty) return;
+    final checked = <EntityId>{};
+    for (final killedId in _pendingChecks) {
+      for (final otherBattle
+          in _context.components.entitiesWith<CombatStateComponent>()) {
+        if (otherBattle == battle || checked.contains(otherBattle)) continue;
+        final state =
+            _context.components.get<CombatStateComponent>(otherBattle)!;
+        if (state.active && state.participants.contains(killedId)) {
+          checked.add(otherBattle);
+          _checkBattleEnd(otherBattle, state);
+        }
+      }
+    }
+    _pendingChecks.clear();
   }
 
   void _checkBattleEnd(EntityId battle, CombatStateComponent state) {

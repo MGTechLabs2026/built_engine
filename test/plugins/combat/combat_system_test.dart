@@ -380,5 +380,67 @@ void main() {
       expect(won.single.team, equals('alpha'));
       expect(context.components.get<CombatStateComponent>(battle)!.active, isFalse);
     });
+
+    test(
+        'a kill in one battle caused as a side effect of an action '
+        'executed in a DIFFERENT, concurrently-active battle still ends '
+        'that other battle', () {
+      final context = _newContext();
+      final system = CombatSystem(context);
+
+      // Battle A: p1 acts against p2 and, incidentally, q2 (a participant
+      // of battle B, not battle A).
+      final p1 = context.entities.create();
+      final p2 = context.entities.create();
+      context.components
+          .add(p1, const CombatantComponent(team: 'a-alpha', initiative: 10));
+      context.components
+          .add(p2, const CombatantComponent(team: 'a-beta', initiative: 5));
+      context.components.add(p1, const HealthComponent(current: 100, max: 100));
+      context.components.add(p2, const HealthComponent(current: 100, max: 100));
+
+      // Battle B: q1 and q2, on separate teams. q2 is one hit from death.
+      final q1 = context.entities.create();
+      final q2 = context.entities.create();
+      context.components
+          .add(q1, const CombatantComponent(team: 'b-alpha', initiative: 10));
+      context.components
+          .add(q2, const CombatantComponent(team: 'b-beta', initiative: 5));
+      context.components.add(q1, const HealthComponent(current: 100, max: 100));
+      context.components.add(q2, const HealthComponent(current: 1, max: 100));
+
+      final battleA = system.startBattle([p1, p2]);
+      final battleB = system.startBattle([q1, q2]);
+
+      final wonB = <BattleWon>[];
+      final lostB = <BattleLost>[];
+      context.events.subscribe<BattleWon>((e) {
+        if (e.battle == battleB) wonB.add(e);
+      });
+      context.events.subscribe<BattleLost>((e) {
+        if (e.battle == battleB) lostB.add(e);
+      });
+
+      // Nothing stops targets from including an entity outside the
+      // acting battle — executeAction only validates the actor's turn.
+      system.executeAction(
+        battleA,
+        AttackAction(
+          actor: p1,
+          targets: [p2, q2],
+          baseDamage: 10,
+          damageStat: 'attack',
+        ),
+      );
+
+      expect(wonB, hasLength(1));
+      expect(wonB.single.team, equals('b-alpha'));
+      expect(lostB, hasLength(1));
+      expect(lostB.single.team, equals('b-beta'));
+      expect(
+        context.components.get<CombatStateComponent>(battleB)!.active,
+        isFalse,
+      );
+    });
   });
 }
