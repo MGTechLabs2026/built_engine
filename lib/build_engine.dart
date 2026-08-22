@@ -32,3 +32,4 @@ export 'src/rule/event_counter.dart';
 export 'src/rule/rule.dart';
 export 'src/rule/rule_context.dart';
 export 'src/rule/rule_engine.dart';
+export 'src/spatial/position.dart';
