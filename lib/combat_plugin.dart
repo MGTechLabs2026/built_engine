@@ -5,5 +5,6 @@
 /// `package:build_engine/build_engine.dart`'s public core API.
 library;
 
+export 'src/plugins/combat/combat_action.dart';
 export 'src/plugins/combat/combat_state_component.dart';
 export 'src/plugins/combat/combatant_component.dart';
