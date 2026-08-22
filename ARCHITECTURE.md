@@ -203,17 +203,29 @@ events.subscribe<EntityDestroyed>((event) {
 });
 ```
 
-This is also the pattern for bootstrapping the three core services together
+This is also the pattern for bootstrapping the seven core services together
 for a `PluginContext` — construct one `EventBus`, pass the same instance to
-both `EntityRegistry` and the `PluginContext`, so plugins that subscribe via
-`context.events` actually see entity lifecycle events:
+`EntityRegistry`, `RuleEngine`, and the `PluginContext`, so plugins that
+subscribe via `context.events` actually see entity lifecycle events:
 
 ```dart
 final events = EventBus();
+final entities = EntityRegistry(events);
+final components = ComponentStore();
+final rng = RngService(1);
 final context = PluginContext(
-  entities: EntityRegistry(events),
-  components: ComponentStore(),
+  entities: entities,
+  components: components,
   events: events,
+  rng: rng,
+  rules: RuleEngine(
+    entities: entities,
+    components: components,
+    events: events,
+    rng: rng,
+  ),
+  queries: QueryEngine(QueryScope(components: components)),
+  modifiers: ModifierCollection(),
 );
 ```
 
@@ -239,3 +251,46 @@ A dedicated Resource Engine *service* (this pass added only the
 Serialization, and any registry/factory/data-driven rule deserialization
 mechanism. Each is a separate future subsystem, to be brainstormed and
 planned on its own rather than stubbed out speculatively here.
+
+## Combat — the first plugin (`lib/src/plugins/combat/`, `lib/combat_plugin.dart`)
+
+Combat is the first real `GamePlugin` built on this engine — proof that
+the core/plugin boundary CLAUDE.md describes actually holds. It lives in
+the same package (no workspace/multi-package tooling exists yet) but
+imports core exclusively through `package:build_engine/build_engine.dart`,
+never `lib/src/...` directly, and is exported through its own barrel,
+`lib/combat_plugin.dart`.
+
+`CombatantComponent` (`team`, `initiative`) and `CombatStateComponent`
+(`participants`, `currentTurnIndex`, `round`, `active` — attached to a
+dedicated battle entity, not to a participant) are the only new component
+types. `CombatAction` is abstract, mirroring `Condition`/`Effect`'s
+"implement directly, no registry" pattern; `AttackAction` is the one
+concrete implementation, resolving its damage through the Modifier Engine
+(`ModifierResolver().resolve(baseDamage, ...)`) before delegating to the
+existing core `Damage` effect. "Healing" needed no dedicated action class
+— any `CombatAction` whose `effectsFor` returns a `Heal` runs through the
+identical pipeline.
+
+`CombatSystem.executeAction` validates turn order (throwing
+`IllegalActionException` on caller misuse), evaluates an action's
+`Condition`s via a manually-built `RuleContext` (the same public type
+`RuleEngine` itself uses — no new machinery), and applies its
+`Effect`s the same way. Team-elimination (defeat/win/loss) is checked via
+`QueryEngine` once per `executeAction` call — not once per individual
+`EntityKilled` — because a single action can kill members of multiple
+teams at once; checking per-kill would let an early check run before a
+simultaneous second kill has landed, misjudging a mutual kill as a normal
+win. A kill from outside `executeAction` (e.g. a future plugin's
+independent rule) is still checked immediately, since by construction it
+isn't part of any such batch.
+
+This pass also grew `PluginContext` to expose `rng`/`rules`/`queries`/
+`modifiers` (previously entities/components/events only) — the four core
+services that existed but weren't yet reachable from a plugin's lifecycle
+methods. `RuleContext`/`RuleEngine` were deliberately left unchanged; an
+earlier version of this design routed `AttackAction`'s modifier
+resolution through a `RuleContext`-carried `ModifierCollection`, which
+would have cascaded into extending `RuleEngine`'s constructor too — the
+final design resolves modifiers directly against `PluginContext` instead,
+inside `CombatAction.effectsFor`, avoiding that cascade entirely.
