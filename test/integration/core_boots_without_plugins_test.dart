@@ -1,6 +1,27 @@
 import 'package:build_engine/build_engine.dart';
 import 'package:test/test.dart';
 
+PluginContext _newContext() {
+  final events = EventBus();
+  final entities = EntityRegistry(events);
+  final components = ComponentStore();
+  final rng = RngService(1);
+  return PluginContext(
+    entities: entities,
+    components: components,
+    events: events,
+    rng: rng,
+    rules: RuleEngine(
+      entities: entities,
+      components: components,
+      events: events,
+      rng: rng,
+    ),
+    queries: QueryEngine(QueryScope(components: components)),
+    modifiers: ModifierCollection(),
+  );
+}
+
 class _MarkerComponent {
   const _MarkerComponent(this.label);
   final String label;
@@ -40,12 +61,7 @@ class _EntityCreatingPlugin extends GamePlugin {
 void main() {
   group('core without any plugins', () {
     test('full lifecycle succeeds with zero plugins registered', () {
-      final events = EventBus();
-      final context = PluginContext(
-        entities: EntityRegistry(events),
-        components: ComponentStore(),
-        events: events,
-      );
+      final context = _newContext();
       final manager = PluginManager();
 
       manager.initialize(context);
@@ -75,12 +91,7 @@ void main() {
 
   group('core with dependent plugins', () {
     test('plugins load and unload in dependency order end-to-end', () {
-      final events = EventBus();
-      final context = PluginContext(
-        entities: EntityRegistry(events),
-        components: ComponentStore(),
-        events: events,
-      );
+      final context = _newContext();
       final manager = PluginManager();
       final base = _EntityCreatingPlugin('base');
       final dependent =

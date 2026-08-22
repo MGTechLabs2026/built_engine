@@ -37,10 +37,22 @@ class _RecordingPlugin extends GamePlugin {
 
 PluginContext _newContext() {
   final events = EventBus();
+  final entities = EntityRegistry(events);
+  final components = ComponentStore();
+  final rng = RngService(1);
   return PluginContext(
-    entities: EntityRegistry(events),
-    components: ComponentStore(),
+    entities: entities,
+    components: components,
     events: events,
+    rng: rng,
+    rules: RuleEngine(
+      entities: entities,
+      components: components,
+      events: events,
+      rng: rng,
+    ),
+    queries: QueryEngine(QueryScope(components: components)),
+    modifiers: ModifierCollection(),
   );
 }
 
