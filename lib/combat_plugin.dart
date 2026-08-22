@@ -6,5 +6,8 @@
 library;
 
 export 'src/plugins/combat/combat_action.dart';
+export 'src/plugins/combat/combat_events.dart';
 export 'src/plugins/combat/combat_state_component.dart';
+export 'src/plugins/combat/combat_system.dart';
 export 'src/plugins/combat/combatant_component.dart';
+export 'src/plugins/combat/illegal_action_exception.dart';
