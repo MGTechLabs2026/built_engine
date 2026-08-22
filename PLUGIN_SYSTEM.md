@@ -52,14 +52,17 @@ class PluginContext {
   final EntityRegistry entities;
   final ComponentStore components;
   final EventBus events;
+  final RngService rng;
+  final RuleEngine rules;
+  final QueryEngine queries;
+  final ModifierCollection modifiers;
 }
 ```
 
 The only access a plugin's lifecycle methods get to core services. Exposes
 exactly the services that exist — no placeholder getters for services
-(rules, effects, modifiers, spatial, resources, assets, rng, save/load)
-that haven't been built yet. When those services are built, `PluginContext`
-grows to expose them.
+(effects, spatial, resources, assets, save/load) that haven't been built
+yet. When those services are built, `PluginContext` grows to expose them.
 
 ## Dependency resolution
 
@@ -116,7 +119,8 @@ manager.start(context);
 ## Plugins must not reach into each other's private implementation
 
 A plugin's only sanctioned way to affect another plugin's behavior is
-through `PluginContext`'s public services (entities, components, events) —
+through `PluginContext`'s public services (entities, components, events,
+rng, rules, queries, modifiers) —
 never by importing another plugin's package internals directly. This
 engine does not yet enforce that at the language level; it's a convention
 until/unless a stronger enforcement mechanism is added.
