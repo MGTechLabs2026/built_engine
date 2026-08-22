@@ -1256,7 +1256,7 @@ MartialTechniqueAction jab({
       actor: actor,
       targets: targets,
       tags: const {'martial', 'fist', 'western', 'external'},
-      conditions: [HasTag(MartialStyles.boxing)],
+      conditions: [HasTag('style:${MartialStyles.boxing}')],
       costEffects: const [ModifyResource('momentum', 8)],
       baseDamage: 6,
       damageStat: 'punch',
@@ -1271,7 +1271,7 @@ MartialTechniqueAction powerCross({
       targets: targets,
       tags: const {'martial', 'fist', 'western', 'external'},
       conditions: [
-        HasTag(MartialStyles.boxing),
+        HasTag('style:${MartialStyles.boxing}'),
         const ResourceAbove('momentum', 19),
       ],
       costEffects: const [ModifyResource('momentum', -20)],
@@ -1287,7 +1287,7 @@ MartialTechniqueAction guardStance({
       actor: actor,
       targets: targets,
       tags: const {'martial', 'fist', 'western'},
-      conditions: [HasTag(MartialStyles.boxing)],
+      conditions: [HasTag('style:${MartialStyles.boxing}')],
       selfEffects: const [
         AddTag('stance:guard'),
         ModifyResource('momentum', 5),
@@ -1305,7 +1305,7 @@ MartialTechniqueAction palmStrike({
       targets: targets,
       tags: const {'martial', 'palm', 'eastern', 'external'},
       conditions: [
-        HasTag(MartialStyles.shaolin),
+        HasTag('style:${MartialStyles.shaolin}'),
         const ResourceAbove('qi', 2),
       ],
       costEffects: const [ModifyResource('qi', -3)],
@@ -1322,7 +1322,7 @@ MartialTechniqueAction blazingPalm({
       targets: targets,
       tags: const {'martial', 'palm', 'eastern', 'fire', 'qi'},
       conditions: [
-        HasTag(MartialStyles.shaolin),
+        HasTag('style:${MartialStyles.shaolin}'),
         const ResourceAbove('qi', 7),
       ],
       costEffects: const [ModifyResource('qi', -8)],
@@ -1339,7 +1339,7 @@ MartialTechniqueAction ironBodyStance({
       targets: targets,
       tags: const {'martial', 'qi', 'internal', 'eastern'},
       conditions: [
-        HasTag(MartialStyles.shaolin),
+        HasTag('style:${MartialStyles.shaolin}'),
         const ResourceAbove('qi', 4),
       ],
       costEffects: const [ModifyResource('qi', -5)],
@@ -1357,7 +1357,7 @@ MartialTechniqueAction pushHands({
       targets: targets,
       tags: const {'martial', 'internal', 'eastern', 'qi'},
       conditions: [
-        HasTag(MartialStyles.taiChi),
+        HasTag('style:${MartialStyles.taiChi}'),
         const ResourceAbove('qi', 3),
       ],
       costEffects: const [ModifyResource('qi', -4)],
@@ -1374,7 +1374,7 @@ MartialTechniqueAction whirlingPalm({
       targets: targets,
       tags: const {'martial', 'internal', 'eastern', 'qi', 'yang'},
       conditions: [
-        HasTag(MartialStyles.taiChi),
+        HasTag('style:${MartialStyles.taiChi}'),
         const ResourceAbove('qi', 5),
       ],
       costEffects: const [ModifyResource('qi', -6)],
@@ -1391,7 +1391,7 @@ MartialTechniqueAction yieldingStance({
       targets: targets,
       tags: const {'martial', 'internal', 'eastern', 'qi', 'counter'},
       conditions: [
-        HasTag(MartialStyles.taiChi),
+        HasTag('style:${MartialStyles.taiChi}'),
         const ResourceAbove('qi', 2),
       ],
       costEffects: const [ModifyResource('qi', -3)],
