@@ -152,10 +152,10 @@ diagonals); `distance` is a plain top-level Manhattan-distance function,
 not a `SpatialRelation`; `ContainedBy` is entity-container membership —
 `Container.contains(EntityId)` — not a relation between two positions.
 Of the remaining two, `EquippedTo` is expressible as membership in a
-named slot (`Container.namedSlots(['weapon', ...])` + `Container.
-contains`) rather than a distinct query, and `ConnectedTo` (socket/
-connection graphs) is a deliberately deferred future pass, not
-implemented by this module.
+named slot (`Container.namedSlots(['weapon', ...])` + `Container.contains`)
+rather than a distinct query, and `ConnectedTo` (socket/connection
+graphs) is a deliberately deferred future pass, not implemented by this
+module.
 `Container.relatesTo(relation, a, b)` looks up each item's anchor
 position — never its full multi-cell footprint — and returns `false`
 (not a crash) if either item lacks a position, so asking about adjacency
