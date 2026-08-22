@@ -260,20 +260,42 @@ same as any `PluginManager` caller already does.
      each entry in `action.targets` calls `action.effectsFor(target,
      context)` and applies the returned effects via their own
      `RuleContext(subject: target, ...)` — reusing `Damage`/`Heal`/
-     `ModifyResource` etc. as-is.
-  5. Publishes `ActionCompleted`.
-  6. Advances the turn: publishes `TurnEnded` for the current actor, skips
-     any participant that's no longer living, publishes `TurnStarted` for
-     the next one. If no living participants remain (shouldn't normally
-     happen — defeat handling below ends the battle first), the battle is
-     left inactive with no further `TurnStarted`.
+     `ModifyResource` etc. as-is. Any `EntityKilled` this raises is caught
+     by `CombatSystem`'s subscription, but the resulting team-elimination
+     check is deferred rather than run immediately — see Defeat/battle end
+     below.
+  5. Runs the team-elimination check for `battle` exactly once (whether or
+     not any kill happened) — may publish `BattleWon`/`BattleLost` and mark
+     the battle inactive.
+  6. Publishes `ActionCompleted`.
+  7. Advances the turn: publishes `TurnEnded` for the current actor
+     unconditionally (their turn genuinely ended regardless of what
+     happens next), then — only if the battle is still active — skips any
+     participant that's no longer living and publishes `TurnStarted` for
+     the next one. If the battle ended in step 5, no `TurnStarted` follows.
 
 - **Defeat / battle end**: `CombatSystem` subscribes to core's
-  `EntityKilled` at construction. On each kill, for every active battle
-  containing that entity as a participant: recompute living participants
-  via `QueryEngine.evaluate(participants, HealthBelowQuery(1).not())`
-  (reusing the existing Query system rather than inventing an "IsAlive"
-  query type), group them by `CombatantComponent.team`. If the number of
+  `EntityKilled` at construction, for deaths caused by anything other than
+  a Combat-mediated action (e.g. a future Status plugin's independent
+  poison-tick rule) — on such a kill, for every active battle containing
+  that entity as a participant, it runs the team-elimination check below
+  immediately. While `executeAction` is applying an action's own effects,
+  that per-kill check is suppressed (a simple in-flight flag), and
+  `executeAction` instead runs the check exactly once, after every
+  `costEffects`/`effectsFor` effect for the action has been applied and
+  before `ActionCompleted`/turn advancement. This matters because a single
+  action can target — and kill — multiple different-team entities in one
+  call (e.g. an area effect); checking after each individual `EntityKilled`
+  would let the first death's check run before the second death has
+  landed, misjudging a mutual-kill as a normal win. Checking once per
+  action batch instead, after every target's effects are in, is always
+  correct because a single `EntityKilled` from outside `executeAction`,
+  by construction, isn't part of any such batch.
+
+  The check itself: recompute living participants via
+  `QueryEngine.evaluate(participants, HealthBelowQuery(1).not())` (reusing
+  the existing Query system rather than inventing an "IsAlive" query
+  type), group them by `CombatantComponent.team`. If the number of
   distinct teams remaining is ≤ 1: mark the battle inactive, publish
   `BattleWon(battle, team)` for the sole surviving team (if any), and
   `BattleLost(battle, team)` for every team that had a living participant
