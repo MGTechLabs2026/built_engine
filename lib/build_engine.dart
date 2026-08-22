@@ -32,6 +32,8 @@ export 'src/rule/event_counter.dart';
 export 'src/rule/rule.dart';
 export 'src/rule/rule_context.dart';
 export 'src/rule/rule_engine.dart';
+export 'src/spatial/placement_exception.dart';
+export 'src/spatial/placement_rule.dart';
 export 'src/spatial/position.dart';
 export 'src/spatial/slot.dart';
 export 'src/spatial/spatial_relation.dart';
