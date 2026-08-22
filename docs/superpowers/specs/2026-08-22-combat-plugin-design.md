@@ -176,11 +176,18 @@ A caller models "chance to miss" by adding a `RandomChance(p)` condition —
 no bespoke accuracy mechanism needed; RNG usage falls straight out of the
 existing `Condition` system.
 
+Concrete actions use `extends CombatAction`, not `implements` — `implements`
+would silently discard `conditions`/`costEffects`'s default bodies (Dart
+only inherits a method's implementation through `extends`), the same
+reason `Query`'s own concrete subclasses (`HasComponentQuery`, etc.)
+already `extend Query` rather than `implement` it elsewhere in this
+codebase.
+
 `AttackAction` is the required generic demonstration — no Sword/Punch/
 Fireball, and no core change beyond the `PluginContext` extension above:
 
 ```dart
-class AttackAction implements CombatAction {
+class AttackAction extends CombatAction {
   AttackAction({
     required this.actor,
     required this.targets,
