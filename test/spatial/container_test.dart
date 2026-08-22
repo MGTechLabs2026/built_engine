@@ -100,6 +100,17 @@ void main() {
         isFalse,
       );
     });
+
+    test('place throws when the item is already in the container', () {
+      final container = Container.grid(3, 3);
+      const item = EntityId(1);
+      container.place(item, const SlotId('0,0'));
+
+      expect(
+        () => container.place(item, const SlotId('1,1')),
+        throwsA(isA<ArgumentError>()),
+      );
+    });
   });
 
   group('collision', () {

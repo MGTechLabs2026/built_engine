@@ -85,7 +85,11 @@ class Container implements ContainerView {
   }
 
   /// Places [item] at [anchor]. Throws [InvalidPlacementException] if
-  /// [canPlace] would return false for the same arguments.
+  /// [canPlace] would return false for the same arguments. Throws
+  /// [ArgumentError] if [item] is already in this container — that's a
+  /// caller-misuse precondition, not a placement-validity question, so it
+  /// isn't reported via [InvalidPlacementException]; call [move] instead
+  /// to relocate an item already placed here.
   void place(
     EntityId item,
     SlotId anchor, {
@@ -93,6 +97,11 @@ class Container implements ContainerView {
     Rotation rotation = Rotation.deg0,
     List<PlacementRule> extraRules = const [],
   }) {
+    if (contains(item)) {
+      throw ArgumentError(
+        'item is already placed in this container; use move() instead',
+      );
+    }
     final footprint = _footprintFor(anchor, size, rotation);
     final failed = _failedRules(footprint, item, extraRules);
     if (failed.isNotEmpty) {
@@ -155,7 +164,13 @@ class Container implements ContainerView {
 
   /// The footprint [anchor]+[size]+[rotation] would occupy, or `null` if
   /// [anchor] doesn't exist, or is a position-less slot and the requested
-  /// size/rotation isn't the trivial 1x1-at-0-degrees case.
+  /// size/rotation isn't the trivial 1x1-at-0-degrees case. In the
+  /// position-less branch below, `null` is returned directly — it is
+  /// never computed by offsetting from a position (there is none) and
+  /// then having [WithinBounds] reject the result. [_failedRules] reports
+  /// a `null` footprint as `['WithinBounds']` purely as a label choice,
+  /// to match what a real [WithinBounds] rejection would report; that
+  /// path never actually calls `WithinBounds.isSatisfied`.
   Set<SlotId>? _footprintFor(SlotId anchor, ItemSize size, Rotation rotation) {
     final anchorSlot = _slots[anchor];
     if (anchorSlot == null) return null;
