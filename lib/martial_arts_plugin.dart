@@ -6,5 +6,6 @@
 /// modifies either.
 library;
 
+export 'src/plugins/martial_arts/martial_conditions.dart';
 export 'src/plugins/martial_arts/martial_loadout_component.dart';
 export 'src/plugins/martial_arts/martial_styles.dart';
