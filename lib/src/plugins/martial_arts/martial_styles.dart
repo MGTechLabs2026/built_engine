@@ -57,7 +57,7 @@ void learnStyle(EntityId entity, String styleId, PluginContext context) {
 /// doesn't gate that), it simply gets no tradition tag, so nothing
 /// downstream (e.g. Physique's synergy modifiers) reacts to it.
 String? _traditionTagFor(String styleId) => switch (styleId) {
-      MartialStyles.boxing => 'western',
-      MartialStyles.shaolin || MartialStyles.taiChi => 'eastern',
+      MartialStyles.boxing => MartialTraditions.western,
+      MartialStyles.shaolin || MartialStyles.taiChi => MartialTraditions.eastern,
       _ => null,
     };

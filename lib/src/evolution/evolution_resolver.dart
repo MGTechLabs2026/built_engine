@@ -2,6 +2,7 @@ import '../entity/entity_id.dart';
 import '../modifier/modifier.dart';
 import '../modifier/modifier_resolver.dart';
 import '../modifier/modifier_source.dart';
+import '../rng/weighted_pick.dart';
 import '../rule/rule_context.dart';
 import '../training/training_profile.dart';
 import 'evolution_candidate.dart';
@@ -52,33 +53,14 @@ class EvolutionResolver {
       );
     }
 
-    final weights = [for (final candidate in eligible) _weightOf(candidate, profile)];
-    final totalWeight = weights.fold<num>(0, (sum, weight) => sum + weight);
-    if (totalWeight <= 0) {
-      return EvolutionResult(
-        fromId: current.id,
-        chosenCandidate: null,
-        eligibleCandidates: eligible,
-      );
-    }
-
-    final roll = context.rng.nextDouble() * totalWeight;
-    var cumulative = 0.0;
-    for (var i = 0; i < eligible.length; i++) {
-      cumulative += weights[i];
-      if (roll < cumulative) {
-        return EvolutionResult(
-          fromId: current.id,
-          chosenCandidate: eligible[i],
-          eligibleCandidates: eligible,
-        );
-      }
-    }
-    // Floating-point edge case (roll landed exactly on the total): the
-    // last eligible candidate is the correct pick either way.
+    final chosen = weightedPick(
+      eligible,
+      (candidate) => _weightOf(candidate, profile),
+      context.rng,
+    );
     return EvolutionResult(
       fromId: current.id,
-      chosenCandidate: eligible.last,
+      chosenCandidate: chosen,
       eligibleCandidates: eligible,
     );
   }

@@ -1,4 +1,5 @@
 import '../rng/rng_service.dart';
+import '../rng/weighted_pick.dart';
 import 'reward_candidate.dart';
 import 'reward_definition.dart';
 import 'reward_result.dart';
@@ -9,8 +10,8 @@ import 'reward_result.dart';
 /// resolver" shape.
 ///
 /// Draws only from the injected [RngService] — the sole source of
-/// randomness, never a second random system — via the same weighted
-/// cumulative-sum pick `EvolutionResolver` already uses.
+/// randomness, never a second random system — via the shared
+/// [weightedPick] helper `EvolutionResolver` also uses.
 class RewardResolver {
   const RewardResolver();
 
@@ -23,32 +24,11 @@ class RewardResolver {
     required RewardDefinition definition,
     int rollCount = 1,
   }) {
-    final totalWeight =
-        definition.candidates.fold<num>(0, (sum, candidate) => sum + candidate.weight);
-    if (totalWeight <= 0) {
-      return RewardResult(definitionId: definition.id, rewards: const []);
+    final rewards = <RewardCandidate>[];
+    for (var i = 0; i < rollCount; i++) {
+      final chosen = weightedPick(definition.candidates, (c) => c.weight, rng);
+      if (chosen != null) rewards.add(chosen);
     }
-    return RewardResult(
-      definitionId: definition.id,
-      rewards: [
-        for (var i = 0; i < rollCount; i++) _weightedPick(definition.candidates, totalWeight, rng),
-      ],
-    );
-  }
-
-  RewardCandidate _weightedPick(
-    List<RewardCandidate> candidates,
-    num totalWeight,
-    RngService rng,
-  ) {
-    final roll = rng.nextDouble() * totalWeight;
-    var cumulative = 0.0;
-    for (final candidate in candidates) {
-      cumulative += candidate.weight;
-      if (roll < cumulative) return candidate;
-    }
-    // Floating-point edge case (roll landed exactly on the total): the
-    // last candidate is the correct pick either way.
-    return candidates.last;
+    return RewardResult(definitionId: definition.id, rewards: rewards);
   }
 }

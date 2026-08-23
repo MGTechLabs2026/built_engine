@@ -25,7 +25,7 @@ const martialItemContentDefinitions = <Map<String, dynamic>>[
   {
     'id': MartialItemIds.brassKnuckles,
     'type': 'martial_item',
-    'tags': ['martial', 'fist', 'western'],
+    'tags': ['martial', 'fist', MartialTraditions.western],
     'modifiers': [
       {'stat': 'punch', 'operation': 'add', 'value': 6},
     ],
@@ -33,7 +33,7 @@ const martialItemContentDefinitions = <Map<String, dynamic>>[
   {
     'id': MartialItemIds.ironPalmWraps,
     'type': 'martial_item',
-    'tags': ['martial', 'palm', 'eastern'],
+    'tags': ['martial', 'palm', MartialTraditions.eastern],
     'modifiers': [
       {'stat': 'palm', 'operation': 'add', 'value': 6},
     ],
@@ -41,7 +41,7 @@ const martialItemContentDefinitions = <Map<String, dynamic>>[
   {
     'id': MartialItemIds.taiChiSilkSash,
     'type': 'martial_item',
-    'tags': ['martial', 'internal', 'eastern', 'qi'],
+    'tags': ['martial', 'internal', MartialTraditions.eastern, 'qi'],
     'modifiers': [
       {'stat': 'internal', 'operation': 'add', 'value': 5},
     ],
@@ -49,7 +49,7 @@ const martialItemContentDefinitions = <Map<String, dynamic>>[
   {
     'id': MartialItemIds.sparringGloves,
     'type': 'martial_item',
-    'tags': ['martial', 'fist', 'western'],
+    'tags': ['martial', 'fist', MartialTraditions.western],
     'modifiers': [
       {'stat': 'punch', 'operation': 'add', 'value': 3},
     ],
@@ -57,7 +57,7 @@ const martialItemContentDefinitions = <Map<String, dynamic>>[
   {
     'id': MartialItemIds.weightedVest,
     'type': 'martial_item',
-    'tags': ['martial', 'fist', 'western', 'external'],
+    'tags': ['martial', 'fist', MartialTraditions.western, 'external'],
     'modifiers': [
       {'stat': 'punch', 'operation': 'multiply', 'value': 1.1},
     ],
@@ -65,19 +65,19 @@ const martialItemContentDefinitions = <Map<String, dynamic>>[
   {
     'id': MartialItemIds.momentumTrinket,
     'type': 'martial_trinket',
-    'tags': ['martial', 'western'],
+    'tags': ['martial', MartialTraditions.western],
     'modifiers': <Map<String, dynamic>>[],
   },
   {
     'id': MartialItemIds.qiPendant,
     'type': 'martial_trinket',
-    'tags': ['martial', 'qi', 'eastern'],
+    'tags': ['martial', 'qi', MartialTraditions.eastern],
     'modifiers': <Map<String, dynamic>>[],
   },
   {
     'id': MartialItemIds.counterstrikeRing,
     'type': 'martial_trinket',
-    'tags': ['martial', 'eastern', 'counter'],
+    'tags': ['martial', MartialTraditions.eastern, 'counter'],
     'modifiers': [
       {
         'stat': 'internal',

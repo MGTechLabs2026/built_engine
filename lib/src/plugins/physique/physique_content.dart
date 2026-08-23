@@ -1,5 +1,7 @@
 import 'package:build_engine/build_engine.dart';
 
+import 'physique_types.dart';
+
 /// The four physique definitions this plugin implements, as data —
 /// loaded into `PluginContext.content` via `PluginSdk.registerContentBatch`
 /// in `PhysiquePlugin.initialize`, mirroring MartialArts'
@@ -30,13 +32,13 @@ const physiqueContentDefinitions = <Map<String, dynamic>>[
         'stat': 'defense',
         'operation': 'multiply',
         'value': 1.25,
-        'condition': 'western',
+        'condition': PhysiqueTraditions.western,
       },
       {
         'stat': 'defense',
         'operation': 'multiply',
         'value': 0.85,
-        'condition': 'eastern',
+        'condition': PhysiqueTraditions.eastern,
       },
     ],
   },
@@ -50,13 +52,13 @@ const physiqueContentDefinitions = <Map<String, dynamic>>[
         'stat': 'strength',
         'operation': 'multiply',
         'value': 1.25,
-        'condition': 'western',
+        'condition': PhysiqueTraditions.western,
       },
       {
         'stat': 'strength',
         'operation': 'multiply',
         'value': 0.85,
-        'condition': 'eastern',
+        'condition': PhysiqueTraditions.eastern,
       },
     ],
   },
@@ -70,13 +72,13 @@ const physiqueContentDefinitions = <Map<String, dynamic>>[
         'stat': 'speed',
         'operation': 'multiply',
         'value': 1.25,
-        'condition': 'eastern',
+        'condition': PhysiqueTraditions.eastern,
       },
       {
         'stat': 'speed',
         'operation': 'multiply',
         'value': 0.85,
-        'condition': 'western',
+        'condition': PhysiqueTraditions.western,
       },
     ],
   },
@@ -90,13 +92,13 @@ const physiqueContentDefinitions = <Map<String, dynamic>>[
         'stat': 'stamina',
         'operation': 'multiply',
         'value': 1.25,
-        'condition': 'eastern',
+        'condition': PhysiqueTraditions.eastern,
       },
       {
         'stat': 'stamina',
         'operation': 'multiply',
         'value': 0.85,
-        'condition': 'western',
+        'condition': PhysiqueTraditions.western,
       },
     ],
   },

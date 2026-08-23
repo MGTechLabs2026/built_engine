@@ -23,6 +23,21 @@ abstract final class MartialStances {
 /// `.qiPendant`), and by `martialItem(id, context)` call sites, so a
 /// rename here propagates everywhere instead of silently breaking a
 /// second, independently-typed string literal.
+/// The two broad martial traditions `_traditionTagFor` (`martial_styles
+/// .dart`) grants — `ARCHITECTURE_AUDIT.md`'s Observation A/C flagged
+/// these as the one remaining pair of raw literals from the original
+/// Observation B fix, carried over unaddressed until now. This is the
+/// entire interoperability contract with Physique's own synergy
+/// modifiers (`physique_content.dart`'s `PhysiqueTraditions`) — two
+/// independent constant classes with matching *values*, not a shared
+/// import, is deliberate: it keeps this plugin's zero-dependency-on-
+/// Physique property intact (see `ARCHITECTURE.md`'s Physique section)
+/// while still naming the literal once instead of nine times.
+abstract final class MartialTraditions {
+  static const western = 'western';
+  static const eastern = 'eastern';
+}
+
 abstract final class MartialItemIds {
   static const brassKnuckles = 'brass_knuckles';
   static const ironPalmWraps = 'iron_palm_wraps';

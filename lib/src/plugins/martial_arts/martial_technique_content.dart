@@ -24,7 +24,7 @@ const martialTechniqueContentDefinitions = <Map<String, dynamic>>[
   {
     'id': 'jab',
     'type': 'technique',
-    'tags': ['martial', 'fist', 'western', 'external'],
+    'tags': ['martial', 'fist', MartialTraditions.western, 'external'],
     'conditions': [
       {'type': 'hasTag', 'tag': 'style:${MartialStyles.boxing}'},
     ],
@@ -41,7 +41,7 @@ const martialTechniqueContentDefinitions = <Map<String, dynamic>>[
   {
     'id': 'power_cross',
     'type': 'technique',
-    'tags': ['martial', 'fist', 'western', 'external'],
+    'tags': ['martial', 'fist', MartialTraditions.western, 'external'],
     'conditions': [
       {'type': 'hasTag', 'tag': 'style:${MartialStyles.boxing}'},
       {
@@ -63,7 +63,7 @@ const martialTechniqueContentDefinitions = <Map<String, dynamic>>[
   {
     'id': 'guard_stance',
     'type': 'technique',
-    'tags': ['martial', 'fist', 'western'],
+    'tags': ['martial', 'fist', MartialTraditions.western],
     'conditions': [
       {'type': 'hasTag', 'tag': 'style:${MartialStyles.boxing}'},
     ],
@@ -79,7 +79,7 @@ const martialTechniqueContentDefinitions = <Map<String, dynamic>>[
   {
     'id': 'palm_strike',
     'type': 'technique',
-    'tags': ['martial', 'palm', 'eastern', 'external'],
+    'tags': ['martial', 'palm', MartialTraditions.eastern, 'external'],
     'conditions': [
       {'type': 'hasTag', 'tag': 'style:${MartialStyles.shaolin}'},
       {'type': 'resourceAbove', 'resource': MartialResources.qi, 'threshold': 2},
@@ -93,7 +93,7 @@ const martialTechniqueContentDefinitions = <Map<String, dynamic>>[
   {
     'id': 'blazing_palm',
     'type': 'technique',
-    'tags': ['martial', 'palm', 'eastern', 'fire', 'qi'],
+    'tags': ['martial', 'palm', MartialTraditions.eastern, 'fire', 'qi'],
     'conditions': [
       {'type': 'hasTag', 'tag': 'style:${MartialStyles.shaolin}'},
       {'type': 'resourceAbove', 'resource': MartialResources.qi, 'threshold': 7},
@@ -107,7 +107,7 @@ const martialTechniqueContentDefinitions = <Map<String, dynamic>>[
   {
     'id': 'iron_body_stance',
     'type': 'technique',
-    'tags': ['martial', 'qi', 'internal', 'eastern'],
+    'tags': ['martial', 'qi', 'internal', MartialTraditions.eastern],
     'conditions': [
       {'type': 'hasTag', 'tag': 'style:${MartialStyles.shaolin}'},
       {'type': 'resourceAbove', 'resource': MartialResources.qi, 'threshold': 4},
@@ -120,7 +120,7 @@ const martialTechniqueContentDefinitions = <Map<String, dynamic>>[
   {
     'id': 'push_hands',
     'type': 'technique',
-    'tags': ['martial', 'internal', 'eastern', 'qi'],
+    'tags': ['martial', 'internal', MartialTraditions.eastern, 'qi'],
     'conditions': [
       {'type': 'hasTag', 'tag': 'style:${MartialStyles.taiChi}'},
       {'type': 'resourceAbove', 'resource': MartialResources.qi, 'threshold': 3},
@@ -134,7 +134,7 @@ const martialTechniqueContentDefinitions = <Map<String, dynamic>>[
   {
     'id': 'whirling_palm',
     'type': 'technique',
-    'tags': ['martial', 'internal', 'eastern', 'qi', 'yang'],
+    'tags': ['martial', 'internal', MartialTraditions.eastern, 'qi', 'yang'],
     'conditions': [
       {'type': 'hasTag', 'tag': 'style:${MartialStyles.taiChi}'},
       {'type': 'resourceAbove', 'resource': MartialResources.qi, 'threshold': 5},
@@ -148,7 +148,7 @@ const martialTechniqueContentDefinitions = <Map<String, dynamic>>[
   {
     'id': 'yielding_stance',
     'type': 'technique',
-    'tags': ['martial', 'internal', 'eastern', 'qi', 'counter'],
+    'tags': ['martial', 'internal', MartialTraditions.eastern, 'qi', 'counter'],
     'conditions': [
       {'type': 'hasTag', 'tag': 'style:${MartialStyles.taiChi}'},
       {'type': 'resourceAbove', 'resource': MartialResources.qi, 'threshold': 2},
