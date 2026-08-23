@@ -429,8 +429,19 @@ short design pass first per this report's own recommendation).
    and `MartialArtsPlugin` both adopted `PluginSdk`;
    `MartialArtsPlugin`'s hand-rolled `List<EventSubscription>` bookkeeping
    was replaced by `sdk.disposeAll()` in the same pass. Commit `ea60cd5`.
-4. **Finding #7** (MartialArts content predates `ContentRegistry`) — see
-   the follow-up design/implementation section below.
+4. **Finding #7** (MartialArts content predates `ContentRegistry`) — the
+   9 techniques/stances moved to data
+   (`lib/src/plugins/martial_arts/martial_technique_content.dart`),
+   loaded into the real `PluginContext.content` via
+   `PluginSdk.registerContentBatch` in `MartialArtsPlugin.initialize`,
+   mirroring `ExampleElementalPlugin`'s spells — see `ARCHITECTURE.md`'s
+   MartialArts section for the full design (why `MartialTechniqueAction`
+   itself stayed hand-written Dart, and why items/trinkets were
+   deliberately *not* migrated). This pass also surfaced and fixed a
+   latent bug: both `MartialArtsPlugin` and `ExampleElementalPlugin`
+   would throw `ContentDuplicateIdException` if re-initialized on the
+   same context after `unregister` (`ContentRegistry` has no unload) —
+   both now guard against loading their content twice. Commit `04f776d`.
 5. **Observation B** (magic strings) — added
    `MartialResources`/`MartialStances`
    (`lib/src/plugins/martial_arts/martial_vocabulary.dart`) and
@@ -440,10 +451,11 @@ short design pass first per this report's own recommendation).
    to `momentumTrinket.id`/`qiPendant.id` instead of an
    independently-typed literal. Commit `9350f52`.
 
-**One thing the original audit missed:** fixing finding #12 surfaced a
-4th copy of the same duplicated `_standaloneContext` helper, in
-`martial_styles.dart` — not caught in the original pass. Folded into
-commit `b814da9`.
+**Two things the original audit missed, both caught while fixing it:**
+fixing finding #12 surfaced a 4th copy of the same duplicated
+`_standaloneContext` helper, in `martial_styles.dart` (folded into
+commit `b814da9`); fixing finding #7 surfaced the re-initialize/
+`ContentDuplicateIdException` bug described above (commit `04f776d`).
 
 Every commit above kept `dart analyze` clean and the full test suite
-green (400 tests as of the last of these commits) before being made.
+green (407 tests as of the last of these commits) before being made.
