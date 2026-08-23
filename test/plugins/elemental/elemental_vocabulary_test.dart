@@ -12,4 +12,8 @@ void main() {
     expect(ElementalStatuses.soaked, equals('status:soaked'));
     expect(ElementalStatuses.shocked, equals('status:shocked'));
   });
+
+  test('ElementalItemIds names the one Elemental item', () {
+    expect(ElementalItemIds.emberCharm, equals('ember_charm'));
+  });
 }

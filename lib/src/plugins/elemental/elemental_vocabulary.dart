@@ -15,3 +15,10 @@ abstract final class ElementalStatuses {
   static const soaked = 'status:soaked';
   static const shocked = 'status:shocked';
 }
+
+/// Stable content ids for Elemental's items
+/// (`elemental_item_content.dart`) — same rationale as
+/// `MartialItemIds` above.
+abstract final class ElementalItemIds {
+  static const emberCharm = 'ember_charm';
+}

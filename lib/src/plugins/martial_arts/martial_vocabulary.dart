@@ -16,3 +16,20 @@ abstract final class MartialStances {
   static const ironBody = 'stance:iron_body';
   static const taiChi = 'stance:tai_chi';
 }
+
+/// Stable content ids for MartialArts' items/trinkets
+/// (`martial_item_content.dart`) — referenced by content definitions,
+/// `martial_arts_rules.dart`'s passive-regen rules (`.momentumTrinket`/
+/// `.qiPendant`), and by `martialItem(id, context)` call sites, so a
+/// rename here propagates everywhere instead of silently breaking a
+/// second, independently-typed string literal.
+abstract final class MartialItemIds {
+  static const brassKnuckles = 'brass_knuckles';
+  static const ironPalmWraps = 'iron_palm_wraps';
+  static const taiChiSilkSash = 'tai_chi_silk_sash';
+  static const sparringGloves = 'sparring_gloves';
+  static const weightedVest = 'weighted_vest';
+  static const momentumTrinket = 'momentum_trinket';
+  static const qiPendant = 'qi_pendant';
+  static const counterstrikeRing = 'counterstrike_ring';
+}

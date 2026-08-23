@@ -12,4 +12,15 @@ void main() {
     expect(MartialStances.ironBody, equals('stance:iron_body'));
     expect(MartialStances.taiChi, equals('stance:tai_chi'));
   });
+
+  test('MartialItemIds names all 8 items/trinkets', () {
+    expect(MartialItemIds.brassKnuckles, equals('brass_knuckles'));
+    expect(MartialItemIds.ironPalmWraps, equals('iron_palm_wraps'));
+    expect(MartialItemIds.taiChiSilkSash, equals('tai_chi_silk_sash'));
+    expect(MartialItemIds.sparringGloves, equals('sparring_gloves'));
+    expect(MartialItemIds.weightedVest, equals('weighted_vest'));
+    expect(MartialItemIds.momentumTrinket, equals('momentum_trinket'));
+    expect(MartialItemIds.qiPendant, equals('qi_pendant'));
+    expect(MartialItemIds.counterstrikeRing, equals('counterstrike_ring'));
+  });
 }
