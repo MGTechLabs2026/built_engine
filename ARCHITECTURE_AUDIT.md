@@ -34,7 +34,7 @@ risk in either case.
 | 4 | Plugins accessing private implementation of other plugins | ✅ No violations |
 | 5 | Circular dependencies | ✅ No violations |
 | 6 | Hardcoded item combinations | ✅ No violations |
-| 7 | Hardcoded content | ⚠️ 1 finding (Low) |
+| 7 | Hardcoded content | ⚠️ 1 finding (Low) → ✅ Fixed |
 | 8 | Global mutable state | ✅ No violations |
 | 9 | Gameplay randomness bypassing RNGService | ✅ No violations |
 | 10 | Components containing excessive gameplay logic | ✅ No violations |
@@ -193,6 +193,13 @@ named items, techniques, or physiques.
   directly to items. This is genuine design work, not a mechanical
   find-and-replace, so it should get its own brainstorm/spec before
   implementation, same as the prior audit's recommendation.
+
+**Status: ✅ Fixed (2026-08-24).** Both plugins' item/trinket content
+migrated to `ContentRegistry`, following exactly the recommended
+data/runtime-split pattern — see
+`docs/superpowers/specs/2026-08-24-item-content-migration-design.md` and
+`docs/superpowers/plans/2026-08-24-item-content-migration.md` for the
+full design and task-by-task implementation record.
 
 ## 8. Global mutable state
 

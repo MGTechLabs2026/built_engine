@@ -480,7 +480,8 @@ already resolve through `ModifierResolver` — gated on
 `condition: HasTagQuery('martial')`, the same conditional-`Modifier`
 pattern `counterstrikeRing` already uses. An entity that both
 `learnStyle`s Boxing (which grants the generic `'martial'` tag) and
-`equipElementalItem(emberCharm, ...)` deals bonus punch damage, with
+`equipElementalItem(elementalItem(ElementalItemIds.emberCharm, context),
+...)` deals bonus punch damage, with
 zero new `Rule`/`Condition` class and zero cross-plugin import — the
 same mechanism Shaolin's own iron-body synergy already proved, just
 registered by a different plugin and gated on a different plugin's tag
