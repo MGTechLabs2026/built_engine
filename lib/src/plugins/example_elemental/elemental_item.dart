@@ -26,16 +26,21 @@ List<Modifier> _emberCharmModifiers(EntityId wearer) => [
         stat: 'punch',
         operation: ModifierOperation.add,
         value: 4,
+        condition: HasTagQuery('martial'),
       ),
     ];
 
 /// A fire trinket whose `Modifier` targets the `'punch'` stat — the
 /// same, arbitrary, caller-chosen stat name MartialArts' `jab`/
-/// `powerCross` already resolve through the Modifier Engine. This is
-/// what lets the cross-plugin synergy (see
-/// `test/integration/cross_plugin_synergy_test.dart`) work with zero
-/// new Rule/Condition code and zero cross-plugin imports: any plugin's
-/// Modifier applies to any action reading the same stat name.
+/// `powerCross` already resolve through the Modifier Engine — and is
+/// gated on `condition: HasTagQuery('martial')`, so it only activates
+/// for an entity another plugin has tagged `'martial'`. This is what
+/// makes the cross-plugin synergy (see
+/// `test/integration/cross_plugin_synergy_test.dart`) genuinely
+/// tag-mediated, not merely a coincidence of two plugins picking the
+/// same stat name: it needs zero new Rule/Condition class and zero
+/// cross-plugin import, and uses the exact same conditional-`Modifier`
+/// pattern `counterstrikeRing` already uses in `martial_item.dart`.
 const emberCharm = ElementalItemDefinition(
   id: 'ember_charm',
   tags: {'magic', 'fire', 'elemental', 'trinket'},

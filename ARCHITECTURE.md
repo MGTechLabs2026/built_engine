@@ -473,14 +473,18 @@ composes cleanly with a real plugin's `initialize`.
 content plugins — neither imports or depends on the other, and neither
 is a dependency of the other in `claude.md`'s sense (only MartialArts's
 existing `-> combat` edge is real). Their one demonstrated synergy uses
-the Modifier Engine alone: `ExampleElementalPlugin`'s `emberCharm`
-registers a `Modifier` against stat `'punch'` — the exact,
+tags and the Modifier Engine together: `ExampleElementalPlugin`'s
+`emberCharm` registers a `Modifier` against stat `'punch'` — the exact,
 arbitrary-caller-chosen `damageStat` MartialArts' `jab`/`powerCross`
-already resolve through `ModifierResolver`. An entity that both
-`learnStyle`s Boxing and `equipElementalItem(emberCharm, ...)` deals
-bonus punch damage with zero new `Rule`/`Condition` code and zero
-cross-plugin import — the same mechanism Shaolin's own iron-body synergy
-already proved, just registered by a different plugin this time.
+already resolve through `ModifierResolver` — gated on
+`condition: HasTagQuery('martial')`, the same conditional-`Modifier`
+pattern `counterstrikeRing` already uses. An entity that both
+`learnStyle`s Boxing (which grants the generic `'martial'` tag) and
+`equipElementalItem(emberCharm, ...)` deals bonus punch damage, with
+zero new `Rule`/`Condition` class and zero cross-plugin import — the
+same mechanism Shaolin's own iron-body synergy already proved, just
+registered by a different plugin and gated on a different plugin's tag
+this time.
 
 `architecture_dependency_test.dart` makes the "neither imports the
 other, Core imports neither" property an automated, CI-enforceable

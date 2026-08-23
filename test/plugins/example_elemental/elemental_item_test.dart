@@ -46,7 +46,19 @@ void main() {
   });
 
   group('equipElementalItem', () {
-    test("registers the item's modifiers against the wearer", () {
+    test("registers the item's modifiers against a martial wearer", () {
+      final context = _newContext();
+      final wearer = context.entities.create();
+      AddTag('martial').apply(context.ruleContextFor(wearer));
+
+      equipElementalItem(emberCharm, wearer, context);
+
+      final active = context.modifiers
+          .activeModifiersFor(wearer, 'punch', context.components);
+      expect(active, hasLength(1));
+    });
+
+    test('the modifier does not apply to a non-martial wearer', () {
       final context = _newContext();
       final wearer = context.entities.create();
 
@@ -54,7 +66,7 @@ void main() {
 
       final active = context.modifiers
           .activeModifiersFor(wearer, 'punch', context.components);
-      expect(active, hasLength(1));
+      expect(active, isEmpty);
     });
 
     test('tags the wearer equipped:<id>', () {
