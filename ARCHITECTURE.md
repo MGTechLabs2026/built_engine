@@ -371,6 +371,81 @@ plugin work, per the spec), any real evolution/learning system consuming
 `TrainingResult` at all — a caller decides what to do with the
 `TrainingResult` it gets back; this module doesn't store one anywhere.
 
+## Evolution System (`lib/src/evolution/`)
+
+The "separate evolution/learning system" the Training Framework section
+above explicitly deferred to — this is what actually interprets a
+`TrainingResult`'s profile into a decision, though even here the decision
+is only *which branch*, never *what that branch means*. Training's own
+boundary holds: `EvolutionResolver` never decides "trainee learned Jab"
+either — it decides "candidate `light_punch` was chosen," a bare content
+id a plugin still has to interpret.
+
+**Reuses existing infrastructure throughout rather than inventing new
+machinery for any part of this** — the instruction driving every design
+choice here:
+
+- Candidate eligibility is the *real* `Condition` interface
+  (`EvolutionCandidate.conditions: List<Condition>`), evaluated against a
+  `RuleContext` the caller already has (typically
+  `pluginContext.ruleContextFor(trainee)`) — not a parallel "requirement"
+  type. `RuleContext.subject` must be the trainee for conditions like
+  `MasteryAtLeast` to gate correctly, the same way any other `Condition`
+  usage already requires.
+- Candidate weighting is the *real* `ModifierResolver`, not a hand-rolled
+  formula: for every tag an `EvolutionCandidate` shares with the
+  `TrainingProfile`'s dimension keys, `EvolutionResolver` builds one
+  ad-hoc `Modifier(operation: multiply, value: 1 + profileScore)` and
+  resolves them all against a base weight of `1.0` via
+  `ModifierResolver().resolve(...)` — the same pipeline every other
+  stat/weight calculation in the engine already uses. A candidate with no
+  matching tags stays at neutral weight `1.0` (an empty modifier set
+  resolves to the identity, the same behavior Physique's own synergy
+  modifiers already rely on). The three `Modifier` fields
+  `ModifierResolver.resolve` never reads (`source`/`target`/`stat`) get
+  fixed placeholder values purely for readability, not because anything
+  consumes them.
+- The weighted pick draws once from `context.rng.nextDouble()` — the
+  *only* randomness anywhere in this module. No second random system;
+  determinism follows directly from `RngService`'s own existing
+  seed-reproducibility guarantee.
+
+**Branching** is just `EvolutionDefinition.candidates: List
+<EvolutionCandidate>`, each candidate's `targetId` an opaque reference to
+another `EvolutionDefinition.id` — a flat, ContentRegistry-style
+cross-reference, not a nested object graph. `EvolutionResolver` never
+looks up what `targetId` resolves to; that's the caller's own content
+registry's job, keeping the resolver fully decoupled from any specific
+storage mechanism. This is what makes the tree recursive to arbitrary
+depth for free: a candidate's target can itself be a full
+`EvolutionDefinition` with its own further candidates.
+
+**No hardcoded content anywhere.** `EvolutionDefinition`/
+`EvolutionCandidate` carry no names — "Light Punch"/"Heavy Punch"/"Fast
+Punch"/"Counter Punch" appear nowhere in this module, only in the test
+suite proving the shape works, exactly per the "the system must NOT
+contain these names" instruction. `tier` is a plain `String`, not an
+enum — `EvolutionTiers` (`basic`/`intermediate`/`advanced`/`master`) is a
+constants class purely to avoid magic strings, mirroring
+`TrainingDimensions`' exact precedent, and is never consulted by any
+resolver logic; a plugin may use tier strings beyond these four freely.
+
+**No new service, no new wiring.** Like the Training Framework, and
+unlike Resource/Progression/Mastery/Discovery/Tome, this pass's own
+"Implement" list has no Service/Tracker/Engine class — `EvolutionResolver`
+is a pure, stateless function of its inputs (mirrors
+`BuildResolver`/`ModifierResolver`'s exact "pure resolver" shape), taking
+an existing `RuleContext` as a plain parameter rather than needing to be
+reachable *from* one. Nothing was added to `PluginContext`/`RuleContext`/
+`RuleEngine` for this pass.
+
+Deliberately not here yet: any actual "apply this result" step (updating
+a `MasteryTracker`/`ProgressionEngine` record, unlocking Tome content,
+...) — `EvolutionResult` is a snapshot; acting on it is the caller's
+job — and any persistence of an evolution tree itself (a plugin's own
+content registry owns that, the same way `targetId` lookup is already
+the caller's responsibility).
+
 ## Integrating EntityRegistry and ComponentStore
 
 Because `ComponentStore` does not know about `EntityRegistry`, component
