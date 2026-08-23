@@ -11,17 +11,6 @@ abstract final class Elements {
   static const lightning = 'lightning';
 }
 
-RuleContext _standaloneContext(EntityId subject, PluginContext context) =>
-    RuleContext(
-      subject: subject,
-      triggerEvent: const Object(),
-      entities: context.entities,
-      components: context.components,
-      events: context.events,
-      rng: context.rng,
-      eventCounts: context.rules.eventCounts,
-    );
-
 /// Grants [entity] the `element:<element>` tag and merges [affinity] into
 /// its `ElementalAffinityComponent` (creating the component if absent,
 /// preserving any other element's existing affinity).
@@ -40,5 +29,5 @@ void attuneToElement(
       element: affinity,
     }),
   );
-  AddTag('element:$element').apply(_standaloneContext(entity, context));
+  AddTag('element:$element').apply(context.ruleContextFor(entity));
 }

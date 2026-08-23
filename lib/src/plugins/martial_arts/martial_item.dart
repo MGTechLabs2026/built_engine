@@ -21,17 +21,6 @@ class MartialItemDefinition {
   static List<Modifier> _noModifiers(EntityId wearer) => const [];
 }
 
-RuleContext _standaloneContext(EntityId subject, PluginContext context) =>
-    RuleContext(
-      subject: subject,
-      triggerEvent: const Object(),
-      entities: context.entities,
-      components: context.components,
-      events: context.events,
-      rng: context.rng,
-      eventCounts: context.rules.eventCounts,
-    );
-
 /// Creates an entity for [item] (carrying its tags), registers its
 /// [MartialItemDefinition.modifiersFor] against [wearer], tags [wearer]
 /// `equipped:<item.id>`, and records the new item entity on [wearer]'s
@@ -47,8 +36,7 @@ EntityId equipItem(
   for (final modifier in item.modifiersFor(wearer)) {
     context.modifiers.add(modifier);
   }
-  final ctx = _standaloneContext(wearer, context);
-  AddTag('equipped:${item.id}').apply(ctx);
+  AddTag('equipped:${item.id}').apply(context.ruleContextFor(wearer));
   final loadout = context.components.get<MartialLoadoutComponent>(wearer);
   context.components.add(
     wearer,

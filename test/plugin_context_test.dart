@@ -37,4 +37,85 @@ void main() {
     expect(context.modifiers, same(modifiers));
     expect(context.content, same(content));
   });
+
+  group('ruleContextFor', () {
+    test('builds a RuleContext wired to this context\'s own services', () {
+      final events = EventBus();
+      final entities = EntityRegistry(events);
+      final components = ComponentStore();
+      final rng = RngService(1);
+      final context = PluginContext(
+        entities: entities,
+        components: components,
+        events: events,
+        rng: rng,
+        rules: RuleEngine(
+          entities: entities,
+          components: components,
+          events: events,
+          rng: rng,
+        ),
+        queries: QueryEngine(QueryScope(components: components)),
+        modifiers: ModifierCollection(),
+        content: ContentRegistry(),
+      );
+      final subject = entities.create();
+
+      final ruleContext = context.ruleContextFor(subject);
+
+      expect(ruleContext.subject, equals(subject));
+      expect(ruleContext.entities, same(entities));
+      expect(ruleContext.components, same(components));
+      expect(ruleContext.events, same(events));
+      expect(ruleContext.rng, same(rng));
+      expect(ruleContext.eventCounts, same(context.rules.eventCounts));
+    });
+
+    test('defaults triggerEvent to a bare marker object', () {
+      final context = PluginContext(
+        entities: EntityRegistry(EventBus()),
+        components: ComponentStore(),
+        events: EventBus(),
+        rng: RngService(1),
+        rules: RuleEngine(
+          entities: EntityRegistry(EventBus()),
+          components: ComponentStore(),
+          events: EventBus(),
+          rng: RngService(1),
+        ),
+        queries: QueryEngine(QueryScope(components: ComponentStore())),
+        modifiers: ModifierCollection(),
+        content: ContentRegistry(),
+      );
+      final subject = context.entities.create();
+
+      final ruleContext = context.ruleContextFor(subject);
+
+      expect(ruleContext.triggerEvent, isA<Object>());
+    });
+
+    test('accepts an explicit triggerEvent', () {
+      final context = PluginContext(
+        entities: EntityRegistry(EventBus()),
+        components: ComponentStore(),
+        events: EventBus(),
+        rng: RngService(1),
+        rules: RuleEngine(
+          entities: EntityRegistry(EventBus()),
+          components: ComponentStore(),
+          events: EventBus(),
+          rng: RngService(1),
+        ),
+        queries: QueryEngine(QueryScope(components: ComponentStore())),
+        modifiers: ModifierCollection(),
+        content: ContentRegistry(),
+      );
+      final subject = context.entities.create();
+      final event = Object();
+
+      final ruleContext = context.ruleContextFor(subject, triggerEvent: event);
+
+      expect(ruleContext.triggerEvent, same(event));
+    });
+  });
 }

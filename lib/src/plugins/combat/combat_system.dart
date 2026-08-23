@@ -94,7 +94,7 @@ class CombatSystem {
       ActionStarted(battle, action.actor, action.targets, action),
     );
 
-    final actorContext = _ruleContextFor(action.actor, action);
+    final actorContext = _context.ruleContextFor(action.actor, triggerEvent: action);
     final conditionsPass = action.conditions
         .every((condition) => condition.evaluate(actorContext));
 
@@ -105,7 +105,8 @@ class CombatSystem {
           effect.apply(actorContext);
         }
         for (final target in action.targets) {
-          final targetContext = _ruleContextFor(target, action);
+          final targetContext =
+              _context.ruleContextFor(target, triggerEvent: action);
           for (final effect in action.effectsFor(target, _context)) {
             effect.apply(targetContext);
           }
@@ -124,17 +125,6 @@ class CombatSystem {
 
     _advanceTurn(battle);
   }
-
-  RuleContext _ruleContextFor(EntityId subject, Object triggerEvent) =>
-      RuleContext(
-        subject: subject,
-        triggerEvent: triggerEvent,
-        entities: _context.entities,
-        components: _context.components,
-        events: _context.events,
-        rng: _context.rng,
-        eventCounts: _context.rules.eventCounts,
-      );
 
   void _advanceTurn(EntityId battle) {
     final state = _context.components.get<CombatStateComponent>(battle);
