@@ -294,3 +294,42 @@ resolution through a `RuleContext`-carried `ModifierCollection`, which
 would have cascaded into extending `RuleEngine`'s constructor too — the
 final design resolves modifiers directly against `PluginContext` instead,
 inside `CombatAction.effectsFor`, avoiding that cascade entirely.
+
+## MartialArts — the first content plugin (`lib/src/plugins/martial_arts/`, `lib/martial_arts_plugin.dart`)
+
+MartialArts is the first plugin to depend on another plugin
+(`dependencies => ['combat']`, per `claude.md`'s `MartialArts -> Combat ->
+Core`) rather than sitting directly on Core, and the first proof that a
+content plugin can add cross-entity combat behavior without Combat
+exposing anything new. Two mechanics needed a genuine design decision:
+Shaolin's damage mitigation and Tai Chi's counter both sound like they
+need to intercept an incoming attack, but `AttackAction`/`Damage` only
+resolve the *attacker's* modifiers and `EntityDamaged` carries no attacker
+reference — closing either gap would mean editing Combat. Instead both
+react to Combat's already-public events: Shaolin's mitigation is a `Rule`
+on `EntityDamaged` (a heal-back, not a block), and Tai Chi's counter is a
+`Rule` on `ActionCompleted` (which always carries `actor` *and* `targets`,
+letting a custom `Condition` — `TaiChiCounterCondition` — redirect damage
+onto whoever the attacker was, even a plain core `AttackAction` from a
+martial-arts-unaware entity). Boxing's momentum generation needed neither:
+it's a flat `costEffects: [ModifyResource('momentum', +N)]` on the
+attacking technique itself.
+
+Styles (`boxing`/`shaolin`/`taiChi`) are marker tags, not components,
+granted by `learnStyle` — which also, for Shaolin specifically, registers
+a permanent conditional `Modifier` (`condition: HasTagQuery('stance:iron_body')`)
+that lets a defensive stance boost offense purely through the Modifier
+Engine. One `MartialTechniqueAction extends CombatAction` class (mirroring
+`AttackAction`) covers all 6 techniques and 3 stances via data; one
+`MartialItemDefinition` class covers all 5 items and 3 trinkets — trinkets
+are simply the items whose behavior comes from a `Rule` reacting to their
+`equipped:<id>` tag rather than a static `Modifier`.
+
+`MartialArtsPlugin` never holds a reference to `CombatPlugin`/
+`CombatSystem` — only to Combat's event *vocabulary*, reached through the
+shared `RuleEngine` every plugin gets via `PluginContext`. It captures
+every `EventSubscription` its 4 rules return at `initialize` and cancels
+them all at `unregister`, mirroring `CombatPlugin`'s own teardown — proven
+by an integration test that unregisters `MartialArtsPlugin` mid-session
+and confirms Combat keeps running normally and MartialArts' rules stop
+firing.
