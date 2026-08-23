@@ -315,4 +315,54 @@ void main() {
       );
     });
   });
+
+  group('placement inspection', () {
+    test('placedItems lists every currently placed item', () {
+      final container = Container.namedSlots(['head', 'weapon', 'feet']);
+      const head = EntityId(1);
+      const weapon = EntityId(2);
+      container.place(head, const SlotId('head'));
+      container.place(weapon, const SlotId('weapon'));
+
+      expect(container.placedItems, unorderedEquals([head, weapon]));
+    });
+
+    test('anchorOf returns the slot an item was placed at', () {
+      final container = Container.namedSlots(['head', 'weapon']);
+      const item = EntityId(1);
+      container.place(item, const SlotId('weapon'));
+
+      expect(container.anchorOf(item), equals(const SlotId('weapon')));
+    });
+
+    test('anchorOf returns null for an item not in this container', () {
+      final container = Container.namedSlots(['head']);
+      expect(container.anchorOf(const EntityId(99)), isNull);
+    });
+
+    test('sizeOf/rotationOf return what an item was placed with', () {
+      final container = Container.grid(3, 3);
+      const item = EntityId(1);
+      container.place(
+        item,
+        const SlotId('0,0'),
+        size: const ItemSize(2, 1),
+        rotation: Rotation.deg90,
+      );
+
+      expect(container.sizeOf(item), equals(const ItemSize(2, 1)));
+      expect(container.rotationOf(item), equals(Rotation.deg90));
+    });
+
+    test('sizeOf/rotationOf/anchorOf all return null after removal', () {
+      final container = Container.grid(2, 2);
+      const item = EntityId(1);
+      container.place(item, const SlotId('0,0'));
+      container.remove(item);
+
+      expect(container.sizeOf(item), isNull);
+      expect(container.rotationOf(item), isNull);
+      expect(container.anchorOf(item), isNull);
+    });
+  });
 }

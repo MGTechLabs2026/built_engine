@@ -68,6 +68,24 @@ class Container implements ContainerView {
   /// Entity-to-container membership — the `ContainedBy` spatial query.
   bool contains(EntityId item) => _placements.containsKey(item);
 
+  /// Every item currently placed in this container. Returns an
+  /// unmodifiable snapshot, not a live view.
+  Iterable<EntityId> get placedItems => List.unmodifiable(_placements.keys);
+
+  /// The slot [item] was anchored at, or `null` if [item] isn't in this
+  /// container. Unlike [positionOf], this is never `null` merely because
+  /// the slot is position-less (a named slot) — it reports the anchor id
+  /// either way.
+  SlotId? anchorOf(EntityId item) => _placements[item]?.anchor;
+
+  /// The [ItemSize] [item] was placed with, or `null` if [item] isn't in
+  /// this container.
+  ItemSize? sizeOf(EntityId item) => _placements[item]?.size;
+
+  /// The [Rotation] [item] was placed with, or `null` if [item] isn't in
+  /// this container.
+  Rotation? rotationOf(EntityId item) => _placements[item]?.rotation;
+
   /// Whether [item] could be placed at [anchor] with [size]/[rotation],
   /// checking [WithinBounds], [NoCollision], and every rule in
   /// [extraRules]. Never throws.

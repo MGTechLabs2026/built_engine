@@ -13,6 +13,7 @@ import '../resource/resource_pool.dart';
 import '../rng/rng_service.dart';
 import '../rule/rule_context.dart';
 import '../rule/rule_engine.dart';
+import '../tome/tome_service.dart';
 
 /// The controlled access every plugin lifecycle method receives. Exposes
 /// every core service that exists so far.
@@ -40,6 +41,7 @@ class PluginContext {
     MasteryTracker? mastery,
     ProgressionEngine? progression,
     DiscoveryTracker? discovery,
+    TomeService? tome,
   }) {
     final sharedMastery =
         mastery ?? MasteryTracker(components: components, events: events);
@@ -59,6 +61,7 @@ class PluginContext {
       progression: progression ??
           ProgressionEngine(components: components, events: events, mastery: sharedMastery),
       discovery: discovery ?? DiscoveryTracker(components: components, events: events),
+      tome: tome ?? TomeService(entities: entities, components: components),
     );
   }
 
@@ -76,6 +79,7 @@ class PluginContext {
     required this.mastery,
     required this.progression,
     required this.discovery,
+    required this.tome,
   });
 
   final EntityRegistry entities;
@@ -91,6 +95,7 @@ class PluginContext {
   final MasteryTracker mastery;
   final ProgressionEngine progression;
   final DiscoveryTracker discovery;
+  final TomeService tome;
 }
 
 /// Constructs a standalone [RuleContext] for evaluating a [Condition] or

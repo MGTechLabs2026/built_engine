@@ -184,6 +184,123 @@ capability of this module only — a plain, stable-ID-based structure
 Serialization service `claude.md` describes (engine version, RNG state,
 etc.), which remains a separate future pass.
 
+**Later addendum (Tome pass):** `placedItems`, `anchorOf(item)`,
+`sizeOf(item)`, `rotationOf(item)` were added — small, generic,
+purely-additive getters (no existing method's signature changed)
+mirroring `positionOf`'s exact shape, filling a real gap: nothing
+previously let a caller enumerate every current placement or read back
+what an item was placed with. Needed for the Tome/Build system's
+`inspect` operation, but not Tome-specific — any future `Container`
+consumer wanting an inventory-style listing needs the same capability.
+
+## Tome/Build system (`lib/src/tome/`)
+
+The first real consumer of `Container` beyond its own tests, proving
+`claude.md`'s own worked example (Backpack, Tome, Weapon Rack, Equipment
+Board are "just a different factory call plus its own content") true —
+`TomeDefinition` builds directly on `Container.grid`/`Container
+.namedSlots`, no `TomeGrid`/`BackpackGrid` subclass anywhere.
+
+**The Tome is not an inventory — it's an active build configuration.**
+`Tome -> placements -> build resolution -> ActiveBuild -> Combat` is a
+one-way data flow, not an import dependency: Combat never inspects a
+Tome directly, it only ever consumes the `ActiveBuild` snapshot handed to
+it, and (being Core) `lib/src/tome/` structurally cannot import any
+plugin at all — `test/integration/architecture_dependency_test.dart`'s
+group H already enumerates every Core directory dynamically, so
+`lib/src/tome` was automatically covered by the existing "Core doesn't
+import content plugins" governance check the moment the directory
+existed, with zero new test code needed.
+
+**What a Tome slot holds.** `BuildComponentRef {referenceType,
+contentId}` is an opaque reference — `'item'`/`'iron_sword'`,
+`'technique'`/`'jab'`, `'modifier'`/`'ember_charm_mod'`,
+`'tag'`/`'martial'` — Core never interprets either field, the same
+opacity `ContentDefinition.type` already has. It doubles as its own ECS
+component (no redundant wrapper): `TomeService.insert` creates a fresh
+throwaway `EntityId` for each placement, attaches the `BuildComponentRef`
+to it, and hands that id to `Container.place` — `Container` tracks only
+*where* that placeholder sits, never what it means, exactly as
+`Container`'s own docs already promise. There is deliberately no
+`TomeSlot` class: a Tome's slot vocabulary is `Slot`/`SlotId` from
+`lib/src/spatial/`, reused directly rather than duplicated under a new
+name.
+
+**Definition vs. instance.** `TomeDefinition` (`id`, a
+`Container Function()` closure built via `Container.grid`/`.namedSlots`,
+and `extraPlacementRules: List<PlacementRule>` — the same extension point
+`Container` already offers) is registered once via
+`TomeService.defineTome`, shape-only, no owner. `TomeInstance`
+(`definitionId`, `container`) is the per-owner live state,
+`ComponentStore`-attached exactly like any other component — lives under
+`lib/src/tome/` rather than `lib/src/components/`, the same placement
+choice `CharacterComponent` made for the same reason (it's this
+subsystem's own vocabulary, not one of the generic cross-cutting base
+components).
+
+**`TomeService`** (constructed from `entities`+`components` only — no
+`events`, since this pass deliberately adds no event vocabulary; not
+requested, and easy to add later without a breaking change) provides the
+full requested operation set:
+
+- `defineTome`/`createTome`/`tomeOf`
+- `validate` — pure `Container.canPlace` check, using a private
+  sentinel `EntityId(-1)` as the placement-preview identity (`Entity
+  Registry` only ever allocates positive, sequential ids, so `-1` can
+  never collide with a real entity) — never mutates, never throws, safe
+  to call repeatedly for a UI placement preview.
+- `insert` — creates the placeholder entity, attempts `container.place`;
+  on `InvalidPlacementException` the placeholder is destroyed and its
+  component removed before rethrowing, so a failed insert leaves nothing
+  behind. Throws `StateError` if the owner has no Tome at all (a
+  genuinely different situation from "nothing to act on" — there is no
+  valid interpretation of inserting into a Tome that was never created).
+- `remove` — removes from `Container` *and* destroys the placeholder
+  entity, full symmetric cleanup; safe because `TomeService` is the sole
+  owner of these placeholder entities end to end, the same reasoning
+  `CharacterService`'s self-cleanup already established. A no-op (not a
+  throw) for an empty slot or a missing Tome, mirroring `Container
+  .remove`'s own permissive convention.
+- `move` — re-reads the existing placement's size/rotation via the new
+  `Container` getters so a move never silently reverts to a default 1x1
+  footprint; `Container.move`'s own atomicity (unchanged on failure)
+  carries through unchanged.
+- `replace` — implemented as `remove` then `insert`, reusing both
+  directly rather than a third mutation path; preserves the prior
+  occupant's size/rotation if there was one.
+- `inspect` — the full `List<TomePlacement>` (`slot`, `buildComponentRef`,
+  `size`, `rotation`) for an owner, built from the new `Container`
+  getters plus each placeholder's attached `BuildComponentRef`.
+- `resolve` — `BuildResolver.resolve(owner, inspect(owner))`.
+
+**`BuildResolver`** is a pure function with no storage dependency,
+mirroring `ModifierResolver`'s existing "pure function, no state" shape
+exactly — calling it twice with the same placements (same order) always
+yields the same `ActiveBuild`, so build resolution is deterministic for
+free; no `RngService` involved anywhere in this module. **`ActiveBuild`**
+(`owner`, `components: List<BuildComponentRef>`) deliberately discards
+slot/size/rotation — spatial layout is a Tome/UI concern, `ActiveBuild`
+only carries *what* is active, which is all Combat (or anything else)
+should ever need to consume.
+
+**Wiring.** `TomeService` is reachable only via `PluginContext.tome` — it
+was *not* threaded through `RuleContext`/`RuleEngine`, unlike every
+service added in the Resource/Progression/Mastery/Discovery passes,
+because this pass requested no Condition/Effect integration at all. A
+plain optional `tome` parameter defaulting to a fresh `TomeService` was
+enough; no factory-constructor sharing subtlety was needed (`TomeService`
+depends on nothing else already defaulted, and nothing else depends on
+it).
+
+Deliberately not here yet: any event vocabulary (`TomePlacementChanged`
+and similar were considered and dropped — not requested, and CLAUDE.md's
+IMPLEMENTATION STYLE section warns against speculative abstractions) and
+any automatic cleanup of a Tome (or its placeholder entities) on the
+owner's `EntityDestroyed` — the general documented convention, left as
+the caller's responsibility, the same choice already made for
+`ResourceComponent`/`ProgressionComponent`(-now-removed)/`MasteryComponent`/
+`DiscoveryComponent`.
+
 ## Integrating EntityRegistry and ComponentStore
 
 Because `ComponentStore` does not know about `EntityRegistry`, component
