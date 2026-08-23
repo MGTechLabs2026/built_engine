@@ -275,7 +275,7 @@ MartialArts' rules compose `Heal`/`Damage`.
 
 ```
 WHEN EntityDamaged
-IF subject HasTag('status:soaked')
+IF subject StatusActive('status:soaked')
 THEN ApplyElementalStatus('lightning')
 ```
 
