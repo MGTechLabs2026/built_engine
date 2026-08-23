@@ -10,7 +10,7 @@ const elementalContentDefinitions = <Map<String, dynamic>>[
   {
     'id': 'fireball',
     'type': 'spell',
-    'tags': ['element:fire', 'attack'],
+    'tags': ['element:fire', 'attack', 'magic', 'fire', 'elemental', 'spell'],
     'components': {
       'cost': {'resource': ElementalResources.mana, 'amount': 4},
     },

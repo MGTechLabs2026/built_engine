@@ -46,6 +46,12 @@ class ExampleElementalPlugin extends GamePlugin {
         description: 'Water-aligned entity or content.');
     sdk.registerTag('element:lightning',
         description: 'Lightning-aligned entity or content.');
+    sdk.registerTag('magic', description: 'Magic-sourced entity or content.');
+    sdk.registerTag('fire',
+        description: 'Fire-flavored entity or content (see also element:fire).');
+    sdk.registerTag('elemental',
+        description: 'Elemental-sourced entity or content.');
+    sdk.registerTag('spell', description: 'A castable magic spell.');
 
     for (final rule in buildElementalRules()) {
       sdk.registerRule(rule);
