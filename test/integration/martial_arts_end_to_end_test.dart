@@ -120,18 +120,19 @@ void main() {
 
     // Activate Iron Body Stance directly (bypassing turn machinery — this
     // test targets the mechanic in isolation).
-    ironBodyStance(actor: entity, targets: [entity])
-        .effectsFor(entity, context)
-        .single
-        .apply(RuleContext(
-          subject: entity,
-          triggerEvent: const Object(),
-          entities: context.entities,
-          components: context.components,
-          events: context.events,
-          rng: context.rng,
-          eventCounts: context.rules.eventCounts,
-        ));
+    final ironBodyRuleContext = RuleContext(
+      subject: entity,
+      triggerEvent: const Object(),
+      entities: context.entities,
+      components: context.components,
+      events: context.events,
+      rng: context.rng,
+      eventCounts: context.rules.eventCounts,
+    );
+    for (final effect in ironBodyStance(actor: entity, targets: [entity])
+        .effectsFor(entity, context)) {
+      effect.apply(ironBodyRuleContext);
+    }
 
     // Now boosted by the +4 synergy modifier: 8 + 4 = 12.
     final boosted = palmStrike(actor: entity, targets: [target])
@@ -155,18 +156,19 @@ void main() {
     final defender = context.entities.create();
     context.components.add(defender, ResourceComponent({'qi': 10}));
     learnStyle(defender, MartialStyles.taiChi, context);
-    yieldingStance(actor: defender, targets: [defender])
-        .effectsFor(defender, context)
-        .single
-        .apply(RuleContext(
-          subject: defender,
-          triggerEvent: const Object(),
-          entities: context.entities,
-          components: context.components,
-          events: context.events,
-          rng: context.rng,
-          eventCounts: context.rules.eventCounts,
-        ));
+    final yieldingRuleContext = RuleContext(
+      subject: defender,
+      triggerEvent: const Object(),
+      entities: context.entities,
+      components: context.components,
+      events: context.events,
+      rng: context.rng,
+      eventCounts: context.rules.eventCounts,
+    );
+    for (final effect in yieldingStance(actor: defender, targets: [defender])
+        .effectsFor(defender, context)) {
+      effect.apply(yieldingRuleContext);
+    }
 
     final attacker = context.entities.create();
     context.components.add(attacker, const HealthComponent(current: 100, max: 100));

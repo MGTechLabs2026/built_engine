@@ -206,7 +206,9 @@ void main() {
 
       expect(action.conditions.every((c) => c.evaluate(ruleContext)), isTrue);
       final effects = action.effectsFor(actor, context);
-      expect(effects.single, isA<AddTag>());
+      expect(effects, hasLength(2));
+      expect(effects.whereType<AddTag>(), hasLength(1));
+      expect(effects.whereType<ModifyResource>(), hasLength(1));
     });
 
     test('yieldingStance requires qi above 2 and grants stance:tai_chi', () {
@@ -227,7 +229,9 @@ void main() {
 
       expect(action.conditions.every((c) => c.evaluate(ruleContext)), isTrue);
       final effects = action.effectsFor(actor, context);
-      expect(effects.single, isA<AddTag>());
+      expect(effects, hasLength(2));
+      expect(effects.whereType<AddTag>(), hasLength(1));
+      expect(effects.whereType<ModifyResource>(), hasLength(1));
     });
   });
 

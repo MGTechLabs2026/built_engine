@@ -2,6 +2,7 @@ import 'package:build_engine/build_engine.dart';
 
 import 'martial_arts_rules.dart';
 import 'martial_loadout_component.dart';
+import 'martial_technique_content.dart';
 
 /// MartialArts as an ordinary plugin: styles, techniques, stances, items,
 /// and trinkets, expressed entirely through Combat's and Core's public
@@ -31,6 +32,12 @@ class MartialArtsPlugin extends GamePlugin {
     sdk.registerComponentCleanup<MartialLoadoutComponent>();
     for (final rule in buildMartialArtsRules()) {
       sdk.registerRule(rule);
+    }
+    // ContentRegistry has no unload operation, so content loaded here
+    // outlives unregister — guard against loading it twice if this
+    // plugin is initialize()d again on the same context afterward.
+    if (context.content.find('jab') == null) {
+      sdk.registerContentBatch(martialTechniqueContentDefinitions);
     }
   }
 

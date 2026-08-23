@@ -334,6 +334,36 @@ by an integration test that unregisters `MartialArtsPlugin` mid-session
 and confirms Combat keeps running normally and MartialArts' rules stop
 firing.
 
+**Later addendum (`martial_technique_content.dart`):** an architecture
+audit (`ARCHITECTURE_AUDIT.md`) flagged the 9 techniques/stances above as
+hardcoded Dart, since `ContentRegistry` postdates this plugin. They were
+migrated to data — `martialTechniqueContentDefinitions`, loaded into the
+real `PluginContext.content` via `PluginSdk.registerContentBatch` in
+`MartialArtsPlugin.initialize`, exactly like `ExampleElementalPlugin`'s
+spells. `MartialTechniqueAction` itself stayed hand-written Dart — it
+has to, since resolving `baseDamage` against the actor's *current*
+modifiers at execution time isn't expressible as a static, load-time
+`Effect` list. The one design trick: a technique's `effects` list means
+"what this does to its actor" for *either* shape — for an attack
+technique that becomes `costEffects` (paid once before the damage
+lands); for a stance (no `baseDamage`) it becomes `selfEffects` instead
+(the point of a self-targeted technique) — see
+`martialTechniqueFromDefinition`. This needed zero `ContentRegistry`
+changes. The 9 original factory functions (`jab()`, `powerCross()`, ...)
+keep their exact call shape for backward compatibility — each parses
+`martialTechniqueContentDefinitions` through a fresh, throwaway
+`ContentRegistry` on every call rather than a persistent module-level
+one, deliberately: a persistent private registry would be exactly the
+singleton pattern this same audit checked the engine for and confirmed
+absent everywhere else.
+
+The 8 items/trinkets (`martial_item.dart`) were **not** migrated — their
+payload is `Modifier` objects (`operation`/`priority`/`duration`/
+`condition`), which isn't part of `ContentRegistry`'s vocabulary at all.
+Migrating them would mean either extending Core with a new "modifier
+factory" concept or a meaningfully riskier plugin-local JSON→`Modifier`
+parser; left for a future, separately-designed pass.
+
 ## Content Registry — the engine's Asset/Data Registry (`lib/src/content/`)
 
 `ContentRegistry` is core service #12 from `claude.md`: the mechanism

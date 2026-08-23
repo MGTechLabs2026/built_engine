@@ -70,4 +70,15 @@ void main() {
     expect(context.components.get<ElementalAffinityComponent>(entity),
         isNotNull);
   });
+
+  test('re-initializing on the same context does not throw '
+      'ContentDuplicateIdException', () {
+    final context = _newContext();
+    final plugin = ExampleElementalPlugin();
+    plugin.initialize(context);
+    plugin.unregister(context);
+
+    expect(() => plugin.initialize(context), returnsNormally);
+    expect(context.content.get('fireball').type, equals('spell'));
+  });
 }

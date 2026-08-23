@@ -51,7 +51,12 @@ class ExampleElementalPlugin extends GamePlugin {
       sdk.registerRule(rule);
     }
 
-    sdk.registerContentBatch(elementalContentDefinitions);
+    // ContentRegistry has no unload operation, so content loaded here
+    // outlives unregister — guard against loading it twice if this
+    // plugin is initialize()d again on the same context afterward.
+    if (context.content.find('fireball') == null) {
+      sdk.registerContentBatch(elementalContentDefinitions);
+    }
   }
 
   /// Mirrors [initialize]: cancels every subscription taken out there —
