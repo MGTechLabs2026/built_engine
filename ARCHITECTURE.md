@@ -364,6 +364,52 @@ Migrating them would mean either extending Core with a new "modifier
 factory" concept or a meaningfully riskier plugin-local JSON→`Modifier`
 parser; left for a future, separately-designed pass.
 
+## Character — the generic run-state identity (`lib/src/character/`)
+
+`CharacterComponent` is deliberately empty — no name, no seed, no stats.
+Its presence on an entity *is* the identity signal; anything queryable
+about "is this a character" goes through the existing generic
+`HasComponentQuery<CharacterComponent>()`, no new query type needed. This
+follows `TagSet`'s own minimalism and avoids inventing identity vocabulary
+(a name, a seed) that later plugins may want to shape differently — a
+`Player`/`Hero`/`Fighter`-style class would violate `claude.md`'s entity
+model outright, and even a bespoke identity component would be more than
+the engine currently needs.
+
+`CharacterService` is Core, not a plugin — the same precedent
+`Container`/`ContentRegistry` already set (both are Core modules despite
+`claude.md`'s plugin-type table naming "Container" as infrastructure),
+because every future content plugin this pass anticipates (Physique,
+resources, item mastery, learned techniques, Tome, progression, combat
+state) depends on Character, not the other way around. `create()` calls
+`EntityRegistry.create()` (sequential, deterministic — no `RngService`
+involved, since nothing about a bare character's identity is random) and
+publishes `CharacterCreated`, mirroring `EntityCreated`/`EntityDestroyed`'s
+shape exactly.
+
+Unlike the general `ComponentStore` cleanup convention documented above
+(each caller subscribes to `EntityDestroyed` for the component types it
+knows about), `CharacterService`'s constructor subscribes to
+`EntityDestroyed` itself and removes `CharacterComponent` automatically —
+safe here specifically because one Core service owns this one Core
+component end-to-end, unlike `TagSet` or other components multiple
+plugins might independently touch.
+
+`PluginContext` grew a `characters` field (`CharacterService`), defaulted
+in the constructor's initializer list to a fresh `CharacterService` built
+from the same `entities`/`components`/`events` already passed in, when the
+caller doesn't supply one explicitly — so none of the existing call sites
+that construct `PluginContext` directly needed to change. This is also why
+`PluginContext`'s constructor is no longer `const`: the default expression
+constructs a real object, and no call site actually invoked it with the
+`const` keyword to begin with.
+
+Deliberately not here yet: items, techniques, Tome, training, and any
+martial-arts vocabulary — those are separate future passes, each needing
+its own component(s) attached to the same character entity, exactly the
+way `PhysiqueComponent`/`ElementalAffinityComponent` already attach onto
+whatever entity holds them.
+
 ## Content Registry — the engine's Asset/Data Registry (`lib/src/content/`)
 
 `ContentRegistry` is core service #12 from `claude.md`: the mechanism

@@ -1,3 +1,4 @@
+import '../character/character_service.dart';
 import '../component/component_store.dart';
 import '../content/content_registry.dart';
 import '../entity/entity_id.dart';
@@ -12,7 +13,7 @@ import '../rule/rule_engine.dart';
 /// The controlled access every plugin lifecycle method receives. Exposes
 /// every core service that exists so far.
 class PluginContext {
-  const PluginContext({
+  PluginContext({
     required this.entities,
     required this.components,
     required this.events,
@@ -21,7 +22,13 @@ class PluginContext {
     required this.queries,
     required this.modifiers,
     required this.content,
-  });
+    CharacterService? characters,
+  }) : characters = characters ??
+            CharacterService(
+              entities: entities,
+              components: components,
+              events: events,
+            );
 
   final EntityRegistry entities;
   final ComponentStore components;
@@ -31,6 +38,7 @@ class PluginContext {
   final QueryEngine queries;
   final ModifierCollection modifiers;
   final ContentRegistry content;
+  final CharacterService characters;
 }
 
 /// Constructs a standalone [RuleContext] for evaluating a [Condition] or
