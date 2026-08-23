@@ -30,3 +30,7 @@ doc/api/
 
 # Local git worktrees used for isolated feature work
 .worktrees/
+
+# Subagent-driven-development scratch workspace (ledgers, dispatch
+# prompts, hermes logs/usage) — never part of the shipped source.
+.superpowers/
