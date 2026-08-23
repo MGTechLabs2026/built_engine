@@ -1,10 +1,9 @@
 import '../entity/entity_id.dart';
-import '../entity/entity_registry.dart';
 import '../rule/condition.dart';
 import '../rule/effect.dart';
-import '../rule/effect_events.dart';
 import '../rule/rule.dart';
 
+import 'built_in_content_factories.dart';
 import 'content_definition.dart';
 import 'content_errors.dart';
 import 'json_helpers.dart';
@@ -25,9 +24,7 @@ class _TriggerDescriptor {
 /// the full design.
 class ContentRegistry {
   ContentRegistry() {
-    _registerBuiltInEffectFactories();
-    _registerBuiltInConditionFactories();
-    _registerBuiltInTriggers();
+    registerBuiltInContentFactories(this);
   }
 
   final Map<String, EffectFactory> _effectFactories = {};
@@ -292,63 +289,5 @@ class ContentRegistry {
       }
     }
     return effects;
-  }
-
-  void _registerBuiltInEffectFactories() {
-    registerEffectFactory(
-        'damage', (p) => Damage(ContentField.requireNum(p, 'amount')));
-    registerEffectFactory(
-        'heal', (p) => Heal(ContentField.requireNum(p, 'amount')));
-    registerEffectFactory(
-        'modifyStat',
-        (p) => ModifyStat(ContentField.requireString(p, 'stat'),
-            ContentField.requireNum(p, 'delta')));
-    registerEffectFactory(
-        'modifyResource',
-        (p) => ModifyResource(ContentField.requireString(p, 'resource'),
-            ContentField.requireNum(p, 'delta')));
-    registerEffectFactory('applyStatus',
-        (p) => ApplyStatus(ContentField.requireString(p, 'status')));
-    registerEffectFactory('removeStatus',
-        (p) => RemoveStatus(ContentField.requireString(p, 'status')));
-    registerEffectFactory(
-        'addTag', (p) => AddTag(ContentField.requireString(p, 'tag')));
-    registerEffectFactory(
-        'removeTag', (p) => RemoveTag(ContentField.requireString(p, 'tag')));
-    registerEffectFactory('createEntity',
-        (p) => CreateEntity(tags: ContentField.optionalStringSet(p, 'tags')));
-    registerEffectFactory('destroyEntity', (p) => const DestroyEntity());
-    registerEffectFactory('transformEntity',
-        (p) => TransformEntity(ContentField.optionalStringSet(p, 'tags')));
-  }
-
-  void _registerBuiltInConditionFactories() {
-    registerConditionFactory(
-        'hasTag', (p) => HasTag(ContentField.requireString(p, 'tag')));
-    registerConditionFactory(
-        'resourceAbove',
-        (p) => ResourceAbove(ContentField.requireString(p, 'resource'),
-            ContentField.requireNum(p, 'threshold')));
-    registerConditionFactory(
-        'resourceBelow',
-        (p) => ResourceBelow(ContentField.requireString(p, 'resource'),
-            ContentField.requireNum(p, 'threshold')));
-    registerConditionFactory('healthBelow',
-        (p) => HealthBelow(ContentField.requireNum(p, 'threshold')));
-    registerConditionFactory('statusActive',
-        (p) => StatusActive(ContentField.requireString(p, 'status')));
-    registerConditionFactory(
-        'randomChance',
-        (p) =>
-            RandomChance(ContentField.requireNum(p, 'probability').toDouble()));
-  }
-
-  void _registerBuiltInTriggers() {
-    registerTrigger('EntityDamaged', EntityDamaged, (e) => (e as EntityDamaged).id);
-    registerTrigger('EntityHealed', EntityHealed, (e) => (e as EntityHealed).id);
-    registerTrigger('EntityKilled', EntityKilled, (e) => (e as EntityKilled).id);
-    registerTrigger('EntityCreated', EntityCreated, (e) => (e as EntityCreated).id);
-    registerTrigger(
-        'EntityDestroyed', EntityDestroyed, (e) => (e as EntityDestroyed).id);
   }
 }
