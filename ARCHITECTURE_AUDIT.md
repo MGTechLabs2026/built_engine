@@ -10,7 +10,11 @@ outside `RngService`, static/global mutable state, and hardcoded
 plugin-id special-casing; line-by-line reading of every component class,
 `CombatSystem`, `ContentRegistry`, `PluginSdk`, and every plugin's rule/
 condition/effect files.
-**Status:** No code changes made. This is a report only, per the request.
+**Status:** All findings and both additional observations have since
+been fixed, per approval to "fix everything." See **Resolution Log**
+below for what changed and which commit did it. The findings sections
+below are left as originally written (the point-in-time report) with a
+"Status" line added to each.
 
 ## Summary
 
@@ -20,7 +24,8 @@ duplicated helper, two classes carrying more responsibility than ideal),
 and one is a soft inconsistency (MartialArts predates `ContentRegistry`
 and hasn't been migrated to it). A short "Additional Observations"
 section at the end notes two smaller things outside the 15 requested
-categories, found along the way.
+categories, found along the way. **All of it has since been fixed** —
+see the Resolution Log.
 
 | # | Category | Result |
 |---|---|---|
@@ -30,12 +35,12 @@ categories, found along the way.
 | 4 | Plugins accessing private implementation of other plugins | ✅ No violations |
 | 5 | Circular dependencies | ✅ No violations |
 | 6 | Hardcoded item combinations | ✅ No violations |
-| 7 | Hardcoded content | ⚠️ 1 finding (Medium) |
+| 7 | Hardcoded content | ⚠️ 1 finding (Medium) → ✅ Fixed |
 | 8 | Global mutable state | ✅ No violations |
 | 9 | Gameplay randomness bypassing RNGService | ✅ No violations |
 | 10 | Components containing excessive gameplay logic | ✅ No violations |
-| 11 | God classes | ⚠️ 2 findings (Medium, Low) |
-| 12 | Duplicate engine functionality inside plugins | ⚠️ 1 finding (Medium) |
+| 11 | God classes | ⚠️ 2 findings (Medium, Low) → ✅ Fixed |
+| 12 | Duplicate engine functionality inside plugins | ⚠️ 1 finding (Medium) → ✅ Fixed |
 | 13 | Direct cross-plugin calls that should use events/interfaces | ✅ No violations |
 | 14 | Domain-specific concepts leaking into Core | ✅ No violations |
 | 15 | Serialization depending on runtime implementation classes | ✅ No violations |
@@ -122,7 +127,7 @@ contains an `if (id == 'x' && id2 == 'y')`-shaped combination check.
 
 ## 7. Hardcoded content
 
-**Finding (Medium).**
+**Finding (Medium). Status: ✅ Fixed** — see Resolution Log, item 4.
 
 - **File:** `lib/src/plugins/martial_arts/martial_item.dart`
 - **Lines:** 72–177 (`brassKnuckles` through `martialTrinkets`)
@@ -213,7 +218,8 @@ into `EventBus`/`RuleEngine`.
 
 ## 11. God classes
 
-**Finding (Medium): `ContentRegistry`.**
+**Finding (Medium): `ContentRegistry`. Status: ✅ Fixed** — see
+Resolution Log, item 2.
 
 - **File:** `lib/src/content/content_registry.dart`
 - **Lines:** 26–354 (whole class)
@@ -238,7 +244,9 @@ into `EventBus`/`RuleEngine`.
   `_ContentParser` class that `ContentRegistry` delegates to — leaving
   `ContentRegistry` itself as storage + lookup + orchestration only.
 
-**Finding (Low): `CombatSystem`.**
+**Finding (Low): `CombatSystem`. Status: not changed** — this finding's
+own recommended fix said "no urgent action," and the fix-everything pass
+left it as-is; still worth a future look if `CombatSystem` grows further.
 
 - **File:** `lib/src/plugins/combat/combat_system.dart`
 - **Lines:** 17–267 (whole class)
@@ -261,7 +269,9 @@ into `EventBus`/`RuleEngine`.
 
 ## 12. Duplicate engine functionality inside plugins
 
-**Finding (Medium).**
+**Finding (Medium). Status: ✅ Fixed** — see Resolution Log, item 1.
+(The fix also caught a 4th copy of this same duplication, in
+`martial_styles.dart`, missed by the original audit — see the log.)
 
 - **Files:**
   - `lib/src/plugins/martial_arts/martial_item.dart:24-33`
@@ -365,7 +375,8 @@ These aren't part of the requested checklist but were noticed during
 the audit and are worth recording.
 
 **A. `CombatPlugin`/`MartialArtsPlugin` never clean up their own
-components on `EntityDestroyed`.** `CombatStateComponent`/
+components on `EntityDestroyed`. Status: ✅ Fixed** — see Resolution
+Log, item 3. `CombatStateComponent`/
 `CombatantComponent` (Combat) and `MartialLoadoutComponent`
 (MartialArts) are never removed when an entity carrying them is
 destroyed — grep for `EntityDestroyed` inside `lib/src/plugins/combat/`
@@ -378,7 +389,8 @@ MartialArts predate it and haven't been retrofitted. Low-to-Medium
 severity; straightforward fix (one `sdk.registerComponentCleanup<T>()`
 call per owned component type, in each plugin's `initialize`).
 
-**B. Magic strings for tag/resource/status names.** `claude.md`'s CODE
+**B. Magic strings for tag/resource/status names. Status: ✅ Fixed** —
+see Resolution Log, item 5. `claude.md`'s CODE
 QUALITY section lists "magic strings scattered throughout code" under
 "Avoid." Style ids are centralized (`MartialStyles`/`Elements`), but
 resource names (`'qi'`, `'momentum'`, `'mana'`) and status/stance tag
@@ -398,11 +410,40 @@ structural change.
 
 ---
 
-## Next steps
+## Resolution Log
 
-No changes have been made. Per the request, this stops at reporting.
-Awaiting approval before any refactoring — recommend prioritizing
-finding #12 (the `_standaloneContext` duplication) as the lowest-risk,
-highest-value fix if a follow-up pass is approved; findings #7 and #11
-are larger design changes better handled as their own brainstormed/
-planned passes rather than folded into a quick fix-up.
+Approved via "fix everything" (including finding #7, which got its own
+short design pass first per this report's own recommendation).
+
+1. **Finding #12** (dedupe `RuleContext` construction) —
+   `PluginContext.ruleContextFor` added
+   (`lib/src/plugin/plugin_context.dart`); all four call sites (the
+   third and fourth found only during the fix — see below) now use it.
+   Commit `b814da9`.
+2. **Finding #11, `ContentRegistry` half** (extract built-in vocabulary)
+   — moved to `lib/src/content/built_in_content_factories.dart`;
+   `ContentRegistry` shrank 354 → 293 lines. The `CombatSystem` half was
+   left alone, per that finding's own "no urgent action." Commit
+   `42f724a`.
+3. **Observation A** (missing `EntityDestroyed` cleanup) — `CombatPlugin`
+   and `MartialArtsPlugin` both adopted `PluginSdk`;
+   `MartialArtsPlugin`'s hand-rolled `List<EventSubscription>` bookkeeping
+   was replaced by `sdk.disposeAll()` in the same pass. Commit `ea60cd5`.
+4. **Finding #7** (MartialArts content predates `ContentRegistry`) — see
+   the follow-up design/implementation section below.
+5. **Observation B** (magic strings) — added
+   `MartialResources`/`MartialStances`
+   (`lib/src/plugins/martial_arts/martial_vocabulary.dart`) and
+   `ElementalResources`/`ElementalStatuses`
+   (`lib/src/plugins/example_elemental/elemental_vocabulary.dart`);
+   also tied the two passive-regen rules' `equipped:<id>` tags directly
+   to `momentumTrinket.id`/`qiPendant.id` instead of an
+   independently-typed literal. Commit `9350f52`.
+
+**One thing the original audit missed:** fixing finding #12 surfaced a
+4th copy of the same duplicated `_standaloneContext` helper, in
+`martial_styles.dart` — not caught in the original pass. Folded into
+commit `b814da9`.
+
+Every commit above kept `dart analyze` clean and the full test suite
+green (400 tests as of the last of these commits) before being made.
