@@ -6,4 +6,7 @@ library;
 
 export 'src/plugins/physique/physique_component.dart';
 export 'src/plugins/physique/physique_content.dart';
+export 'src/plugins/physique/physique_events.dart';
+export 'src/plugins/physique/physique_initialization.dart';
+export 'src/plugins/physique/physique_plugin.dart';
 export 'src/plugins/physique/physique_types.dart';
