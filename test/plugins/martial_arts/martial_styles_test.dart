@@ -81,5 +81,30 @@ void main() {
       expect(MartialStyles.shaolin, equals('shaolin'));
       expect(MartialStyles.taiChi, equals('taiChi'));
     });
+
+    test('grants the western tradition tag for boxing, eastern for '
+        'shaolin and taiChi', () {
+      final context = _newContext();
+      final boxer = context.entities.create();
+      final shaolinMonk = context.entities.create();
+      final taiChiPractitioner = context.entities.create();
+
+      learnStyle(boxer, MartialStyles.boxing, context);
+      learnStyle(shaolinMonk, MartialStyles.shaolin, context);
+      learnStyle(taiChiPractitioner, MartialStyles.taiChi, context);
+
+      expect(
+          context.components.get<TagSet>(boxer)!.tags, contains('western'));
+      expect(context.components.get<TagSet>(boxer)!.tags,
+          isNot(contains('eastern')));
+      expect(context.components.get<TagSet>(shaolinMonk)!.tags,
+          contains('eastern'));
+      expect(context.components.get<TagSet>(shaolinMonk)!.tags,
+          isNot(contains('western')));
+      expect(context.components.get<TagSet>(taiChiPractitioner)!.tags,
+          contains('eastern'));
+      expect(context.components.get<TagSet>(taiChiPractitioner)!.tags,
+          isNot(contains('western')));
+    });
   });
 }

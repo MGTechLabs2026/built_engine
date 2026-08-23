@@ -13,16 +13,27 @@ abstract final class MartialStyles {
   static const taiChi = 'taiChi';
 }
 
-/// Grants [entity] the `martial` and `style:$styleId` tags. Learning
-/// [MartialStyles.shaolin] additionally registers a permanent conditional
-/// `Modifier` — `+4 add` to `palm`, active only while `stance:iron_body`
-/// is present — implementing Shaolin's defensive-synergy-into-offense
-/// mechanic entirely through the Modifier Engine. This content-specific
-/// branch belongs here, in the content plugin, not in Core or Combat.
+/// Grants [entity] the `martial`, `style:$styleId`, and broad-tradition
+/// (`'western'`/`'eastern'`) tags. The tradition tag is the one generic
+/// interoperability hook another plugin (e.g. Physique) needs to react
+/// to "which martial tradition is this character trained in" without
+/// either plugin importing the other. It reuses vocabulary MartialArts
+/// already owns: individual technique content
+/// (`martial_technique_content.dart`) is already tagged
+/// `'western'`/`'eastern'` per technique; this just makes the same fact
+/// available on the entity itself.
+///
+/// Learning [MartialStyles.shaolin] additionally registers a permanent
+/// conditional `Modifier` — `+4 add` to `palm`, active only while
+/// `stance:iron_body` is present — implementing Shaolin's
+/// defensive-synergy-into-offense mechanic entirely through the Modifier
+/// Engine. This content-specific branch belongs here, in the content
+/// plugin, not in Core or Combat.
 void learnStyle(EntityId entity, String styleId, PluginContext context) {
   final ctx = context.ruleContextFor(entity);
   const AddTag('martial').apply(ctx);
   AddTag('style:$styleId').apply(ctx);
+  AddTag(_traditionTagFor(styleId)).apply(ctx);
   if (styleId == MartialStyles.shaolin) {
     context.modifiers.add(Modifier(
       source: ModifierSource('style:shaolin:synergy:${entity.value}'),
@@ -34,3 +45,10 @@ void learnStyle(EntityId entity, String styleId, PluginContext context) {
     ));
   }
 }
+
+/// The broad martial tradition [styleId] belongs to.
+String _traditionTagFor(String styleId) => switch (styleId) {
+      MartialStyles.boxing => 'western',
+      MartialStyles.shaolin || MartialStyles.taiChi => 'eastern',
+      _ => throw ArgumentError('unknown style id: $styleId'),
+    };
