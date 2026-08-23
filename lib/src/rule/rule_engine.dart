@@ -1,6 +1,8 @@
 import '../component/component_store.dart';
 import '../entity/entity_registry.dart';
 import '../event/event_bus.dart';
+import '../progression/progression_engine.dart';
+import '../resource/resource_pool.dart';
 import '../rng/rng_service.dart';
 import 'condition.dart';
 import 'event_counter.dart';
@@ -17,16 +19,24 @@ class RuleEngine {
     required ComponentStore components,
     required EventBus events,
     required RngService rng,
+    ResourcePool? resources,
+    ProgressionEngine? progression,
   })  : _entities = entities,
         _components = components,
         _events = events,
         _rng = rng,
+        _resources =
+            resources ?? ResourcePool(components: components, events: events),
+        _progression = progression ??
+            ProgressionEngine(components: components, events: events),
         _eventCounts = EventCounter(events);
 
   final EntityRegistry _entities;
   final ComponentStore _components;
   final EventBus _events;
   final RngService _rng;
+  final ResourcePool _resources;
+  final ProgressionEngine _progression;
   final EventCounter _eventCounts;
 
   /// The shared event counter used by every [EventCount] condition this
@@ -60,6 +70,8 @@ class RuleEngine {
       events: _events,
       rng: _rng,
       eventCounts: _eventCounts,
+      resources: _resources,
+      progression: _progression,
     );
 
     final allConditionsPass =

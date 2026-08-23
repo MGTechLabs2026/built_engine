@@ -5,7 +5,9 @@ import '../entity/entity_id.dart';
 import '../entity/entity_registry.dart';
 import '../event/event_bus.dart';
 import '../modifier/modifier_collection.dart';
+import '../progression/progression_engine.dart';
 import '../query/query_engine.dart';
+import '../resource/resource_pool.dart';
 import '../rng/rng_service.dart';
 import '../rule/rule_context.dart';
 import '../rule/rule_engine.dart';
@@ -23,12 +25,18 @@ class PluginContext {
     required this.modifiers,
     required this.content,
     CharacterService? characters,
-  }) : characters = characters ??
+    ResourcePool? resources,
+    ProgressionEngine? progression,
+  })  : characters = characters ??
             CharacterService(
               entities: entities,
               components: components,
               events: events,
-            );
+            ),
+        resources =
+            resources ?? ResourcePool(components: components, events: events),
+        progression = progression ??
+            ProgressionEngine(components: components, events: events);
 
   final EntityRegistry entities;
   final ComponentStore components;
@@ -39,6 +47,8 @@ class PluginContext {
   final ModifierCollection modifiers;
   final ContentRegistry content;
   final CharacterService characters;
+  final ResourcePool resources;
+  final ProgressionEngine progression;
 }
 
 /// Constructs a standalone [RuleContext] for evaluating a [Condition] or
@@ -57,5 +67,7 @@ extension PluginContextRuleContext on PluginContext {
         events: events,
         rng: rng,
         eventCounts: rules.eventCounts,
+        resources: resources,
+        progression: progression,
       );
 }

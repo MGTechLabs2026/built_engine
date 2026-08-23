@@ -9,16 +9,20 @@ RuleContext _contextFor({
   EntityId? subject,
   ComponentStore? components,
   RngService? rng,
+  ProgressionEngine? progression,
 }) {
   final eventBus = EventBus();
+  final store = components ?? ComponentStore();
   return RuleContext(
     subject: subject,
     triggerEvent: const Object(),
     entities: EntityRegistry(eventBus),
-    components: components ?? ComponentStore(),
+    components: store,
     events: eventBus,
     rng: rng ?? RngService(1),
     eventCounts: EventCounter(eventBus),
+    progression:
+        progression ?? ProgressionEngine(components: store, events: eventBus),
   );
 }
 
@@ -76,6 +80,42 @@ void main() {
       expect(ResourceAbove('stamina', 50).evaluate(context), isFalse);
       expect(ResourceBelow('stamina', 60).evaluate(context), isTrue);
       expect(ResourceBelow('stamina', 50).evaluate(context), isFalse);
+    });
+  });
+
+  group('ProgressionTierAbove / ProgressionTierBelow', () {
+    test('respect the strict comparisons against the entity\'s current tier',
+        () {
+      final components = ComponentStore();
+      final events = EventBus();
+      const subject = EntityId(1);
+      final progression =
+          ProgressionEngine(components: components, events: events);
+      progression.define(
+        const ProgressionDefinition(subject: 'technique:jab', thresholds: [10, 30]),
+      );
+      progression.addExperience(subject, 'technique:jab', 15); // tier 1
+      final context = _contextFor(
+        subject: subject,
+        components: components,
+        progression: progression,
+      );
+
+      expect(ProgressionTierAbove('technique:jab', 0).evaluate(context), isTrue);
+      expect(ProgressionTierAbove('technique:jab', 1).evaluate(context), isFalse);
+      expect(ProgressionTierBelow('technique:jab', 2).evaluate(context), isTrue);
+      expect(ProgressionTierBelow('technique:jab', 1).evaluate(context), isFalse);
+    });
+
+    test('do not match with no subject', () {
+      expect(
+        ProgressionTierAbove('technique:jab', 0).evaluate(_contextFor(subject: null)),
+        isFalse,
+      );
+      expect(
+        ProgressionTierBelow('technique:jab', 5).evaluate(_contextFor(subject: null)),
+        isFalse,
+      );
     });
   });
 

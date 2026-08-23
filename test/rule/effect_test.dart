@@ -6,11 +6,15 @@ class _Harness {
       : events = EventBus(),
         components = ComponentStore() {
     entities = EntityRegistry(events);
+    resources = ResourcePool(components: components, events: events);
+    progression = ProgressionEngine(components: components, events: events);
   }
 
   final EventBus events;
   final ComponentStore components;
   late final EntityRegistry entities;
+  late final ResourcePool resources;
+  late final ProgressionEngine progression;
 
   RuleContext contextFor(EntityId? subject) => RuleContext(
         subject: subject,
@@ -20,6 +24,8 @@ class _Harness {
         events: events,
         rng: RngService(1),
         eventCounts: EventCounter(events),
+        resources: resources,
+        progression: progression,
       );
 }
 
@@ -189,6 +195,111 @@ void main() {
         harness.components.get<ResourceComponent>(subject)!.resources['stamina'],
         equals(15),
       );
+    });
+
+    test('publishes ResourceChanged via the shared ResourcePool', () {
+      final harness = _Harness();
+      final subject = harness.entities.create();
+      harness.components.add(subject, ResourceComponent({'stamina': 20}));
+      final received = <ResourceChanged>[];
+      harness.events.subscribe<ResourceChanged>(received.add);
+
+      const ModifyResource('stamina', -5).apply(harness.contextFor(subject));
+
+      expect(received, hasLength(1));
+      expect(received.single.delta, equals(-5));
+      expect(received.single.newCurrent, equals(15));
+    });
+  });
+
+  group('ConsumeResource', () {
+    test('subtracts the amount when affordable', () {
+      final harness = _Harness();
+      final subject = harness.entities.create();
+      harness.components.add(subject, ResourceComponent({'mana': 30}));
+
+      const ConsumeResource('mana', 20).apply(harness.contextFor(subject));
+
+      expect(
+        harness.components.get<ResourceComponent>(subject)!.resources['mana'],
+        equals(10),
+      );
+    });
+
+    test('no-ops without mutating or publishing when unaffordable', () {
+      final harness = _Harness();
+      final subject = harness.entities.create();
+      harness.components.add(subject, ResourceComponent({'mana': 5}));
+      final received = <ResourceChanged>[];
+      harness.events.subscribe<ResourceChanged>(received.add);
+
+      const ConsumeResource('mana', 20).apply(harness.contextFor(subject));
+
+      expect(
+        harness.components.get<ResourceComponent>(subject)!.resources['mana'],
+        equals(5),
+      );
+      expect(received, isEmpty);
+    });
+  });
+
+  group('RestoreResource', () {
+    test('adds the amount, clamped to the registered maximum', () {
+      final harness = _Harness();
+      harness.resources.define(const ResourceDefinition(id: 'mana', max: 50));
+      final subject = harness.entities.create();
+      harness.components.add(subject, ResourceComponent({'mana': 40}));
+
+      const RestoreResource('mana', 30).apply(harness.contextFor(subject));
+
+      expect(
+        harness.components.get<ResourceComponent>(subject)!.resources['mana'],
+        equals(50),
+      );
+    });
+  });
+
+  group('GrantProgressionExperience', () {
+    test('accumulates experience via the shared ProgressionEngine', () {
+      final harness = _Harness();
+      harness.progression.define(
+        const ProgressionDefinition(subject: 'technique:jab', thresholds: [10, 30]),
+      );
+      final subject = harness.entities.create();
+
+      const GrantProgressionExperience('technique:jab', 15)
+          .apply(harness.contextFor(subject));
+
+      expect(harness.progression.experienceOf(subject, 'technique:jab'), equals(15));
+      expect(harness.progression.tierOf(subject, 'technique:jab'), equals(1));
+    });
+  });
+
+  group('UnlockProgressionTier', () {
+    test('sets experience to the tier\'s threshold', () {
+      final harness = _Harness();
+      harness.progression.define(
+        const ProgressionDefinition(subject: 'technique:jab', thresholds: [10, 30]),
+      );
+      final subject = harness.entities.create();
+
+      const UnlockProgressionTier('technique:jab', 2)
+          .apply(harness.contextFor(subject));
+
+      expect(harness.progression.tierOf(subject, 'technique:jab'), equals(2));
+    });
+
+    test('no-ops for a tier beyond the registered thresholds', () {
+      final harness = _Harness();
+      harness.progression.define(
+        const ProgressionDefinition(subject: 'technique:jab', thresholds: [10]),
+      );
+      final subject = harness.entities.create();
+
+      const UnlockProgressionTier('technique:jab', 5)
+          .apply(harness.contextFor(subject));
+
+      expect(harness.progression.experienceOf(subject, 'technique:jab'), equals(0));
     });
   });
 

@@ -1,5 +1,4 @@
 import '../components/health_component.dart';
-import '../components/resource_component.dart';
 import '../components/stat_component.dart';
 import '../components/status_component.dart';
 import '../components/tag_set.dart';
@@ -88,8 +87,11 @@ class ModifyStat implements Effect {
   }
 }
 
-/// Adds [delta] to the subject's named [resource], treating a missing
-/// [ResourceComponent] or missing entry as `0`.
+/// Adds [delta] to the subject's named [resource] via the shared
+/// [RuleContext.resources] pool — floored at 0 (or the resource's
+/// registered minimum) and capped at its registered maximum, if one has
+/// been `define`d; unbounded above otherwise. Publishes [ResourceChanged]
+/// through the same pool. No-ops if there is no subject.
 class ModifyResource implements Effect {
   const ModifyResource(this.resource, this.delta);
 
@@ -100,10 +102,88 @@ class ModifyResource implements Effect {
   void apply(RuleContext context) {
     final subject = context.subject;
     if (subject == null) return;
-    final existing = context.components.get<ResourceComponent>(subject);
-    final resources = Map<String, num>.of(existing?.resources ?? const <String, num>{});
-    resources[resource] = (resources[resource] ?? 0) + delta;
-    context.components.add(subject, ResourceComponent(resources));
+    context.resources.add(subject, resource, delta);
+  }
+}
+
+/// Subtracts [amount] from the subject's named [resource] via
+/// [RuleContext.resources] — silently no-ops (no mutation, no event) if
+/// the subject cannot afford it, mirroring [Damage]/[Heal]'s existing
+/// "no-op on an invalid precondition" convention rather than throwing.
+/// Guard with a [ResourceAbove]/`canAfford` condition to detect the
+/// insufficient case instead of relying on this effect's silence.
+class ConsumeResource implements Effect {
+  const ConsumeResource(this.resource, this.amount);
+
+  final String resource;
+  final num amount;
+
+  @override
+  void apply(RuleContext context) {
+    final subject = context.subject;
+    if (subject == null) return;
+    if (!context.resources.canAfford(subject, resource, amount)) return;
+    context.resources.consume(subject, resource, amount);
+  }
+}
+
+/// Adds [amount] to the subject's named [resource] via
+/// [RuleContext.resources], clamped to its registered maximum. Always
+/// succeeds. No-ops only if there is no subject.
+class RestoreResource implements Effect {
+  const RestoreResource(this.resource, this.amount);
+
+  final String resource;
+  final num amount;
+
+  @override
+  void apply(RuleContext context) {
+    final subject = context.subject;
+    if (subject == null) return;
+    context.resources.restore(subject, resource, amount);
+  }
+}
+
+/// Adds [amount] (may be negative) to the subject's experience for the
+/// named progression [subject], via the shared
+/// `RuleContext.progression` engine — floored at 0, tier-crossing events
+/// published automatically. No-ops if there is no subject.
+class GrantProgressionExperience implements Effect {
+  const GrantProgressionExperience(this.subject, this.amount);
+
+  final String subject;
+  final num amount;
+
+  @override
+  void apply(RuleContext context) {
+    final entity = context.subject;
+    if (entity == null) return;
+    context.progression.addExperience(entity, subject, amount);
+  }
+}
+
+/// Sets the subject's experience for the named progression [subject] to
+/// at least [tier]'s registered threshold, via
+/// `RuleContext.progression.unlock`. Silently no-ops — matching
+/// [Damage]/[Heal]'s "no-op on an invalid precondition" convention,
+/// Effects never throw in this engine — if [tier] is below 1 or beyond
+/// [subject]'s registered thresholds, rather than throwing the way
+/// `ProgressionEngine.unlock` does for a direct imperative caller.
+class UnlockProgressionTier implements Effect {
+  const UnlockProgressionTier(this.subject, this.tier);
+
+  final String subject;
+  final int tier;
+
+  @override
+  void apply(RuleContext context) {
+    final entity = context.subject;
+    if (entity == null) return;
+    final definition = context.progression.definitionOf(subject);
+    if (tier < 1 || definition == null || tier > definition.thresholds.length) {
+      return;
+    }
+    context.progression.unlock(entity, subject, tier);
   }
 }
 

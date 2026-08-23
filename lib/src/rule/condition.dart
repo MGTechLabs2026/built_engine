@@ -88,6 +88,45 @@ class HealthBelow implements Condition {
   }
 }
 
+/// Matches when the rule's subject's tier for the named progression
+/// [subject] is strictly greater than [tier], via the shared
+/// `RuleContext.progression` engine. Delegates to `ProgressionEngine`
+/// directly rather than a [Query] — like [EventCount]/[RandomChance], it
+/// needs a service ([RuleContext.progression]'s registered thresholds)
+/// that `QueryScope` doesn't carry, so duplicating those thresholds into a
+/// second, Query-level constructor parameter would risk drifting from
+/// whatever was actually `define`d.
+class ProgressionTierAbove implements Condition {
+  const ProgressionTierAbove(this.subject, this.tier);
+
+  final String subject;
+  final int tier;
+
+  @override
+  bool evaluate(RuleContext context) {
+    final entity = context.subject;
+    if (entity == null) return false;
+    return context.progression.tierOf(entity, subject) > tier;
+  }
+}
+
+/// Matches when the rule's subject's tier for the named progression
+/// [subject] is strictly less than [tier]. See [ProgressionTierAbove] for
+/// why this delegates to `RuleContext.progression` rather than a [Query].
+class ProgressionTierBelow implements Condition {
+  const ProgressionTierBelow(this.subject, this.tier);
+
+  final String subject;
+  final int tier;
+
+  @override
+  bool evaluate(RuleContext context) {
+    final entity = context.subject;
+    if (entity == null) return false;
+    return context.progression.tierOf(entity, subject) < tier;
+  }
+}
+
 /// Matches when the rule's subject has [status] active.
 class StatusActive implements Condition {
   const StatusActive(this.status);

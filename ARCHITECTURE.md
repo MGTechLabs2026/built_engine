@@ -213,6 +213,8 @@ final events = EventBus();
 final entities = EntityRegistry(events);
 final components = ComponentStore();
 final rng = RngService(1);
+final resources = ResourcePool(components: components, events: events);
+final progression = ProgressionEngine(components: components, events: events);
 final context = PluginContext(
   entities: entities,
   components: components,
@@ -223,11 +225,20 @@ final context = PluginContext(
     components: components,
     events: events,
     rng: rng,
+    resources: resources,
+    progression: progression,
   ),
   queries: QueryEngine(QueryScope(components: components)),
   modifiers: ModifierCollection(),
+  resources: resources,
+  progression: progression,
 );
 ```
+
+Constructing `resources`/`progression` once and passing the same
+instances to both `RuleEngine` and `PluginContext` matters — see the
+Resource Engine section above for why relying on each's own default
+would silently give you two independent pools/engines.
 
 ## Dependency rule
 
@@ -409,6 +420,163 @@ martial-arts vocabulary — those are separate future passes, each needing
 its own component(s) attached to the same character entity, exactly the
 way `PhysiqueComponent`/`ElementalAffinityComponent` already attach onto
 whatever entity holds them.
+
+## Resource Engine (`lib/src/resource/`)
+
+`ResourceComponent` keeps its exact pre-existing shape — `Map<String,
+num>` of current values only, no "maximum" field added — per the explicit
+instruction that state stays state and a service gets built around it.
+"Maximum" instead lives in `ResourceDefinition` (`id`, `min = 0`, `max`),
+registered separately via `ResourcePool.define` and never stored
+per-entity; `ResourceState` (`current`, `max`) is the read-model
+`ResourcePool.stateOf` computes on demand by combining a
+`ResourceComponent`'s value with a registered `ResourceDefinition`'s
+bounds — it is not a storage format either. This kept the change to
+`ResourceComponent`, `ResourceAboveQuery`/`ResourceBelowQuery`, and the
+existing `ResourceAbove`/`ResourceBelow` conditions at zero, across all
+19 files that already referenced them.
+
+`ResourcePool` (constructed from `components`+`events`, mirroring
+`ModifierCollection`'s and `CharacterService`'s shape) is the full
+operation vocabulary — `currentOf`/`maximumOf`/`minimumOf`/`stateOf`,
+`clampValue` (pure, stateless), `set`/`add`/`subtract` (clamp to the
+registered `[min, max]`; an undefined resource floors at `0` with no
+upper bound — the same permissive-default convention
+`ResourceAboveQuery`/`ResourceBelowQuery` already use for a missing
+resource), `canAfford` (never mutates, never throws — mirrors
+`Container.canPlace`), `consume` (throws
+`InsufficientResourceException` without mutating anything if
+`canAfford` would be `false` — mirrors `Container.place`/`canPlace`'s
+split), and `restore` (`add`, naturally clamped to max). `set` publishes
+`ResourceChanged` only when clamping leaves the stored value actually
+different — not on a no-op set (e.g. adding to a resource already at
+its maximum). No `RngService` anywhere in this module: every operation
+is pure arithmetic and clamping, so resource changes stay deterministic
+for free.
+
+**Wiring** reuses the exact "default-if-absent" constructor pattern the
+Character State layer established: `RuleContext` gained a `resources`
+field, `RuleEngine` gained an optional `resources` constructor parameter
+(forwarded into every `RuleContext` it builds internally in `_fire`),
+and `PluginContext` gained a `resources` field — each defaults to a
+fresh `ResourcePool` built from the same `components`/`events` already
+passed in, when the caller doesn't supply one explicitly. This means
+none of the ~30 existing call sites that construct `PluginContext`/
+`RuleContext`/`RuleEngine` directly needed to change.
+`PluginContext.ruleContextFor` passes through `resources: resources`
+explicitly (the same shared instance), so a plugin's standalone
+rule-context calls see the one pool with its registered definitions.
+
+One correctness note for whoever bootstraps a real game session (not
+enforced by the type system, the same way today's `entities`/`rng`
+consistency across `RuleEngine` and `PluginContext` already isn't):
+construct one `ResourcePool` and pass the *same* instance to both
+`RuleEngine(..., resources: resources)` and
+`PluginContext(..., resources: resources)`. `PluginContext` cannot do
+this wiring itself — it receives an already-constructed `RuleEngine` as
+its `rules` parameter, the same way it already receives an
+already-constructed `EventBus`/`EntityRegistry` — so if neither default
+is overridden, `PluginContext.resources` and `RuleEngine`'s internal
+pool end up as two independent instances that never see each other's
+registered definitions. See the bootstrap example below.
+
+**Effects.** `ModifyResource` (pre-existing) now routes its `add`
+through `context.resources` instead of hand-rolling the map mutation —
+a pure superset of its old behavior (verified against every existing
+test that executes it end-to-end: none drives a resource negative,
+since existing content already gates cost effects behind a
+`ResourceAbove` condition first). Two new effects:
+`ConsumeResource(resource, amount)` silently no-ops — no mutation, no
+event — when unaffordable, matching `Damage`/`Heal`'s existing "no-op
+on an invalid precondition" convention (Effects never throw in this
+engine; guard with a condition to detect the insufficient case
+instead); `RestoreResource(resource, amount)` always succeeds, clamped
+to the registered maximum.
+
+Deliberately not here yet: any notion of passive regeneration/decay
+over time (that's `Scheduler`'s job, once it exists) and any
+per-entity-varying maximum (today's `ResourceDefinition` bounds are
+global per resource id, not per character — sufficient for every
+current use case; a future pass could layer per-entity scaling through
+the existing Modifier Engine against a stat like `'max_stamina'`
+without touching this module at all).
+
+## Progression layer (`lib/src/progression/`, `lib/src/components/progression_component.dart`)
+
+One generic engine for every arbitrary progression subject a plugin cares
+about — item mastery, technique learning, technique tier, a future
+cultivation breakthrough — rather than a domain-specific system per kind
+(no `ItemProgressionSystem`/`MartialProgressionSystem`). Each plugin picks
+its own subject-id namespace (e.g. `"technique:jab"`,
+`"item:brass_knuckles"`); Core never interprets it, the same way it never
+interprets a resource name.
+
+`ProgressionComponent` mirrors `ResourceComponent`'s exact shape (`Map<
+String, num>`, here keyed by subject id instead of resource name) but is
+a distinct component, not a reuse of `ResourceComponent` — progression's
+tier/threshold semantics are a genuinely different concern, and sharing
+one storage map would let a `"stamina"` resource and a `"stamina"`
+progression subject silently collide. `ProgressionDefinition` (`subject`,
+`thresholds: List<num>`) is the tier curve — `thresholds[i]` is the
+cumulative experience required to reach tier `i + 1` — registered once
+per subject id, global like `ResourceDefinition.max`, not per-entity.
+`ProgressionState` (`experience`, `tier`) is a read-model exactly like
+`ResourceState`: tier is *never stored*, always computed from experience
++ the registered thresholds, so it can't desync from what it's based on.
+
+`ProgressionEngine` (constructed from `components`+`events`, same shape
+as `ResourcePool`): `define`/`definitionOf`, `experienceOf` (0 default),
+`tierOf` (0 if no definition registered — a subject can accumulate
+experience freely but never reaches a tier without one, the same
+permissive-default convention `ResourcePool` uses for an undefined
+resource), `stateOf`, `addExperience` (floors at 0, publishes
+`ProgressionChanged` with the actual delta applied, then one
+`ProgressionTierReached` per tier newly crossed in ascending order — a
+single large grant that jumps two tiers at once still fires both events,
+none skipped), and `unlock(id, subject, tier)` (sets experience directly
+to that tier's threshold — covers "learning" a subject outright as
+`tier: 1` without the caller doing threshold math; never regresses
+progress already beyond that tier; throws `ArgumentError` for `tier < 1`
+or a tier beyond the registered thresholds — a direct-caller misuse
+signal, not a normal gameplay outcome).
+
+**Wiring** reuses the same "default-if-absent" pattern as the Resource
+Engine: `RuleContext`/`RuleEngine`/`PluginContext` each gained a
+`progression` field/param, defaulting to a fresh `ProgressionEngine` built
+from the same `components`/`events` — none of the existing call sites
+needed to change. The same bootstrap caveat applies (see the Resource
+Engine section and the bootstrap example above): construct one
+`ProgressionEngine` and pass the same instance to both `RuleEngine` and
+`PluginContext` if a real session needs its registered definitions to
+actually persist across rule firings.
+
+**Conditions** (`lib/src/rule/condition.dart`): `ProgressionTierAbove`/
+`ProgressionTierBelow` (subject, tier) — strictly greater/less, mirroring
+`ResourceAbove`/`ResourceBelow`'s naming and comparison shape. Unlike
+`ResourceAbove`/`ResourceBelow`, these have no companion `Query` in
+`queries.dart` — they delegate straight to `context.progression.tierOf`,
+the same way `EventCount`/`RandomChance` bypass `Query`/`QueryScope`
+entirely, because a tier check needs the registered thresholds
+(`ProgressionEngine`'s own state) rather than anything `QueryScope`'s
+bare `ComponentStore` carries; duplicating those thresholds into a
+second, `Query`-level constructor parameter would risk drifting from
+whatever was actually `define`d.
+
+**Effects** (`lib/src/rule/effect.dart`): `GrantProgressionExperience`
+(mirrors `ModifyResource`) and `UnlockProgressionTier` — the latter
+silently no-ops (no mutation, no event) for an invalid tier, matching
+`Damage`/`Heal`/`ConsumeResource`'s "no-op on an invalid precondition"
+convention, rather than propagating `ProgressionEngine.unlock`'s throw
+(that throw stays for a direct imperative caller, e.g. a plugin's own
+setup code, where fail-fast is the more useful signal for a content
+authoring mistake).
+
+Deliberately not here yet: any per-entity-varying threshold curve
+(today's `ProgressionDefinition` is global per subject id, same scoping
+choice as `ResourceDefinition.max`) and any automatic component cleanup
+on `EntityDestroyed` (left as the general documented convention — the
+caller's responsibility — same choice already made for
+`ResourceComponent`, not a new gap this pass introduces).
 
 ## Content Registry — the engine's Asset/Data Registry (`lib/src/content/`)
 
