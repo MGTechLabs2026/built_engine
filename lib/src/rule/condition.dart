@@ -127,6 +127,57 @@ class ProgressionTierBelow implements Condition {
   }
 }
 
+/// Matches when the rule's subject's mastery level for the named [subject]
+/// is at least [level], via the shared `RuleContext.mastery` tracker.
+/// Usable by any plugin for any mastery subject — no `SwordMastery`/
+/// `TechniqueMastery` special-casing. Delegates directly to
+/// `MasteryTracker.levelOf` rather than a [Query], for the same reason
+/// [ProgressionTierAbove] does: the registered thresholds live in the
+/// tracker, not in anything `QueryScope` carries.
+class MasteryAtLeast implements Condition {
+  const MasteryAtLeast(this.subject, this.level);
+
+  final String subject;
+  final int level;
+
+  @override
+  bool evaluate(RuleContext context) {
+    final owner = context.subject;
+    if (owner == null) return false;
+    return context.mastery.levelOf(owner, subject) >= level;
+  }
+}
+
+/// Matches when the rule's subject has at least discovered the named
+/// content [subject] (discovered or unlocked). See [DiscoveredQuery].
+class IsDiscovered implements Condition {
+  const IsDiscovered(this.subject);
+
+  final String subject;
+
+  @override
+  bool evaluate(RuleContext context) {
+    final entity = context.subject;
+    if (entity == null) return false;
+    return DiscoveredQuery(subject).matches(entity, _scopeOf(context));
+  }
+}
+
+/// Matches when the rule's subject has unlocked the named content
+/// [subject] specifically. See [UnlockedQuery].
+class IsUnlocked implements Condition {
+  const IsUnlocked(this.subject);
+
+  final String subject;
+
+  @override
+  bool evaluate(RuleContext context) {
+    final entity = context.subject;
+    if (entity == null) return false;
+    return UnlockedQuery(subject).matches(entity, _scopeOf(context));
+  }
+}
+
 /// Matches when the rule's subject has [status] active.
 class StatusActive implements Condition {
   const StatusActive(this.status);

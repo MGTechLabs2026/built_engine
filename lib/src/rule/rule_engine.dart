@@ -1,6 +1,8 @@
 import '../component/component_store.dart';
+import '../discovery/discovery_tracker.dart';
 import '../entity/entity_registry.dart';
 import '../event/event_bus.dart';
+import '../mastery/mastery_tracker.dart';
 import '../progression/progression_engine.dart';
 import '../resource/resource_pool.dart';
 import '../rng/rng_service.dart';
@@ -14,21 +16,51 @@ import 'rule_context.dart';
 /// in list order — no other source of nondeterminism is introduced beyond
 /// whatever the injected [RngService] itself produces.
 class RuleEngine {
-  RuleEngine({
+  /// A [MasteryTracker] built when the caller doesn't supply one is
+  /// computed first and shared with [ProgressionEngine]'s own default —
+  /// see `RuleContext`'s constructor for why this matters.
+  factory RuleEngine({
     required EntityRegistry entities,
     required ComponentStore components,
     required EventBus events,
     required RngService rng,
     ResourcePool? resources,
+    MasteryTracker? mastery,
     ProgressionEngine? progression,
+    DiscoveryTracker? discovery,
+  }) {
+    final sharedMastery =
+        mastery ?? MasteryTracker(components: components, events: events);
+    return RuleEngine._(
+      entities: entities,
+      components: components,
+      events: events,
+      rng: rng,
+      resources: resources ?? ResourcePool(components: components, events: events),
+      mastery: sharedMastery,
+      progression: progression ??
+          ProgressionEngine(components: components, events: events, mastery: sharedMastery),
+      discovery: discovery ?? DiscoveryTracker(components: components, events: events),
+    );
+  }
+
+  RuleEngine._({
+    required EntityRegistry entities,
+    required ComponentStore components,
+    required EventBus events,
+    required RngService rng,
+    required ResourcePool resources,
+    required MasteryTracker mastery,
+    required ProgressionEngine progression,
+    required DiscoveryTracker discovery,
   })  : _entities = entities,
         _components = components,
         _events = events,
         _rng = rng,
-        _resources =
-            resources ?? ResourcePool(components: components, events: events),
-        _progression = progression ??
-            ProgressionEngine(components: components, events: events),
+        _resources = resources,
+        _mastery = mastery,
+        _progression = progression,
+        _discovery = discovery,
         _eventCounts = EventCounter(events);
 
   final EntityRegistry _entities;
@@ -36,7 +68,9 @@ class RuleEngine {
   final EventBus _events;
   final RngService _rng;
   final ResourcePool _resources;
+  final MasteryTracker _mastery;
   final ProgressionEngine _progression;
+  final DiscoveryTracker _discovery;
   final EventCounter _eventCounts;
 
   /// The shared event counter used by every [EventCount] condition this
@@ -71,7 +105,9 @@ class RuleEngine {
       rng: _rng,
       eventCounts: _eventCounts,
       resources: _resources,
+      mastery: _mastery,
       progression: _progression,
+      discovery: _discovery,
     );
 
     final allConditionsPass =

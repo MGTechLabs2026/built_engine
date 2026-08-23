@@ -10,9 +10,12 @@ RuleContext _contextFor({
   ComponentStore? components,
   RngService? rng,
   ProgressionEngine? progression,
+  MasteryTracker? mastery,
 }) {
   final eventBus = EventBus();
   final store = components ?? ComponentStore();
+  final sharedMastery =
+      mastery ?? MasteryTracker(components: store, events: eventBus);
   return RuleContext(
     subject: subject,
     triggerEvent: const Object(),
@@ -21,8 +24,9 @@ RuleContext _contextFor({
     events: eventBus,
     rng: rng ?? RngService(1),
     eventCounts: EventCounter(eventBus),
-    progression:
-        progression ?? ProgressionEngine(components: store, events: eventBus),
+    mastery: sharedMastery,
+    progression: progression ??
+        ProgressionEngine(components: store, events: eventBus, mastery: sharedMastery),
   );
 }
 
@@ -114,6 +118,63 @@ void main() {
       );
       expect(
         ProgressionTierBelow('technique:jab', 5).evaluate(_contextFor(subject: null)),
+        isFalse,
+      );
+    });
+  });
+
+  group('MasteryAtLeast', () {
+    test('matches when the owner\'s level is at least the threshold', () {
+      final components = ComponentStore();
+      final events = EventBus();
+      const subject = EntityId(1);
+      final mastery = MasteryTracker(components: components, events: events);
+      mastery.define(
+        const MasteryDefinition(subject: 'item:iron_sword', thresholds: [10, 30]),
+      );
+      mastery.increase(subject, 'item:iron_sword', 15); // level 1
+      final context = _contextFor(
+        subject: subject,
+        components: components,
+        mastery: mastery,
+      );
+
+      expect(MasteryAtLeast('item:iron_sword', 1).evaluate(context), isTrue);
+      expect(MasteryAtLeast('item:iron_sword', 2).evaluate(context), isFalse);
+    });
+
+    test('does not match with no subject', () {
+      expect(
+        MasteryAtLeast('item:iron_sword', 0).evaluate(_contextFor(subject: null)),
+        isFalse,
+      );
+    });
+  });
+
+  group('IsDiscovered / IsUnlocked', () {
+    test('reflect the entity\'s discovery state', () {
+      final components = ComponentStore();
+      final events = EventBus();
+      const subject = EntityId(1);
+      final discovery = DiscoveryTracker(components: components, events: events);
+      discovery.discover(subject, 'item:iron_sword');
+      discovery.unlock(subject, 'technique:jab');
+      final context = _contextFor(subject: subject, components: components);
+
+      expect(IsDiscovered('item:iron_sword').evaluate(context), isTrue);
+      expect(IsUnlocked('item:iron_sword').evaluate(context), isFalse);
+      expect(IsDiscovered('technique:jab').evaluate(context), isTrue);
+      expect(IsUnlocked('technique:jab').evaluate(context), isTrue);
+      expect(IsDiscovered('never_touched').evaluate(context), isFalse);
+    });
+
+    test('do not match with no subject', () {
+      expect(
+        IsDiscovered('item:iron_sword').evaluate(_contextFor(subject: null)),
+        isFalse,
+      );
+      expect(
+        IsUnlocked('item:iron_sword').evaluate(_contextFor(subject: null)),
         isFalse,
       );
     });

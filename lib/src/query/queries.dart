@@ -1,7 +1,9 @@
+import '../components/discovery_component.dart';
 import '../components/health_component.dart';
 import '../components/resource_component.dart';
 import '../components/status_component.dart';
 import '../components/tag_set.dart';
+import '../discovery/discovery_state.dart';
 import '../entity/entity_id.dart';
 import 'query.dart';
 
@@ -71,6 +73,38 @@ class HealthBelowQuery extends Query {
     if (health == null) return false;
     return health.current < threshold;
   }
+}
+
+/// Matches an entity that has at least discovered [subject] — either
+/// [DiscoveryState.discovered] or [DiscoveryState.unlocked]. An entity
+/// with no [DiscoveryComponent], or no entry for [subject], reads as
+/// [DiscoveryState.unknown] and never matches.
+class DiscoveredQuery extends Query {
+  const DiscoveredQuery(this.subject);
+
+  final String subject;
+
+  @override
+  bool matches(EntityId id, QueryScope scope) {
+    final state = scope.components.get<DiscoveryComponent>(id)?.states[subject] ??
+        DiscoveryState.unknown;
+    return state == DiscoveryState.discovered || state == DiscoveryState.unlocked;
+  }
+}
+
+/// Matches an entity that has [subject] at [DiscoveryState.unlocked]
+/// specifically — a discovered-but-not-yet-unlocked subject does not
+/// match.
+class UnlockedQuery extends Query {
+  const UnlockedQuery(this.subject);
+
+  final String subject;
+
+  @override
+  bool matches(EntityId id, QueryScope scope) =>
+      (scope.components.get<DiscoveryComponent>(id)?.states[subject] ??
+          DiscoveryState.unknown) ==
+      DiscoveryState.unlocked;
 }
 
 /// Matches an entity whose [StatusComponent] has [status] active.

@@ -7,13 +7,16 @@ class _Harness {
         components = ComponentStore() {
     entities = EntityRegistry(events);
     resources = ResourcePool(components: components, events: events);
-    progression = ProgressionEngine(components: components, events: events);
+    mastery = MasteryTracker(components: components, events: events);
+    progression =
+        ProgressionEngine(components: components, events: events, mastery: mastery);
   }
 
   final EventBus events;
   final ComponentStore components;
   late final EntityRegistry entities;
   late final ResourcePool resources;
+  late final MasteryTracker mastery;
   late final ProgressionEngine progression;
 
   RuleContext contextFor(EntityId? subject) => RuleContext(
@@ -25,6 +28,7 @@ class _Harness {
         rng: RngService(1),
         eventCounts: EventCounter(events),
         resources: resources,
+        mastery: mastery,
         progression: progression,
       );
 }
@@ -300,6 +304,78 @@ void main() {
           .apply(harness.contextFor(subject));
 
       expect(harness.progression.experienceOf(subject, 'technique:jab'), equals(0));
+    });
+  });
+
+  group('IncreaseMastery', () {
+    test('accumulates progress via the shared MasteryTracker', () {
+      final harness = _Harness();
+      harness.mastery.define(
+        const MasteryDefinition(subject: 'item:iron_sword', thresholds: [10, 30]),
+      );
+      final subject = harness.entities.create();
+
+      const IncreaseMastery('item:iron_sword', 15).apply(harness.contextFor(subject));
+
+      expect(harness.mastery.progressOf(subject, 'item:iron_sword'), equals(15));
+      expect(harness.mastery.levelOf(subject, 'item:iron_sword'), equals(1));
+    });
+
+    test('the same effect/condition pair works for two unrelated subjects', () {
+      final harness = _Harness();
+      harness.mastery.define(
+        const MasteryDefinition(subject: 'item:iron_sword', thresholds: [10, 30]),
+      );
+      harness.mastery.define(
+        const MasteryDefinition(subject: 'technique:jab', thresholds: [20, 40]),
+      );
+      final subject = harness.entities.create();
+      final context = harness.contextFor(subject);
+
+      const IncreaseMastery('item:iron_sword', 15).apply(context);
+      const IncreaseMastery('technique:jab', 25).apply(context);
+
+      expect(MasteryAtLeast('item:iron_sword', 1).evaluate(context), isTrue);
+      expect(MasteryAtLeast('item:iron_sword', 2).evaluate(context), isFalse);
+      expect(MasteryAtLeast('technique:jab', 1).evaluate(context), isTrue);
+      expect(MasteryAtLeast('technique:jab', 2).evaluate(context), isFalse);
+      expect(harness.mastery.progressOf(subject, 'item:iron_sword'), equals(15));
+      expect(harness.mastery.progressOf(subject, 'technique:jab'), equals(25));
+    });
+  });
+
+  group('DiscoverSubject / UnlockSubject', () {
+    test('DiscoverSubject moves an unknown subject to discovered', () {
+      final harness = _Harness();
+      final subject = harness.entities.create();
+
+      const DiscoverSubject('item:iron_sword').apply(harness.contextFor(subject));
+
+      final discovery = DiscoveryTracker(
+        components: harness.components,
+        events: harness.events,
+      );
+      expect(
+        discovery.stateOf(subject, 'item:iron_sword'),
+        equals(DiscoveryState.discovered),
+      );
+    });
+
+    test('UnlockSubject moves a subject to unlocked, auto-discovering it first',
+        () {
+      final harness = _Harness();
+      final subject = harness.entities.create();
+
+      const UnlockSubject('item:iron_sword').apply(harness.contextFor(subject));
+
+      final discovery = DiscoveryTracker(
+        components: harness.components,
+        events: harness.events,
+      );
+      expect(
+        discovery.stateOf(subject, 'item:iron_sword'),
+        equals(DiscoveryState.unlocked),
+      );
     });
   });
 

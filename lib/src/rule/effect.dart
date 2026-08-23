@@ -187,6 +187,57 @@ class UnlockProgressionTier implements Effect {
   }
 }
 
+/// Adds [amount] (may be negative) to the subject's mastery progress for
+/// the named [subject], via the shared `RuleContext.mastery` tracker —
+/// floored at 0, level-crossing events published automatically. Usable by
+/// any plugin for any mastery subject. No-ops if there is no subject.
+class IncreaseMastery implements Effect {
+  const IncreaseMastery(this.subject, this.amount);
+
+  final String subject;
+  final num amount;
+
+  @override
+  void apply(RuleContext context) {
+    final owner = context.subject;
+    if (owner == null) return;
+    context.mastery.increase(owner, subject, amount);
+  }
+}
+
+/// Moves the subject's discovery state for the named content [subject]
+/// from `unknown` to `discovered`, via the shared `RuleContext.discovery`
+/// tracker. No-ops (including no event) if already discovered/unlocked.
+class DiscoverSubject implements Effect {
+  const DiscoverSubject(this.subject);
+
+  final String subject;
+
+  @override
+  void apply(RuleContext context) {
+    final entity = context.subject;
+    if (entity == null) return;
+    context.discovery.discover(entity, subject);
+  }
+}
+
+/// Moves the subject's discovery state for the named content [subject] to
+/// `unlocked`, via the shared `RuleContext.discovery` tracker —
+/// auto-promoting through `discovered` first if still `unknown`. No-ops if
+/// already unlocked.
+class UnlockSubject implements Effect {
+  const UnlockSubject(this.subject);
+
+  final String subject;
+
+  @override
+  void apply(RuleContext context) {
+    final entity = context.subject;
+    if (entity == null) return;
+    context.discovery.unlock(entity, subject);
+  }
+}
+
 /// Adds [status] to the subject's active statuses, creating the
 /// [StatusComponent] if the subject doesn't have one yet.
 class ApplyStatus implements Effect {

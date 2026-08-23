@@ -1,9 +1,11 @@
 import '../character/character_service.dart';
 import '../component/component_store.dart';
 import '../content/content_registry.dart';
+import '../discovery/discovery_tracker.dart';
 import '../entity/entity_id.dart';
 import '../entity/entity_registry.dart';
 import '../event/event_bus.dart';
+import '../mastery/mastery_tracker.dart';
 import '../modifier/modifier_collection.dart';
 import '../progression/progression_engine.dart';
 import '../query/query_engine.dart';
@@ -15,7 +17,52 @@ import '../rule/rule_engine.dart';
 /// The controlled access every plugin lifecycle method receives. Exposes
 /// every core service that exists so far.
 class PluginContext {
-  PluginContext({
+  /// A [MasteryTracker] built when the caller doesn't supply one is
+  /// computed first and shared with [ProgressionEngine]'s own default —
+  /// see `RuleContext`'s constructor for why this matters. Note this only
+  /// keeps *this context's own* `mastery`/`progression` consistent with
+  /// each other — if [rules] (an already-constructed [RuleEngine]) was
+  /// built with its own unsupplied defaults too, it ends up with a
+  /// *different* pair of instances unless the caller passes the same ones
+  /// to both constructors (see the bootstrap example in
+  /// `ARCHITECTURE.md`).
+  factory PluginContext({
+    required EntityRegistry entities,
+    required ComponentStore components,
+    required EventBus events,
+    required RngService rng,
+    required RuleEngine rules,
+    required QueryEngine queries,
+    required ModifierCollection modifiers,
+    required ContentRegistry content,
+    CharacterService? characters,
+    ResourcePool? resources,
+    MasteryTracker? mastery,
+    ProgressionEngine? progression,
+    DiscoveryTracker? discovery,
+  }) {
+    final sharedMastery =
+        mastery ?? MasteryTracker(components: components, events: events);
+    return PluginContext._(
+      entities: entities,
+      components: components,
+      events: events,
+      rng: rng,
+      rules: rules,
+      queries: queries,
+      modifiers: modifiers,
+      content: content,
+      characters: characters ??
+          CharacterService(entities: entities, components: components, events: events),
+      resources: resources ?? ResourcePool(components: components, events: events),
+      mastery: sharedMastery,
+      progression: progression ??
+          ProgressionEngine(components: components, events: events, mastery: sharedMastery),
+      discovery: discovery ?? DiscoveryTracker(components: components, events: events),
+    );
+  }
+
+  PluginContext._({
     required this.entities,
     required this.components,
     required this.events,
@@ -24,19 +71,12 @@ class PluginContext {
     required this.queries,
     required this.modifiers,
     required this.content,
-    CharacterService? characters,
-    ResourcePool? resources,
-    ProgressionEngine? progression,
-  })  : characters = characters ??
-            CharacterService(
-              entities: entities,
-              components: components,
-              events: events,
-            ),
-        resources =
-            resources ?? ResourcePool(components: components, events: events),
-        progression = progression ??
-            ProgressionEngine(components: components, events: events);
+    required this.characters,
+    required this.resources,
+    required this.mastery,
+    required this.progression,
+    required this.discovery,
+  });
 
   final EntityRegistry entities;
   final ComponentStore components;
@@ -48,7 +88,9 @@ class PluginContext {
   final ContentRegistry content;
   final CharacterService characters;
   final ResourcePool resources;
+  final MasteryTracker mastery;
   final ProgressionEngine progression;
+  final DiscoveryTracker discovery;
 }
 
 /// Constructs a standalone [RuleContext] for evaluating a [Condition] or
@@ -68,6 +110,8 @@ extension PluginContextRuleContext on PluginContext {
         rng: rng,
         eventCounts: rules.eventCounts,
         resources: resources,
+        mastery: mastery,
         progression: progression,
+        discovery: discovery,
       );
 }

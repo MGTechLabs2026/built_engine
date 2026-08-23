@@ -214,7 +214,13 @@ final entities = EntityRegistry(events);
 final components = ComponentStore();
 final rng = RngService(1);
 final resources = ResourcePool(components: components, events: events);
-final progression = ProgressionEngine(components: components, events: events);
+final mastery = MasteryTracker(components: components, events: events);
+final progression = ProgressionEngine(
+  components: components,
+  events: events,
+  mastery: mastery, // must be the same instance as `mastery` below
+);
+final discovery = DiscoveryTracker(components: components, events: events);
 final context = PluginContext(
   entities: entities,
   components: components,
@@ -226,19 +232,25 @@ final context = PluginContext(
     events: events,
     rng: rng,
     resources: resources,
+    mastery: mastery,
     progression: progression,
+    discovery: discovery,
   ),
   queries: QueryEngine(QueryScope(components: components)),
   modifiers: ModifierCollection(),
   resources: resources,
+  mastery: mastery,
   progression: progression,
+  discovery: discovery,
 );
 ```
 
-Constructing `resources`/`progression` once and passing the same
-instances to both `RuleEngine` and `PluginContext` matters — see the
-Resource Engine section above for why relying on each's own default
-would silently give you two independent pools/engines.
+Constructing `resources`/`mastery`/`progression`/`discovery` once and
+passing the same instances to both `RuleEngine` and `PluginContext`
+matters — see the Resource Engine section above for why relying on
+each's own default would silently give you two independent pools/
+engines, and the Progression section for why `progression` specifically
+must be built with the *same* `mastery` instance too.
 
 ## Dependency rule
 
@@ -501,82 +513,148 @@ current use case; a future pass could layer per-entity scaling through
 the existing Modifier Engine against a stat like `'max_stamina'`
 without touching this module at all).
 
-## Progression layer (`lib/src/progression/`, `lib/src/components/progression_component.dart`)
+## Mastery system (`lib/src/mastery/`, `lib/src/components/mastery_component.dart`)
+
+The generic, authoritative engine for "how good is this owner at this
+arbitrary subject" — item mastery, technique tier, style mastery, a
+future crafting recipe — one `MasteryTracker` for every unrelated subject
+a game registers, never a per-domain system class (no `SwordMastery`, no
+`TechniqueMastery`). Each plugin picks its own subject-id namespace (e.g.
+`"item:iron_sword"`, `"technique:jab"`); Core never interprets it.
+
+`MasteryComponent` (`Map<String, num> progress`, keyed by subject id) is
+pure state. `MasteryDefinition` (`subject`, `thresholds: List<num>`) is
+the level curve — `thresholds[i]` is the cumulative progress required to
+reach level `i + 1` — registered once per subject id, global (not
+per-owner). `MasteryRecord` (`owner`, `subject`, `level`, `progress`) is
+the read-model identifying one mastery record exactly as specified: level
+is *never stored*, always computed from progress + the registered
+thresholds, so it can't desync.
+
+`MasteryTracker` (constructed from `components`+`events`): `define`/
+`definitionOf`, `progressOf` (0 default), `levelOf` (0 if no definition
+registered — the same permissive-default convention `ResourcePool` uses
+for an undefined resource), `recordOf`, `increase` (floors at 0,
+publishes `MasteryChanged` with the actual delta applied, then one
+`MasteryLevelReached` per level newly crossed in ascending order — a
+single large grant that jumps two levels at once still fires both
+events). No `unlock`-style instant-grant method exists here — that's
+Discovery's job (see below); Mastery only answers "how good," never "can
+this even be used."
+
+`MasteryAtLeast(subject, level)` (`lib/src/rule/condition.dart`) and
+`IncreaseMastery(subject, amount)` (`lib/src/rule/effect.dart`) — usable
+by any plugin for any subject, delegating straight to
+`context.mastery.levelOf`/`.increase`, the same "service-backed, not
+`Query`-backed" reasoning `ProgressionTierAbove` uses (see below).
+
+**Wiring** uses the same "default-if-absent" pattern as Resources/
+Progression: `RuleContext`/`RuleEngine`/`PluginContext` each gained a
+`mastery` field/param, defaulting to a fresh `MasteryTracker`.
+
+## Progression layer (`lib/src/progression/`)
 
 One generic engine for every arbitrary progression subject a plugin cares
-about — item mastery, technique learning, technique tier, a future
-cultivation breakthrough — rather than a domain-specific system per kind
-(no `ItemProgressionSystem`/`MartialProgressionSystem`). Each plugin picks
-its own subject-id namespace (e.g. `"technique:jab"`,
-`"item:brass_knuckles"`); Core never interprets it, the same way it never
-interprets a resource name.
+about (the same shape of problem Mastery solves), kept as its own thin
+adapter with its own `tier`/`experience` naming and its own event
+vocabulary (`ProgressionChanged`/`ProgressionTierReached`, distinct from
+`MasteryChanged`/`MasteryLevelReached`) — **but it reads and writes
+through the same `MasteryTracker`/`MasteryComponent` storage Mastery
+owns, rather than keeping independent state.** This was a deliberate,
+explicit decision (not the initial design — Progression originally had
+its own `ProgressionComponent`; Mastery was built afterward as a
+standalone system per the same design conversation, and Progression was
+then refactored to read through it) to avoid two independent stores that
+could silently drift for what is, underneath, the same kind of data.
+`ProgressionComponent` no longer exists — deleted as dead code once
+`ProgressionEngine` stopped writing to it.
 
-`ProgressionComponent` mirrors `ResourceComponent`'s exact shape (`Map<
-String, num>`, here keyed by subject id instead of resource name) but is
-a distinct component, not a reuse of `ResourceComponent` — progression's
-tier/threshold semantics are a genuinely different concern, and sharing
-one storage map would let a `"stamina"` resource and a `"stamina"`
-progression subject silently collide. `ProgressionDefinition` (`subject`,
-`thresholds: List<num>`) is the tier curve — `thresholds[i]` is the
-cumulative experience required to reach tier `i + 1` — registered once
-per subject id, global like `ResourceDefinition.max`, not per-entity.
-`ProgressionState` (`experience`, `tier`) is a read-model exactly like
-`ResourceState`: tier is *never stored*, always computed from experience
-+ the registered thresholds, so it can't desync from what it's based on.
+`ProgressionEngine`'s constructor now takes an optional `MasteryTracker`
+(defaulting to a fresh one built from the same `components`/`events` if
+not supplied); every read (`experienceOf`, `tierOf`, `stateOf`) forwards
+directly to the tracker's `progressOf`/`levelOf`, and `define`/
+`definitionOf` translate `ProgressionDefinition` to/from
+`MasteryDefinition`. `addExperience` calls `_mastery.increase` (which
+publishes `MasteryChanged`/`MasteryLevelReached` on the shared bus as
+normal), then additionally publishes Progression's own
+`ProgressionChanged`/`ProgressionTierReached` for the same occurrence —
+so both event vocabularies fire for one underlying change, preserving
+each system's existing public contract. `unlock(id, subject, tier)` is
+unchanged in behavior (sets experience to a tier's threshold, never
+regresses, throws `ArgumentError` for an invalid tier) — it now just
+reads the registered thresholds via `_mastery.definitionOf` instead of
+its own registry.
 
-`ProgressionEngine` (constructed from `components`+`events`, same shape
-as `ResourcePool`): `define`/`definitionOf`, `experienceOf` (0 default),
-`tierOf` (0 if no definition registered — a subject can accumulate
-experience freely but never reaches a tier without one, the same
-permissive-default convention `ResourcePool` uses for an undefined
-resource), `stateOf`, `addExperience` (floors at 0, publishes
-`ProgressionChanged` with the actual delta applied, then one
-`ProgressionTierReached` per tier newly crossed in ascending order — a
-single large grant that jumps two tiers at once still fires both events,
-none skipped), and `unlock(id, subject, tier)` (sets experience directly
-to that tier's threshold — covers "learning" a subject outright as
-`tier: 1` without the caller doing threshold math; never regresses
-progress already beyond that tier; throws `ArgumentError` for `tier < 1`
-or a tier beyond the registered thresholds — a direct-caller misuse
-signal, not a normal gameplay outcome).
+**Wiring — the one subtlety.** Because `ProgressionEngine` now needs the
+*same* `MasteryTracker` instance the context's own `mastery` field uses
+(two independently-defaulted `MasteryTracker`s would each hold their own
+in-memory `_definitions` registry, silently splitting one store's
+configuration in two even though both would still read/write the same
+`MasteryComponent` data via the shared `ComponentStore`), `RuleContext`,
+`RuleEngine`, and `PluginContext` were each converted from a plain
+constructor into a **factory constructor plus a private named
+constructor** (`RuleContext._`, `RuleEngine._`, `PluginContext._`) —
+Dart's initializer lists can't introduce a local variable shared across
+multiple field defaults, so the factory computes
+`final sharedMastery = mastery ?? MasteryTracker(...)` once and passes it
+into *both* the `mastery` field and `ProgressionEngine`'s own `mastery:`
+parameter. This is purely a constructor-shape change; the public
+parameter lists are unchanged (`mastery` and `progression` are both still
+optional, defaulted), so none of the existing call sites needed updating.
 
-**Wiring** reuses the same "default-if-absent" pattern as the Resource
-Engine: `RuleContext`/`RuleEngine`/`PluginContext` each gained a
-`progression` field/param, defaulting to a fresh `ProgressionEngine` built
-from the same `components`/`events` — none of the existing call sites
-needed to change. The same bootstrap caveat applies (see the Resource
-Engine section and the bootstrap example above): construct one
-`ProgressionEngine` and pass the same instance to both `RuleEngine` and
-`PluginContext` if a real session needs its registered definitions to
-actually persist across rule firings.
+**Conditions**/**Effects** are unchanged in this pass: `ProgressionTierAbove`/
+`ProgressionTierBelow` and `GrantProgressionExperience`/
+`UnlockProgressionTier` still delegate to `context.progression` exactly as
+before — see their original reasoning (service-backed, not `Query`-backed,
+to avoid duplicating registered thresholds into a second parameter).
 
-**Conditions** (`lib/src/rule/condition.dart`): `ProgressionTierAbove`/
-`ProgressionTierBelow` (subject, tier) — strictly greater/less, mirroring
-`ResourceAbove`/`ResourceBelow`'s naming and comparison shape. Unlike
-`ResourceAbove`/`ResourceBelow`, these have no companion `Query` in
-`queries.dart` — they delegate straight to `context.progression.tierOf`,
-the same way `EventCount`/`RandomChance` bypass `Query`/`QueryScope`
-entirely, because a tier check needs the registered thresholds
-(`ProgressionEngine`'s own state) rather than anything `QueryScope`'s
-bare `ComponentStore` carries; duplicating those thresholds into a
-second, `Query`-level constructor parameter would risk drifting from
-whatever was actually `define`d.
+## Discovery system (`lib/src/discovery/`, `lib/src/components/discovery_component.dart`)
 
-**Effects** (`lib/src/rule/effect.dart`): `GrantProgressionExperience`
-(mirrors `ModifyResource`) and `UnlockProgressionTier` — the latter
-silently no-ops (no mutation, no event) for an invalid tier, matching
-`Damage`/`Heal`/`ConsumeResource`'s "no-op on an invalid precondition"
-convention, rather than propagating `ProgressionEngine.unlock`'s throw
-(that throw stays for a direct imperative caller, e.g. a plugin's own
-setup code, where fail-fast is the more useful signal for a content
-authoring mistake).
+A generic `unknown` → `discovered` → `unlocked` tri-state for arbitrary
+content subjects — an item, technique, style, weapon, spell, or crafting
+recipe — again one `DiscoveryTracker`, no per-domain system class.
+`discovered` deliberately doesn't imply usable: "a discovered content
+instance may still be unusable" is exactly why `unlocked` is a separate,
+stronger state.
 
-Deliberately not here yet: any per-entity-varying threshold curve
-(today's `ProgressionDefinition` is global per subject id, same scoping
+`DiscoveryState` (`unknown`/`discovered`/`unlocked`) — `unknown` is the
+implicit default and *never actually stored*; `DiscoveryComponent`
+(`Map<String, DiscoveryState>`, keyed by subject id) only ever holds
+`discovered`/`unlocked` entries. `DiscoveryTracker` (constructed from
+`components`+`events`): `stateOf` (default `unknown`), `discover`
+(`unknown` → `discovered`; no-op, no event, if already at or past that
+state — discovery never regresses), `unlock` (→ `unlocked`; if starting
+from `unknown`, auto-promotes through `discovered` first, publishing both
+`SubjectDiscovered` and `SubjectUnlocked` — an entity can never end up
+`unlocked` without ever having been `discovered`; no-op if already
+unlocked).
+
+Unlike Mastery/Progression, Discovery's state needs no registered
+configuration to interpret — a stored `DiscoveryState` is the complete
+answer, no thresholds to look up — so both read paths this engine
+generally offers exist here: `DiscoveredQuery`/`UnlockedQuery`
+(`lib/src/query/queries.dart`, pure `Query`s reading `QueryScope`'s bare
+`ComponentStore`, usable directly via `QueryEngine.evaluate` for bulk
+scans) and `IsDiscovered`/`IsUnlocked` (`lib/src/rule/condition.dart`,
+wrapping those same queries, mirroring `StatusActive`'s exact
+Query-wrapping shape) — a deliberate contrast with
+`ProgressionTierAbove`/`MasteryAtLeast`, which had to bypass `Query`
+entirely because a tier/level check *does* need external registered
+thresholds. `DiscoverSubject`/`UnlockSubject`
+(`lib/src/rule/effect.dart`) delegate to `context.discovery`.
+
+**Wiring** uses the same "default-if-absent" pattern, with no
+factory-sharing subtlety needed — Discovery depends on nothing else and
+nothing else depends on it, so a plain optional `discovery` param
+defaulting to a fresh `DiscoveryTracker` sufficed on `RuleContext`/
+`RuleEngine`/`PluginContext`.
+
+Deliberately not here yet, for both Mastery and Discovery: any
+per-entity-varying threshold curve (global per subject id, same scoping
 choice as `ResourceDefinition.max`) and any automatic component cleanup
 on `EntityDestroyed` (left as the general documented convention — the
 caller's responsibility — same choice already made for
-`ResourceComponent`, not a new gap this pass introduces).
+`ResourceComponent`).
 
 ## Content Registry — the engine's Asset/Data Registry (`lib/src/content/`)
 

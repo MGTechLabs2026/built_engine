@@ -1,7 +1,8 @@
 import '../component/component_store.dart';
-import '../components/progression_component.dart';
 import '../entity/entity_id.dart';
 import '../event/event_bus.dart';
+import '../mastery/mastery_definition.dart';
+import '../mastery/mastery_tracker.dart';
 import 'progression_definition.dart';
 import 'progression_events.dart';
 import 'progression_state.dart';
@@ -11,56 +12,64 @@ import 'progression_state.dart';
 /// learning, technique tier, a future cultivation breakthrough, ...), all
 /// tracked the same way. Core never hardcodes what a subject means.
 ///
-/// [ProgressionComponent] stays pure state (only accumulated experience,
-/// keyed by subject id); this service is what gives a subject its tier
-/// thresholds (via [define]) and what applies tier-crossing/eventing
-/// consistently. A subject with no registered [ProgressionDefinition]
-/// accumulates experience freely but never reaches a tier — the same
-/// permissive-default convention `ResourcePool` uses for an undefined
-/// resource.
+/// Reads and writes through a [MasteryTracker] rather than owning its own
+/// storage — Mastery is the authoritative engine; Progression is a thin
+/// adapter preserving its own event vocabulary
+/// ([ProgressionChanged]/[ProgressionTierReached]) and `tier`/`experience`
+/// naming on top of Mastery's `level`/`progress`. This is a deliberate
+/// choice (see `ARCHITECTURE.md`'s Mastery section): the two systems share
+/// one store rather than each keeping independent state that could drift.
+///
+/// A subject with no registered [ProgressionDefinition] (really, no
+/// registered `MasteryDefinition` — `define` forwards to
+/// `MasteryTracker.define`) accumulates experience freely but never
+/// reaches a tier — the same permissive-default convention `ResourcePool`
+/// uses for an undefined resource.
 ///
 /// No randomness anywhere in this class — every operation is pure
 /// arithmetic, so progression stays deterministic without needing
 /// `RngService` at all.
 class ProgressionEngine {
-  ProgressionEngine({required ComponentStore components, required EventBus events})
-      : _components = components,
+  ProgressionEngine({
+    required ComponentStore components,
+    required EventBus events,
+    MasteryTracker? mastery,
+  })  : _mastery = mastery ?? MasteryTracker(components: components, events: events),
         _events = events;
 
-  final ComponentStore _components;
+  final MasteryTracker _mastery;
   final EventBus _events;
-  final Map<String, ProgressionDefinition> _definitions = {};
 
   /// Registers (or overwrites) [definition] as the tier thresholds for its
-  /// [ProgressionDefinition.subject].
+  /// [ProgressionDefinition.subject] — forwards to the shared
+  /// [MasteryTracker.define].
   void define(ProgressionDefinition definition) {
-    _definitions[definition.subject] = definition;
+    _mastery.define(
+      MasteryDefinition(subject: definition.subject, thresholds: definition.thresholds),
+    );
   }
 
-  /// The registered [ProgressionDefinition] for [subject], or `null` if
-  /// none has been [define]d.
-  ProgressionDefinition? definitionOf(String subject) => _definitions[subject];
-
-  /// [id]'s accumulated experience for [subject]. Missing
-  /// [ProgressionComponent] or missing entry reads as `0`.
-  num experienceOf(EntityId id, String subject) =>
-      _components.get<ProgressionComponent>(id)?.experience[subject] ?? 0;
-
-  /// The tier [id]'s current experience for [subject] reaches, per the
-  /// registered [ProgressionDefinition]'s thresholds — `0` if none is
-  /// registered. Always computed, never stored, so it can't desync from
-  /// the experience it's based on.
-  int tierOf(EntityId id, String subject) {
-    final definition = _definitions[subject];
-    if (definition == null) return 0;
-    final experience = experienceOf(id, subject);
-    var tier = 0;
-    for (final threshold in definition.thresholds) {
-      if (experience < threshold) break;
-      tier += 1;
-    }
-    return tier;
+  /// The registered [ProgressionDefinition] for [subject], projected from
+  /// the shared `MasteryTracker`'s registered `MasteryDefinition` — `null`
+  /// if none has been [define]d.
+  ProgressionDefinition? definitionOf(String subject) {
+    final definition = _mastery.definitionOf(subject);
+    if (definition == null) return null;
+    return ProgressionDefinition(
+      subject: definition.subject,
+      thresholds: definition.thresholds,
+    );
   }
+
+  /// [id]'s accumulated experience for [subject] — reads through
+  /// `MasteryTracker.progressOf`. Missing entry reads as `0`.
+  num experienceOf(EntityId id, String subject) => _mastery.progressOf(id, subject);
+
+  /// The tier [id]'s current experience for [subject] reaches — reads
+  /// through `MasteryTracker.levelOf`. `0` if no definition is registered.
+  /// Always computed, never stored, so it can't desync from the
+  /// experience it's based on.
+  int tierOf(EntityId id, String subject) => _mastery.levelOf(id, subject);
 
   /// [id]'s experience and tier for [subject], together.
   ProgressionState stateOf(EntityId id, String subject) => ProgressionState(
@@ -69,20 +78,18 @@ class ProgressionEngine {
       );
 
   /// Adds [amount] (may be negative) to [id]'s experience for [subject],
-  /// floored at `0`. Publishes [ProgressionChanged] with the actual delta
-  /// applied — not at all if flooring leaves the stored value unchanged —
-  /// then one [ProgressionTierReached] per tier newly crossed, in
-  /// ascending order.
+  /// via the shared `MasteryTracker.increase` (floored at `0`, publishing
+  /// `MasteryChanged`/`MasteryLevelReached`). Additionally publishes
+  /// [ProgressionChanged] with the actual delta applied — not at all if
+  /// flooring leaves the stored value unchanged — then one
+  /// [ProgressionTierReached] per tier newly crossed, in ascending order,
+  /// preserving Progression's own event vocabulary alongside Mastery's.
   void addExperience(EntityId id, String subject, num amount) {
     final oldTier = tierOf(id, subject);
     final oldExperience = experienceOf(id, subject);
-    final raw = oldExperience + amount;
-    final newExperience = raw < 0 ? 0 : raw;
+    _mastery.increase(id, subject, amount);
+    final newExperience = experienceOf(id, subject);
     if (newExperience == oldExperience) return;
-    final existing = _components.get<ProgressionComponent>(id);
-    final updated = Map<String, num>.of(existing?.experience ?? const <String, num>{});
-    updated[subject] = newExperience;
-    _components.add(id, ProgressionComponent(updated));
     _events.publish(
       ProgressionChanged(id, subject, newExperience - oldExperience, newExperience),
     );
@@ -101,7 +108,7 @@ class ProgressionEngine {
     if (tier < 1) {
       throw ArgumentError.value(tier, 'tier', 'must be at least 1');
     }
-    final definition = _definitions[subject];
+    final definition = _mastery.definitionOf(subject);
     if (definition == null || tier > definition.thresholds.length) {
       throw ArgumentError.value(
         tier,

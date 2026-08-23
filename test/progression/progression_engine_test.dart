@@ -30,7 +30,7 @@ void main() {
           thresholds: [10, 30, 60],
         ),
       );
-      components.add(id, ProgressionComponent({'item:brass_knuckles': 15}));
+      components.add(id, MasteryComponent({'item:brass_knuckles': 15}));
 
       final state = progression.stateOf(id, 'item:brass_knuckles');
 
