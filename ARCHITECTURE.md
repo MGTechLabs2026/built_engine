@@ -333,3 +333,65 @@ them all at `unregister`, mirroring `CombatPlugin`'s own teardown — proven
 by an integration test that unregisters `MartialArtsPlugin` mid-session
 and confirms Combat keeps running normally and MartialArts' rules stop
 firing.
+
+## Content Registry — the engine's Asset/Data Registry (`lib/src/content/`)
+
+`ContentRegistry` is core service #12 from `claude.md`: the mechanism
+that lets content (items, skills, styles, spells, trinkets, statuses)
+and rules be defined as data instead of a new Dart class per piece of
+content. It is Core, not a plugin — `type` fields on loaded content are
+opaque strings the registry stores and indexes but never branches on.
+
+One `ContentDefinition` envelope (id, type, tags, an optional single
+resource cost, conditions, effects, cross-references via `requires`, and
+a passthrough `extra` map for anything else) covers items/skills/
+styles/spells/trinkets/statuses uniformly — they're structurally
+identical from the engine's point of view, matching
+`MartialItemDefinition`'s and `MartialTechniqueAction`'s existing "one
+class covers many content items via data" precedent. `components.cost`
+parses into exactly one `ModifyResource(resource, -amount)` — a direct
+data-driven mirror of `CombatAction.costEffects` and of every
+hand-written technique in `martial_technique_action.dart` (each has
+exactly one resource cost).
+
+Turning `{"type": "damage", "amount": 15}` into a real `Damage(15)` goes
+through a flat keyed factory dispatch, not a recursive JSON-AST
+interpreter — `claude.md` explicitly warns against the latter. The
+registry's constructor pre-registers factories for Core's own existing
+generic `Effect`/`Condition` classes only; a plugin registers more for
+its own via the same `registerEffectFactory`/`registerConditionFactory`
+methods it would use for anything else optional in this engine.
+`HasComponent<T>`/`EventCount` are deliberately not among the built-ins
+— both need a compile-time type argument a JSON string key can't supply
+without a second name-to-`Type` registry, and no concrete content has
+ever needed either from data, so adding it now would be exactly the
+speculative abstraction `claude.md`'s IMPLEMENTATION STYLE section
+forbids.
+
+`RuleDefinition` covers data-defined `Rule`s through one more registry —
+`registerTrigger` — because a `Rule`'s `trigger`/`subjectOf` are a `Type`
+and a closure, neither directly JSON-expressible. Core pre-registers
+triggers only for its own events (`EntityDamaged`, `EntityHealed`,
+`EntityKilled`, `EntityCreated`, `EntityDestroyed`); `ContentRegistry`
+never calls `RuleEngine.register` itself — turning a loaded
+`RuleDefinition` into a live rule stays the caller's explicit choice,
+the same "nothing wires itself up automatically" convention documented
+above for `EntityDestroyed` component cleanup.
+
+`loadAll` is fully atomic: every entry is parsed, then every id is
+checked for duplicates, then every `requires` is checked against the
+union of the registry and the whole batch, and only then does anything
+get registered — so two definitions in one batch can reference each
+other in either order, and a bad entry anywhere in a batch leaves the
+registry exactly as it was before the call.
+
+`ContentRegistry.toJson()`/`loadAll`/`loadRule` round-trip losslessly at
+the data level — like `Container.toJson()`/`fromJson()` before it, this
+is a self-contained capability of this module only, not the engine-wide
+Serialization service `claude.md` describes (still a separate future
+pass), and it re-exports each definition's original decoded JSON rather
+than attempting to re-serialize live `Effect`/`Condition` objects.
+
+This pass also grew `PluginContext` with a `content` field (alongside
+the existing seven services) — every plugin can now register its own
+factories/triggers and load/query content from any lifecycle method.
