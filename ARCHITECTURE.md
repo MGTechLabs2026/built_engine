@@ -301,6 +301,76 @@ the caller's responsibility, the same choice already made for
 `ResourceComponent`/`ProgressionComponent`(-now-removed)/`MasteryComponent`/
 `DiscoveryComponent`.
 
+## Training Framework (`lib/src/training/`)
+
+A generic, reusable framework for interactive practice — explicitly not a
+combat system and not an item system. The whole point of this pass is
+the boundary it draws: `TrainingExercise -> TrainingProfile ->
+TrainingResult` stops at a plain data snapshot. Training never decides
+anything like "trainee learned Jab" — that verdict belongs to a separate,
+not-yet-built evolution/learning system that reads a `TrainingResult`
+later. Nothing in this module references any specific technique, item,
+or style; `TrainingDimensions`' eight names (`speed`, `power`,
+`precision`, `reaction`, `control`, `rhythm`, `accuracy`, `consistency`)
+are generic performance-science vocabulary, not martial-arts terminology.
+
+**The one real simplification this pass makes, deliberately.** Every
+prior pass this session (Resource, Progression, Mastery, Discovery, Tome)
+needed a shared service wired through `PluginContext`/`RuleContext`/
+`RuleEngine` via the "default-if-absent" constructor pattern, because each
+tracks *persistent per-entity state* that has to survive between calls.
+A training session is a short-lived interaction, not persistent state —
+so `TrainingSession` is a plain, standalone object a caller constructs
+and holds directly, with **no `ComponentStore`/`EventBus`/
+`PluginContext` dependency at all**. This is what "the engine must be
+headless/testable" cashes out to concretely: construct a session, submit
+attempts, read the result — nothing else required, no UI, no game loop,
+no service-locator wiring.
+
+`TrainingProfile` (`Map<String, double> dimensions`) and `TrainingAttempt`
+(`Map<String, double> measurements`) are both open, string-keyed maps,
+not fixed-field classes — an exercise may populate any subset of the
+known dimensions (the spec's own worked example populates only 4 of the
+8), and an attempt's raw measurement keys are whatever a concrete
+exercise expects (a timing exercise's own `inputTimestampMs`/
+`targetTimestampMs`, say) — Training itself never interprets either map.
+
+`TrainingExercise` (`TrainingProfile evaluate(List<TrainingAttempt>
+attempts)`) is an abstract interface, plugins implement directly — no
+registry, the same pattern `Condition`/`Effect`/`PlacementRule`/
+`CombatAction` already use. `evaluate` sees the *whole* attempt history
+in one call, not one attempt at a time, so each concrete exercise picks
+its own aggregation strategy (average, best-of, recency-weighted, ...)
+freely; the framework prescribes none. `TimingExercise`/
+`PrecisionExercise`/`ReactionExercise`/`PowerExercise`/`ComboExercise` are
+**not implemented in this pass** — only the interface future plugins will
+implement them against, exactly as requested. Determinism follows for
+free from `evaluate` being a pure function of its input list (no RNG, no
+wall-clock, no hidden state) — verified by a test running the identical
+attempt sequence through two independent sessions and asserting equal
+results.
+
+`TrainingSession` (`trainee: EntityId`, `subject: String`, `exercise`)
+accumulates submitted attempts in order and offers `calculateProfile()`
+(= `exercise.evaluate(attempts)`) and `complete()` (→ `TrainingResult`).
+`subject` reuses the exact opaque-string convention
+`MasteryTracker`/`ProgressionEngine`/`DiscoveryTracker` already
+established (`"technique:jab"`, `"item:iron_sword"`, ...) — Training
+never interprets it either, so the same session machinery works
+identically for any subject a plugin invents.
+
+`TrainingResult` (`trainee`, `subject`, `profile`, `attempts`) is the
+type's entire public surface — no pass/fail field, no "learned" flag,
+nothing resembling a verdict. This is intentionally where the framework
+stops.
+
+Deliberately not here yet: `TimingExercise`/`PrecisionExercise`/
+`ReactionExercise`/`PowerExercise`/`ComboExercise` themselves (future
+plugin work, per the spec), any real evolution/learning system consuming
+`TrainingResult`, and any persistence of a `TrainingSession`/
+`TrainingResult` at all — a caller decides what to do with the
+`TrainingResult` it gets back; this module doesn't store one anywhere.
+
 ## Integrating EntityRegistry and ComponentStore
 
 Because `ComponentStore` does not know about `EntityRegistry`, component

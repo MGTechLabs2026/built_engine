@@ -72,3 +72,8 @@ export 'src/tome/tome_definition.dart';
 export 'src/tome/tome_instance.dart';
 export 'src/tome/tome_placement.dart';
 export 'src/tome/tome_service.dart';
+export 'src/training/training_attempt.dart';
+export 'src/training/training_exercise.dart';
+export 'src/training/training_profile.dart';
+export 'src/training/training_result.dart';
+export 'src/training/training_session.dart';
