@@ -466,3 +466,23 @@ composed-`ApplyStatus` in shape, and its three content definitions
 (`applyElementalStatus`, `hasElementalAffinity`), loaded atomically via
 `sdk.registerContentBatch` — proving last pass's `loadAll` atomicity
 composes cleanly with a real plugin's `initialize`.
+
+## Cross-plugin interoperability proof (`test/integration/cross_plugin_synergy_test.dart`, `test/integration/architecture_dependency_test.dart`)
+
+`MartialArtsPlugin` and `ExampleElementalPlugin` are two independent
+content plugins — neither imports or depends on the other, and neither
+is a dependency of the other in `claude.md`'s sense (only MartialArts's
+existing `-> combat` edge is real). Their one demonstrated synergy uses
+the Modifier Engine alone: `ExampleElementalPlugin`'s `emberCharm`
+registers a `Modifier` against stat `'punch'` — the exact,
+arbitrary-caller-chosen `damageStat` MartialArts' `jab`/`powerCross`
+already resolve through `ModifierResolver`. An entity that both
+`learnStyle`s Boxing and `equipElementalItem(emberCharm, ...)` deals
+bonus punch damage with zero new `Rule`/`Condition` code and zero
+cross-plugin import — the same mechanism Shaolin's own iron-body synergy
+already proved, just registered by a different plugin this time.
+
+`architecture_dependency_test.dart` makes the "neither imports the
+other, Core imports neither" property an automated, CI-enforceable
+check (reading source files' text at test time) rather than a one-time
+manual audit that rots the next time a file moves.
