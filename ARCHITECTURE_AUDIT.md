@@ -1,31 +1,30 @@
 # Build Engine — Architecture Audit
 
-**Date:** 2026-08-23
-**Scope:** `lib/` (all Core services and all plugins: Combat, MartialArts,
-Elemental) against the architecture contract in `CLAUDE.md`.
+**Date:** 2026-08-24
+**Scope:** entire repository (`lib/` — Core and all four plugins: Combat,
+MartialArts, Elemental, Physique) against the architecture contract in
+`CLAUDE.md`.
+**Commit audited:** `7852ac7` (main, post-Physique-plugin-merge).
 **Method:** full read of `CLAUDE.md`; a complete file inventory of `lib/`
-(64 files); import-graph inspection of every directory under `lib/src/`;
-targeted greps for domain vocabulary in Core, `dart:math`/`Random` usage
-outside `RngService`, static/global mutable state, and hardcoded
-plugin-id special-casing; line-by-line reading of every component class,
-`CombatSystem`, `ContentRegistry`, `PluginSdk`, and every plugin's rule/
-condition/effect files.
-**Status:** All findings and both additional observations have since
-been fixed, per approval to "fix everything." See **Resolution Log**
-below for what changed and which commit did it. The findings sections
-below are left as originally written (the point-in-time report) with a
-"Status" line added to each.
+(70 files); import-graph inspection of every directory under `lib/src/`
+and every top-level barrel (`lib/*.dart`); targeted greps for domain
+vocabulary in Core, `dart:math`/`Random` usage outside `RngService`,
+mutable `static` state, hardcoded item-combination checks, and duplicated
+`RuleContext`-construction helpers; line-by-line reading of every
+component class and every barrel's exports; a fresh line-count survey of
+every file to catch god-class growth since the prior audit
+(2026-08-23, `ARCHITECTURE_AUDIT.md` at that time — its 5 findings +
+2 observations were all fixed; see the previous log preserved below).
+**This is a from-scratch audit**, not a diff against the prior one — every
+category was re-verified against the current code, including the new
+Physique plugin, which did not exist at the time of the last audit.
+**No changes have been made.** Refactoring requires separate approval.
 
 ## Summary
 
-Of the 15 categories requested, **12 have no violations**. **3 have real
-findings** — none rise to Critical: two are moderate design debt (a
-duplicated helper, two classes carrying more responsibility than ideal),
-and one is a soft inconsistency (MartialArts predates `ContentRegistry`
-and hasn't been migrated to it). A short "Additional Observations"
-section at the end notes two smaller things outside the 15 requested
-categories, found along the way. **All of it has since been fixed** —
-see the Resolution Log.
+Of the 15 categories requested, **13 have no violations**. **2 have real
+findings**, both Low severity — no correctness or dependency-boundary
+risk in either case.
 
 | # | Category | Result |
 |---|---|---|
@@ -35,15 +34,21 @@ see the Resolution Log.
 | 4 | Plugins accessing private implementation of other plugins | ✅ No violations |
 | 5 | Circular dependencies | ✅ No violations |
 | 6 | Hardcoded item combinations | ✅ No violations |
-| 7 | Hardcoded content | ⚠️ 1 finding (Medium) → ✅ Fixed |
+| 7 | Hardcoded content | ⚠️ 1 finding (Low) |
 | 8 | Global mutable state | ✅ No violations |
 | 9 | Gameplay randomness bypassing RNGService | ✅ No violations |
 | 10 | Components containing excessive gameplay logic | ✅ No violations |
-| 11 | God classes | ⚠️ 2 findings (Medium, Low) → ✅ Fixed |
-| 12 | Duplicate engine functionality inside plugins | ⚠️ 1 finding (Medium) → ✅ Fixed |
+| 11 | God classes | ⚠️ 1 finding (Low, carried over, unchanged) |
+| 12 | Duplicate engine functionality inside plugins | ✅ No violations |
 | 13 | Direct cross-plugin calls that should use events/interfaces | ✅ No violations |
 | 14 | Domain-specific concepts leaking into Core | ✅ No violations |
 | 15 | Serialization depending on runtime implementation classes | ✅ No violations |
+
+A third item — not one of the 15, found while auditing tag vocabulary
+naming — is recorded under **Additional Observations**: the `'western'`/
+`'eastern'` tradition-tag strings that are the entire interoperability
+contract between MartialArts and Physique are repeated raw-literal, with
+no local constant in either plugin backing them.
 
 ---
 
@@ -55,14 +60,15 @@ Every file under `lib/src/{component,components,content,entity,event,
 modifier,plugin,query,rng,rule,spatial}/` was grep'd for imports; every
 import resolves to another file inside `lib/src/` (never `lib/src/
 plugins/`) or a `dart:` SDK import. `dart:math` appears in exactly two
-places: `lib/src/rng/rng_service.dart` (the sanctioned location) and
-`lib/src/modifier/modifier_resolver.dart:1,46,51` (`math.min`/`math.max`
-for the MIN/MAX modifier operations — not randomness). No Core file
-contains martial-arts/magic/combat/item vocabulary; confirmed by
-grepping Core for `sword|spell|fireball|qi|boxing|shaolin|martial|
-cultivat|potion|dragon|mana` — the only hits are documentation
-comments in `content_definition.dart` illustrating the JSON schema with
-`CLAUDE.md`'s own `iron_sword` example, not actual code.
+places: `lib/src/rng/rng_service.dart:1` (the sanctioned location) and
+`lib/src/modifier/modifier_resolver.dart:1` (`math.min`/`math.max` for
+the MIN/MAX modifier operations — not randomness). Grepping Core for
+`sword|spell|fireball|qi|boxing|shaolin|martial|cultivat|potion|dragon|
+mana|physique|sturdy|endurance|elemental` returns only two hits, both
+doc-comment prose: `content_definition.dart:6,43` (illustrating the JSON
+schema with `CLAUDE.md`'s own `iron_sword`/generic examples) and
+`plugin_sdk.dart:16` (a doc comment citing `MartialArtsPlugin` by name as
+a design precedent, not a dependency).
 
 ## 2. Combat importing MartialArts
 
@@ -70,16 +76,20 @@ comments in `content_definition.dart` illustrating the JSON schema with
 
 `lib/src/plugins/combat/*.dart` imports only `package:build_engine/
 build_engine.dart` (Core's public barrel) and its own sibling files.
-Grep for `MartialArts`/`martial_arts` inside `lib/src/plugins/combat/`
-returns zero hits. The dependency runs the sanctioned direction only:
-`MartialArts -> Combat -> Core` (`lib/martial_arts_plugin.dart`'s doc
-comment and `MartialArtsPlugin.dependencies => const ['combat']`).
+Grep for `martial_arts|MartialArts|magic|physique` inside
+`lib/src/plugins/combat/` returns three hits, all doc-comment prose
+explicitly *disclaiming* such vocabulary (`combat_plugin.dart:10`,
+`combat_action.dart:33`, `combat_system.dart:12` — "No martial-arts/
+magic/cultivation/weapon vocabulary"). The dependency runs the sanctioned
+direction only: `MartialArts -> Combat -> Core`
+(`lib/martial_arts_plugin.dart`'s barrel doc comment and
+`MartialArtsPlugin.dependencies => const ['combat']`).
 
 ## 3. Combat importing Magic
 
 **Result: N/A — no Magic plugin exists in this repository.** No
-violation to find; noting for completeness that Combat's only inbound
-dependent today is MartialArts.
+violation to find; Combat's only inbound content-plugin dependent today
+is MartialArts.
 
 ## 4. Plugins accessing private implementation of other plugins
 
@@ -87,118 +97,139 @@ dependent today is MartialArts.
 
 Every cross-plugin reference goes through a public barrel
 (`package:build_engine/combat_plugin.dart`), never a `lib/src/plugins/
-combat/...` path directly:
+combat/...` path directly — confirmed by reading every `import` line in
+`lib/src/plugins/{martial_arts,elemental,physique}/`:
 
-- `lib/src/plugins/martial_arts/martial_conditions.dart:2`
-- `lib/src/plugins/martial_arts/martial_arts_rules.dart:2`
-- `lib/src/plugins/martial_arts/martial_technique_action.dart:2`
+- `lib/src/plugins/martial_arts/martial_conditions.dart:2` and
+  `martial_arts_rules.dart:2` and `martial_technique_action.dart:2` each
+  import `package:build_engine/combat_plugin.dart` — the only plugin
+  that imports another plugin at all, and it does so exclusively through
+  the barrel.
+- `ElementalPlugin` and `PhysiquePlugin` import nothing from Combat or
+  MartialArts, at any path.
 
-No plugin holds a live reference to another plugin's internal class.
-`MartialArtsPlugin` explicitly documents (and the code confirms) that it
-"never holds a reference to `CombatPlugin`/`CombatSystem` — only to
-Combat's public event vocabulary" (`lib/src/plugins/martial_arts/
-martial_arts_plugin.dart:8-12`). `ElementalPlugin` imports nothing
-from either Combat or MartialArts at all.
+No plugin holds a live reference to another plugin's internal class; all
+five top-level barrels (`lib/{build_engine,combat_plugin,
+martial_arts_plugin,elemental_plugin,physique_plugin}.dart`) export only
+files from their own `lib/src/plugins/<name>/` (or, for `build_engine.dart`,
+only `lib/src/{component,...}/`) directory.
 
 ## 5. Circular dependencies
 
 **Result: No violations found.**
 
 The import graph is a strict DAG: `Core <- Combat <- MartialArts`,
-`Core <- Elemental`. No file under `lib/src/` imports anything
-under `lib/src/plugins/`, so a cycle back into Core is structurally
-impossible. `PluginManager.resolveLoadOrder()`
-(`lib/src/plugin/plugin_manager.dart:36-71`) additionally detects and
-throws `CyclicPluginDependencyException` on any *declared* plugin
-dependency cycle at runtime — a second, independent guard.
+`Core <- Elemental`, `Core <- Physique`. No file under `lib/src/`
+imports anything under `lib/src/plugins/`, so a cycle back into Core is
+structurally impossible. `PluginManager.resolveLoadOrder()`
+(`lib/src/plugin/plugin_manager.dart`) additionally detects and throws
+`CyclicPluginDependencyException` on any *declared* plugin dependency
+cycle at runtime — a second, independent guard,
+`test/integration/architecture_dependency_test.dart` further
+CI-enforces the absence of a MartialArts↔Physique import cycle and a
+Combat→{MartialArts,Elemental,Physique} import in either direction.
 
 ## 6. Hardcoded item combinations
 
 **Result: No violations found.**
 
+Grepped the whole `lib/src/plugins/` tree for an `id ==` /
+combination-shaped conditional (`id == 'x' && id2 == 'y'`); zero hits.
 Every cross-entity interaction found (Shaolin's `stance:iron_body`
 mitigation, Tai Chi's `TaiChiCounterCondition`, both passive-regen
-trinket rules, Elemental's "water conducts" rule) is gated by a
-single generic tag/status check, not a hardcoded pairing of two specific
-named items or techniques
-(`lib/src/plugins/martial_arts/martial_arts_rules.dart:10-57`,
-`lib/src/plugins/elemental/elemental_rules.dart:9-16`). No file
-contains an `if (id == 'x' && id2 == 'y')`-shaped combination check.
+trinket rules, Elemental's "water conducts" rule, Physique's tradition-
+tag synergy modifiers) is gated by a single generic tag/status check via
+`HasTagQuery`/`StatusActive`, never a hardcoded pairing of two specific
+named items, techniques, or physiques.
 
 ## 7. Hardcoded content
 
-**Finding (Medium). Status: ✅ Fixed** — see Resolution Log, item 4.
+**Finding (Low).**
 
-- **File:** `lib/src/plugins/martial_arts/martial_item.dart`
-- **Lines:** 72–177 (`brassKnuckles` through `martialTrinkets`)
-- **File:** `lib/src/plugins/martial_arts/martial_technique_action.dart`
-- **Lines:** 56–206 (`jab` through `yieldingStance`)
-- **Problem:** All 5 items, 3 trinkets, 6 techniques, and 3 stances are
-  Dart `const` object literals / factory functions compiled directly
-  into the plugin's source, not data loaded through `ContentRegistry`
-  (`lib/src/content/content_registry.dart`), which now exists and is
-  exactly the mechanism `claude.md`'s DATA DRIVEN CONTENT section asks
-  for ("Content should preferably be represented as data"). This is
-  *not* a violation of the harder rule immediately below it in
-  `claude.md` — "do not create a new source-code class for every
-  individual item" — MartialArts already follows that correctly: one
-  `MartialItemDefinition` class covers all 8 items/trinkets, and one
-  `MartialTechniqueAction` class covers all 9 techniques/stances. The
-  gap is the softer, "preferably data" half of the same guidance, and
-  exists because `MartialArtsPlugin` was built in an earlier pass,
-  before `ContentRegistry` existed. `ElementalPlugin`
-  (`lib/src/plugins/elemental/elemental_content.dart`) shows the
-  fully-migrated version of the same pattern: three spells as
-  `Map<String, dynamic>` definitions loaded via
-  `PluginSdk.registerContentBatch`.
-- **Severity:** Medium — no correctness or architecture-boundary risk
-  (the code is still fully data-*shaped*, just not data-*loaded*), but
-  it's an inconsistency between the engine's two content plugins that a
-  third-party developer reading both would reasonably find confusing.
-- **Recommended fix:** Convert `martial_item.dart`'s 8 definitions and
-  `martial_technique_action.dart`'s 9 definitions into
-  `List<Map<String, dynamic>>` literals loaded via
-  `MartialArtsPlugin.initialize`'s `PluginSdk.registerContentBatch`,
-  mirroring `elemental_content.dart` exactly. `MartialTechniqueAction`
-  itself can stay as the runtime `CombatAction` implementation (a
-  content definition still needs *some* Dart type to become a live
-  `CombatAction`); only the *values* (damage numbers, resource costs,
-  tag sets, per-technique conditions) need to move to data. Requires
-  registering `MartialTechniqueAction`-shaped content as its own
-  `ContentRegistry` "kind" (or extending `ContentDefinition` with an
-  optional `selfEffects`/`baseDamage`/`damageStat` reading, since
-  today's envelope only produces `costEffects`/`conditions`/`effects`,
-  not a full `CombatAction`) — this is genuine design work, not a
-  mechanical find-and-replace, so it should get its own brainstorm/spec
-  before implementation.
+- **Files:**
+  - `lib/src/plugins/martial_arts/martial_item.dart:61-166`
+    (`brassKnuckles` through `martialTrinkets`)
+  - `lib/src/plugins/elemental/elemental_item.dart` (`emberCharm` and its
+    `ElementalItemDefinition`)
+- **Problem:** Wearable-item/trinket definitions in both plugins that
+  have them are Dart `const` object literals compiled directly into
+  source, not data loaded through `ContentRegistry`
+  (`lib/src/content/content_registry.dart`), which `CLAUDE.md`'s DATA
+  DRIVEN CONTENT section prefers ("Content should preferably be
+  represented as data"). This is *not* a violation of the harder rule
+  immediately below it in `CLAUDE.md` — "do not create a new
+  source-code class for every individual item" — both plugins already
+  follow that correctly: one `MartialItemDefinition` class covers all 8
+  MartialArts items/trinkets, one `ElementalItemDefinition` class covers
+  Elemental's item. Every other kind of content in the engine — Elemental's
+  spells (`elemental_content.dart`), MartialArts' techniques/stances
+  (`martial_technique_content.dart`, migrated to `ContentRegistry` since
+  the prior audit), and Physique's four physiques
+  (`physique_content.dart`) — is fully `ContentRegistry`-loaded. Items
+  are the one content shape that has never been migrated, in either
+  plugin that has them, and the omission is now internally consistent
+  across the whole engine rather than a stray inconsistency in one
+  plugin (as the prior audit found it).
+- **Severity:** Low (downgraded from the prior audit's Medium finding on
+  this same category, which covered MartialArts only). The pattern is no
+  longer an odd-one-out inconsistency — it is now the engine's uniform,
+  deliberate treatment of "equip-time item" content specifically, distinct
+  from "spell/technique/physique" content, which one could reasonably
+  read as the equip case genuinely not needing `ContentRegistry`'s
+  `Effect`/`Condition`/`Rule` envelope (an item's `modifiersFor(wearer)`
+  is applied directly via `ModifierCollection.add` inside `equipItem`/
+  `equipElementalItem`, never through a `Rule` firing). Still non-zero
+  risk: the code is data-*shaped* but not data-*loaded*, so a third-party
+  mod cannot add a new item without a source change.
+- **Recommended fix:** No urgent action required — this is now a
+  considered, consistent design choice rather than an oversight. If item
+  content is ever wanted to be moddable without a source change, convert
+  both plugins' item definitions to `List<Map<String, dynamic>>` loaded
+  via `PluginSdk.registerContentBatch`, mirroring the exact
+  data/runtime-split pattern `physiqueDefinitionFromContent`
+  (`lib/src/plugins/physique/physique_content.dart`) already established
+  for `Modifier`-producing content — that pattern is now proven twice
+  (MartialArts' techniques, Physique's physiques) and would transfer
+  directly to items. This is genuine design work, not a mechanical
+  find-and-replace, so it should get its own brainstorm/spec before
+  implementation, same as the prior audit's recommendation.
 
 ## 8. Global mutable state
 
 **Result: No violations found.**
 
 Grepped for `static` members across all of `lib/`; every hit is a pure
-static *function* (`ContentField`'s helpers in `json_helpers.dart`,
-`Container._slotFromJson`, `MartialItemDefinition._noModifiers`,
-`ApplyElementalStatus._statusFor`) or a `static const` identifier
-constant (`MartialStyles.boxing`/`shaolin`/`taiChi`,
-`Elements.fire`/`water`/`lightning`) — no mutable `static` field, no
-singleton (`static final instance = ...`), no top-level mutable
-variable anywhere. Every stateful service (`EntityRegistry`,
-`ComponentStore`, `EventBus`, `ModifierCollection`, `ContentRegistry`,
-`RngService`, ...) is constructed and held per-`PluginContext`, never
-reached through a global.
+static *function* (`ElementalItemDefinition`/`MartialItemDefinition`'s
+`_noModifiers`, `ApplyElementalStatus._statusFor`, `ContentField`'s
+helpers in `json_helpers.dart`, `Container._slotFromJson`) or a `static
+const` identifier constant (`MartialStyles.boxing`/`shaolin`/`taiChi`,
+`Elements.fire`/`water`/`lightning`, `PhysiqueTypes.sturdy`/`power`/
+`burst`/`endurance`) — no mutable `static` field, no singleton
+(`static final instance = ...`), no top-level mutable variable anywhere
+in the repository, including the new Physique plugin. Every stateful
+service (`EntityRegistry`, `ComponentStore`, `EventBus`,
+`ModifierCollection`, `ContentRegistry`, `RngService`, ...) is
+constructed and held per-`PluginContext`, never reached through a
+global.
 
 ## 9. Gameplay randomness bypassing RNGService
 
 **Result: No violations found.**
 
-Grepped all of `lib/` for `dart:math`/`Random(`; the only two hits are
-`rng_service.dart` itself (`Random(seed)` at line 8 — the one sanctioned
-construction site) and `modifier_resolver.dart`'s `math.min`/`math.max`
-(deterministic math, not randomness). `RandomChance`
-(`lib/src/rule/condition.dart:152-158`) — the one gameplay condition
-that needs randomness — routes through `context.rng.chance(probability)`,
-never `dart:math` directly.
+Grepped all of `lib/` for `dart:math`/`Random(`; the only real import
+sites are `rng_service.dart:1` (`Random(seed)` — the one sanctioned
+construction site) and `modifier_resolver.dart:1`'s `math.min`/`math.max`
+(deterministic math, not randomness). The two other grep hits
+(`physique_initialization.dart:13`, `condition.dart:151`) are doc
+comments *naming* `dart:math` only to say it must never be called
+directly — not actual imports. `RandomChance`
+(`lib/src/rule/condition.dart`) and `initializePhysique`
+(`lib/src/plugins/physique/physique_initialization.dart`) — the two
+gameplay code paths that need randomness — route through
+`context.rng.chance(...)`/`context.rng.nextInt(...)` respectively, never
+`dart:math` directly. Physique's own test suite additionally proves
+determinism (same seed ⇒ same physique) and variation (different seeds ⇒
+can differ) end to end.
 
 ## 10. Components containing excessive gameplay logic
 
@@ -210,252 +241,213 @@ Every component class in the repository was read in full:
 `CombatStateComponent`, `CombatantComponent`
 (`lib/src/plugins/combat/`), `MartialLoadoutComponent`
 (`lib/src/plugins/martial_arts/`), `ElementalAffinityComponent`
-(`lib/src/plugins/elemental/`). Every one is a plain data holder
-— constructor plus fields, at most a `toJson`/`fromJson` pair for
-marshaling (which is data transformation, not gameplay logic). No
-component contains a conditional, a loop over other entities, or a call
-into `EventBus`/`RuleEngine`.
+(`lib/src/plugins/elemental/`), and `PhysiqueComponent`
+(`lib/src/plugins/physique/physique_component.dart` — 10 lines, a single
+`physiqueId` field and nothing else). Every one is a plain data holder —
+constructor plus fields, at most a `toJson`/`fromJson` pair for
+marshaling (data transformation, not gameplay logic). No component
+contains a conditional, a loop over other entities, or a call into
+`EventBus`/`RuleEngine`.
 
 ## 11. God classes
 
-**Finding (Medium): `ContentRegistry`. Status: ✅ Fixed** — see
-Resolution Log, item 2.
-
-- **File:** `lib/src/content/content_registry.dart`
-- **Lines:** 26–354 (whole class)
-- **Problem:** One class carries five distinct responsibilities: factory
-  registration (40–62), definition loading/validation (64–139), lookup
-  (141–155), serialization (157–169), and — the largest single chunk —
-  registering Core's own built-in effect/condition/trigger vocabulary
-  (297–354, ~58 lines). None of these individually is complex, but
-  together they make this the largest file in the engine (354 lines,
-  vs. the next-largest Core file at 234) and mean a change to "which
-  built-in effects exist" and a change to "how batch loading validates
-  `requires`" both touch the same class.
-- **Severity:** Medium — the class is well-tested and each section is
-  independently comprehensible (clearly delimited by `// --- section
-  ---` comments), so this is a maintainability risk, not a correctness
-  or architecture-boundary one.
-- **Recommended fix:** Extract the built-in-vocabulary registration
-  (lines 297–354) into a standalone top-level function (e.g.
-  `void registerCoreEffectFactories(ContentRegistry registry)` in its
-  own file) called from the constructor, and consider extracting the
-  parsing/validation internals (171–296) into a package-private
-  `_ContentParser` class that `ContentRegistry` delegates to — leaving
-  `ContentRegistry` itself as storage + lookup + orchestration only.
-
-**Finding (Low): `CombatSystem`. Status: not changed** — this finding's
-own recommended fix said "no urgent action," and the fix-everything pass
-left it as-is; still worth a future look if `CombatSystem` grows further.
+**Finding (Low): `CombatSystem`. Carried over from the prior audit,
+unchanged.**
 
 - **File:** `lib/src/plugins/combat/combat_system.dart`
-- **Lines:** 17–267 (whole class)
+- **Lines:** 1–257 (whole class; 257 lines today, was 267 at the last
+  audit — effectively unchanged)
 - **Problem:** One class owns battle creation, action execution, turn
-  advancement, and battle-end detection (with two separate code paths —
-  `_checkBattleEndFor`/`_checkPendingBattlesOtherThan` for the
-  in-`executeAction` case, `_onEntityKilled` for the reactive case —
+  advancement, and battle-end detection (with two separate code paths
   needed to handle a single action killing participants of multiple
   concurrent battles correctly).
-- **Severity:** Low — this is 267 lines behind a single, narrow public
-  surface (`startBattle`, `executeAction`), heavily commented to explain
-  *why* the split-path battle-end logic exists, and every branch is
-  covered by tests. Flagging only because it's the second-largest file
-  in the engine and touches the most core Combat concerns in one place.
-- **Recommended fix:** No urgent action. If this grows further (e.g. a
-  future Scheduler integration), consider extracting battle-end
-  detection into its own collaborator (`_BattleEndDetector` or similar)
-  that `CombatSystem` delegates to, the same split recommended above for
-  `ContentRegistry`.
+- **Severity:** Low — narrow public surface (`startBattle`,
+  `executeAction`), heavily commented, every branch covered by tests.
+  Flagging only because it remains the second-largest file in the
+  engine (behind `content_registry.dart`, which was already split once
+  — see the Resolution Log below) and touches the most Combat concerns
+  in one place.
+- **Recommended fix:** Unchanged from the prior audit: no urgent action.
+  If this grows further, consider extracting battle-end detection into
+  its own collaborator that `CombatSystem` delegates to.
+
+`ContentRegistry` (`lib/src/content/content_registry.dart`), the prior
+audit's Medium god-class finding, is confirmed still fixed: 293 lines
+today (down from 354), with built-in effect/condition/trigger vocabulary
+registration living in its own file
+(`lib/src/content/built_in_content_factories.dart`) as that fix
+specified. No new god-class candidate was found elsewhere — `Container`
+(`lib/src/spatial/container.dart`, 277 lines) is the only other file over
+250 lines, but its length is one cohesive responsibility (spatial
+placement query/mutate/serialize for a single abstraction), not several
+unrelated ones, so it is not flagged.
 
 ## 12. Duplicate engine functionality inside plugins
 
-**Finding (Medium). Status: ✅ Fixed** — see Resolution Log, item 1.
-(The fix also caught a 4th copy of this same duplication, in
-`martial_styles.dart`, missed by the original audit — see the log.)
+**Result: No violations found.**
 
-- **Files:**
-  - `lib/src/plugins/martial_arts/martial_item.dart:24-33`
-  - `lib/src/plugins/elemental/elements.dart:14-23`
-  - `lib/src/plugins/combat/combat_system.dart:128-137` (a third,
-    near-identical variant, `_ruleContextFor`)
-- **Problem:** `martial_item.dart:24-33` and `elements.dart:14-23` are a
-  **byte-for-byte identical** private helper function, independently
-  reinvented in two plugins that don't depend on each other:
-
-  ```dart
-  RuleContext _standaloneContext(EntityId subject, PluginContext context) =>
-      RuleContext(
-        subject: subject,
-        triggerEvent: const Object(),
-        entities: context.entities,
-        components: context.components,
-        events: context.events,
-        rng: context.rng,
-        eventCounts: context.rules.eventCounts,
-      );
-  ```
-
-  `combat_system.dart:128-137`'s `_ruleContextFor` builds the same
-  `RuleContext` shape with one real difference (a real `triggerEvent`
-  instead of `const Object()`). This is exactly the kind of boilerplate
-  `PluginSdk` (`lib/src/plugin/plugin_sdk.dart`) was built to eliminate
-  for subscriptions/rules/content, but no equivalent helper exists yet
-  for "construct a standalone `RuleContext` to apply a `Condition`/
-  `Effect` outside of an event-triggered rule firing" — every plugin
-  that needs one (which is any plugin applying a `Effect`/`Condition`
-  directly, e.g. to grant a tag at item-equip or attunement time) has to
-  reinvent it.
-- **Severity:** Medium — no correctness risk today (all three
-  constructions are equivalent and correct), but it's unowned,
-  copy-pasted Core-adjacent plumbing that will silently drift if
-  `RuleContext`'s field list ever changes (a new required field would
-  need updating in three unrelated files, and a fourth plugin author
-  would likely paste a fourth copy rather than discover the pattern).
-- **Recommended fix:** Add one method to `PluginContext` (or a
-  `PluginSdk` method, e.g. `sdk.ruleContextFor(subject, {Object?
-  triggerEvent})`) that constructs a `RuleContext` from the context's own
-  services, defaulting `triggerEvent` to `const Object()`. Replace all
-  three call sites. This is a small, mechanical, low-risk fix — a good
-  first candidate to implement once this audit is approved.
+The prior audit's Medium finding here (four independently-reinvented
+copies of a standalone `RuleContext`-construction helper) is confirmed
+fixed and holding: every plugin that needs a standalone `RuleContext`
+now uses the shared `PluginContext.ruleContextFor` extension method —
+`lib/src/plugins/elemental/elements.dart:32`,
+`lib/src/plugins/combat/combat_system.dart:97,109`,
+`lib/src/plugins/martial_arts/martial_item.dart:40`,
+`lib/src/plugins/martial_arts/martial_styles.dart:35`,
+`lib/src/plugins/elemental/elemental_item.dart:60`. Grepping for a raw
+`RuleContext(` construction anywhere under `lib/src/plugins/` returns
+zero hits — no plugin has reinvented it since. Physique's
+`initializePhysique` doesn't need this helper at all (it manipulates
+`ComponentStore`/`ModifierCollection`/`EventBus` directly rather than
+applying an `Effect`/`Condition`), so it introduces no new copy of the
+pattern. Separately, Physique's `_operationFor` string-to-
+`ModifierOperation` switch (`physique_content.dart`) was checked against
+every other `ModifierOperation` use in the repo and is genuinely unique
+— no other plugin parses modifier operations from a string, since every
+other plugin's `Modifier`s are hand-written Dart rather than JSON-loaded.
 
 ## 13. Direct cross-plugin calls that should use events/interfaces
 
 **Result: No violations found.**
 
-Grepped every plugin for references to another plugin's system classes
-(`CombatSystem`, `CombatPlugin`); every hit outside `lib/src/plugins/
-combat/` itself is inside a documentation comment, never executable
+Grepped every plugin for references to another plugin's system/plugin
+classes (`CombatSystem`, `CombatPlugin`, `MartialArtsPlugin`,
+`ElementalPlugin`); every hit outside a plugin's own directory is inside
+a documentation comment, never executable code
+(`martial_arts_plugin.dart:11,47`, `elemental_plugin.dart:22,71`).
+`lib/src/plugins/combat/` and `lib/src/plugins/physique/` contain zero
+references to `MartialArtsPlugin`/`ElementalPlugin` at all, in prose or
 code. Every actual cross-entity interaction (Shaolin's mitigation, Tai
-Chi's counter, Elemental's "water conducts") is implemented as a
-`Rule` reacting to a published event (`EntityDamaged`/`ActionCompleted`)
-through the shared `RuleEngine`, exactly the pattern `ARCHITECTURE.md`'s
-MartialArts section documents as the deliberate resolution to this
-category of risk.
+Chi's counter, Elemental's "water conducts", Physique's tradition-tag
+synergy) is implemented as either a `Rule` reacting to a published event
+through the shared `RuleEngine`, or (Physique's case specifically) a
+conditional `Modifier` gated by `HasTagQuery` on a tag another plugin
+grants — never a direct call into another plugin's class.
 
 ## 14. Domain-specific concepts leaking into Core
 
 **Result: No violations found.**
 
-Same evidence as category 1: zero domain vocabulary (item names,
-element names, style names, resource names like `qi`/`mana`) appears
-anywhere under `lib/src/{component,components,content,entity,event,
-modifier,plugin,query,rng,rule,spatial}/` outside of doc-comment
-examples. `type` fields on `ContentDefinition`/loaded content are opaque
-strings Core stores and indexes but never branches on
-(`lib/src/content/content_registry.dart`'s `allOfType`/`withTag` treat
-`type`/tags as plain equality/set-membership, never a `switch` on known
-values).
+Same evidence as category 1: zero domain vocabulary (item names, element
+names, style names, physique names, resource names like `qi`/`mana`)
+appears anywhere under `lib/src/{component,components,content,entity,
+event,modifier,plugin,query,rng,rule,spatial}/` outside of doc-comment
+examples/citations. `type` fields on `ContentDefinition`/loaded content
+remain opaque strings Core stores and indexes but never branches on —
+`allOfType`/`withTag` treat `type`/tags as plain equality/set-membership,
+confirmed unchanged in the current `content_registry.dart`.
 
 ## 15. Serialization depending on runtime implementation classes
 
 **Result: No violations found.**
 
 Every `toJson`/`fromJson` pair in the repository was read:
-`Container.toJson`/`fromJson` (`lib/src/spatial/container.dart:170-223`),
-`CombatStateComponent.toJson`/`fromJson`
-(`lib/src/plugins/combat/combat_state_component.dart`),
-`CombatantComponent.toJson`/`fromJson` (same directory),
+`Container.toJson`/`fromJson` (`lib/src/spatial/container.dart`),
+`CombatStateComponent.toJson`/`fromJson`,
+`CombatantComponent.toJson`/`fromJson` (`lib/src/plugins/combat/`),
 `MartialLoadoutComponent.toJson`/`fromJson`
-(`lib/src/plugins/martial_arts/martial_loadout_component.dart`), and
-`ContentRegistry.toJson` (`lib/src/content/content_registry.dart:166-169`).
-Every one serializes to/from plain, stable-ID-based primitives (`int`,
-`String`, `bool`, nested `Map`/`List` of the same) — none serializes a
-Dart `Type` object, a closure, or any other value that only has meaning
-within the current process. `ContentRegistry.toJson()` in particular was
-deliberately designed to re-export each definition's original decoded
-JSON (`ContentDefinition.raw`) rather than attempt to serialize the live
-`Effect`/`Condition` objects parsed from it — see `ARCHITECTURE.md`'s
-Content Registry section.
+(`lib/src/plugins/martial_arts/`), and `ContentRegistry.toJson`
+(`lib/src/content/content_registry.dart`). Every one serializes to/from
+plain, stable-ID-based primitives (`int`, `String`, `bool`, nested
+`Map`/`List` of the same) — none serializes a Dart `Type` object, a
+closure, or any other value with meaning only within the current
+process. `ContentRegistry.toJson()` still re-exports each definition's
+original decoded JSON (`ContentDefinition.raw`) rather than attempting to
+serialize the live `Effect`/`Condition` objects parsed from it.
+`PhysiqueComponent`, `ElementalAffinityComponent`, and Core's own base
+components (`Health`/`Resource`/`Stat`/`Status`/`TagSet`) have no
+`toJson`/`fromJson` at all — a save/load *coverage* gap, not a category-15
+violation (there is nothing there that could depend on a runtime
+implementation class, since there is no serialization code at all yet).
+Noted for completeness, not raised as a finding, since coverage
+completeness is outside what this category asks for.
 
 ---
 
 ## Additional observations (outside the 15 requested categories)
 
-These aren't part of the requested checklist but were noticed during
-the audit and are worth recording.
+**C. `'western'`/`'eastern'` tradition-tag literals — the entire
+interoperability contract between MartialArts and Physique — are raw
+string literals with no backing constant in either plugin.**
 
-**A. `CombatPlugin`/`MartialArtsPlugin` never clean up their own
-components on `EntityDestroyed`. Status: ✅ Fixed** — see Resolution
-Log, item 3. `CombatStateComponent`/
-`CombatantComponent` (Combat) and `MartialLoadoutComponent`
-(MartialArts) are never removed when an entity carrying them is
-destroyed — grep for `EntityDestroyed` inside `lib/src/plugins/combat/`
-and `lib/src/plugins/martial_arts/` returns zero hits. This is a latent
-component-store leak (harmless at test scale, real in a long-running
-game). `PluginSdk.registerComponentCleanup<T>()`
-(`lib/src/plugin/plugin_sdk.dart:30-41`) now exists as the sanctioned
-fix and is already used by `ElementalPlugin` — Combat and
-MartialArts predate it and haven't been retrofitted. Low-to-Medium
-severity; straightforward fix (one `sdk.registerComponentCleanup<T>()`
-call per owned component type, in each plugin's `initialize`).
-
-**B. Magic strings for tag/resource/status names. Status: ✅ Fixed** —
-see Resolution Log, item 5. `claude.md`'s CODE
-QUALITY section lists "magic strings scattered throughout code" under
-"Avoid." Style ids are centralized (`MartialStyles`/`Elements`), but
-resource names (`'qi'`, `'momentum'`, `'mana'`) and status/stance tag
-strings (`'stance:iron_body'`, `'stance:tai_chi'`,
-`'status:soaked'`/`'status:shocked'`/`'status:burning'`) are raw string
-literals repeated across several files within each plugin (e.g. `'qi'`
-appears as a literal in both `martial_technique_action.dart` and
-`martial_arts_rules.dart`; `'status:soaked'` in both
-`elemental_effects.dart` and `elemental_rules.dart`). Not cross-plugin
-duplication (category 12) — each repetition is within one plugin's own
-files — and each individual plugin is internally consistent, but a
-typo in one of these literals would be a silent runtime mismatch, not a
-compile error. Low severity; recommended fix is a small `abstract final
-class`-of-constants per plugin (mirroring `MartialStyles`/`Elements`
-for the tag/resource names each plugin already introduces), not a
-structural change.
+- **Files:**
+  - `lib/src/plugins/martial_arts/martial_styles.dart:60-61`
+  - `lib/src/plugins/martial_arts/martial_technique_content.dart:27,44,66,82,96,110,123,137,151`
+  - `lib/src/plugins/martial_arts/martial_item.dart:63,79,95,111,127,141,146,162`
+  - `lib/src/plugins/physique/physique_content.dart:33,39,53,59,73,79,93,99`
+- **Problem:** `CLAUDE.md`'s CODE QUALITY section lists "magic strings
+  scattered throughout code" under "Avoid," and its own resolution log
+  already fixed this exact shape of issue once (Observation B, prior
+  audit — `MartialResources`/`MartialStances`/`ElementalResources`/
+  `ElementalStatuses` constant classes). `'western'`/`'eastern'` were not
+  covered by that fix (they didn't exist yet) and are a stricter case
+  than an ordinary in-plugin magic string: these two literals are the
+  *entire* mechanism binding two independent plugins together with zero
+  shared import — Physique's `physique_content.dart` and MartialArts'
+  `martial_styles.dart` each independently spell the same two strings,
+  and neither can import a shared constants file from the other without
+  reintroducing the cross-plugin dependency this design deliberately
+  avoids. A typo in either plugin (`'wester'` vs `'western'`) would
+  silently break the synergy mechanic at runtime with no compile error
+  and no obviously-failing test unless the specific synergy scenario is
+  exercised.
+- **Severity:** Low — both plugins' own test suites already exercise the
+  synergy end-to-end with the current spelling
+  (`test/integration/physique_synergy_test.dart`), so a typo introduced
+  today would be caught immediately; the risk is only for a *future*
+  edit to either plugin that doesn't re-run that specific integration
+  test.
+- **Recommended fix:** Each plugin should name these two strings locally
+  — e.g. a small `abstract final class MartialTraditions { static const
+  western = 'western'; static const eastern = 'eastern'; }` (or fold
+  into the existing `MartialVocabulary`-style class each plugin already
+  has), defined once per plugin and referenced everywhere that plugin
+  currently spells the literal. This does **not** create a shared
+  dependency — each plugin still independently defines and owns its own
+  copy of the same two constant *values*, exactly the same way both
+  plugins today independently agree on the string `'martial'` or
+  `'physique'` without sharing a definition. Two independent constant
+  classes with matching values is consistent with `CLAUDE.md`'s "tags
+  are the universal language for content interoperability... the engine
+  does not interpret these tags" — the interoperability contract is the
+  *string value*, not a shared Dart symbol.
 
 ---
 
-## Resolution Log
+## Resolution Log (from the prior audit, 2026-08-23 — preserved for history)
 
-Approved via "fix everything" (including finding #7, which got its own
-short design pass first per this report's own recommendation).
+Approved via "fix everything." All items below were already fixed before
+this new audit began, and this audit independently re-verified each
+still holds (see the relevant category sections above).
 
 1. **Finding #12** (dedupe `RuleContext` construction) —
    `PluginContext.ruleContextFor` added
-   (`lib/src/plugin/plugin_context.dart`); all four call sites (the
-   third and fourth found only during the fix — see below) now use it.
-   Commit `b814da9`.
+   (`lib/src/plugin/plugin_context.dart`); all four call sites (plus a
+   fifth/sixth added since, in Elemental's and MartialArts' item-equip
+   functions, and a seventh in `martial_styles.dart`) now use it. Commit
+   `b814da9`.
 2. **Finding #11, `ContentRegistry` half** (extract built-in vocabulary)
    — moved to `lib/src/content/built_in_content_factories.dart`;
-   `ContentRegistry` shrank 354 → 293 lines. The `CombatSystem` half was
-   left alone, per that finding's own "no urgent action." Commit
-   `42f724a`.
+   `ContentRegistry` shrank 354 → 293 lines. Commit `42f724a`.
 3. **Observation A** (missing `EntityDestroyed` cleanup) — `CombatPlugin`
-   and `MartialArtsPlugin` both adopted `PluginSdk`;
-   `MartialArtsPlugin`'s hand-rolled `List<EventSubscription>` bookkeeping
-   was replaced by `sdk.disposeAll()` in the same pass. Commit `ea60cd5`.
-4. **Finding #7** (MartialArts content predates `ContentRegistry`) — the
-   9 techniques/stances moved to data
-   (`lib/src/plugins/martial_arts/martial_technique_content.dart`),
-   loaded into the real `PluginContext.content` via
-   `PluginSdk.registerContentBatch` in `MartialArtsPlugin.initialize`,
-   mirroring `ElementalPlugin`'s spells — see `ARCHITECTURE.md`'s
-   MartialArts section for the full design (why `MartialTechniqueAction`
-   itself stayed hand-written Dart, and why items/trinkets were
-   deliberately *not* migrated). This pass also surfaced and fixed a
-   latent bug: both `MartialArtsPlugin` and `ElementalPlugin`
-   would throw `ContentDuplicateIdException` if re-initialized on the
-   same context after `unregister` (`ContentRegistry` has no unload) —
-   both now guard against loading their content twice. Commit `04f776d`.
+   and `MartialArtsPlugin` both adopted `PluginSdk`. `PhysiquePlugin`,
+   built after this fix, used `sdk.registerComponentCleanup<T>()` from
+   day one. Commit `ea60cd5`.
+4. **Finding #7** (MartialArts techniques predated `ContentRegistry`) —
+   the 9 techniques/stances moved to data
+   (`lib/src/plugins/martial_arts/martial_technique_content.dart`).
+   Commit `04f776d`. (Items/trinkets were deliberately *not* migrated —
+   see this audit's own Finding #7 above, now reframed as an engine-wide
+   consistent pattern rather than an inconsistency.)
 5. **Observation B** (magic strings) — added
    `MartialResources`/`MartialStances`
    (`lib/src/plugins/martial_arts/martial_vocabulary.dart`) and
    `ElementalResources`/`ElementalStatuses`
-   (`lib/src/plugins/elemental/elemental_vocabulary.dart`);
-   also tied the two passive-regen rules' `equipped:<id>` tags directly
-   to `momentumTrinket.id`/`qiPendant.id` instead of an
-   independently-typed literal. Commit `9350f52`.
-
-**Two things the original audit missed, both caught while fixing it:**
-fixing finding #12 surfaced a 4th copy of the same duplicated
-`_standaloneContext` helper, in `martial_styles.dart` (folded into
-commit `b814da9`); fixing finding #7 surfaced the re-initialize/
-`ContentDuplicateIdException` bug described above (commit `04f776d`).
+   (`lib/src/plugins/elemental/elemental_vocabulary.dart`). Commit
+   `9350f52`. (Did not — and could not, at the time — cover the
+   `'western'`/`'eastern'` tags introduced later by Physique; see
+   Additional Observation C above.)
 
 Every commit above kept `dart analyze` clean and the full test suite
-green (407 tests as of the last of these commits) before being made.
+green before being made. As of this audit: `dart analyze` clean, 513
+tests passing, at commit `7852ac7`.
