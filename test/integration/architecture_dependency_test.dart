@@ -28,11 +28,13 @@ const _combatBarrel = 'combat_plugin.dart';
 const _martialArtsBarrel = 'martial_arts_plugin.dart';
 const _elementalBarrel = 'elemental_plugin.dart';
 const _physiqueBarrel = 'physique_plugin.dart';
+const _autoCombatBarrel = 'auto_combat_plugin.dart';
 const _pluginBarrels = [
   _combatBarrel,
   _martialArtsBarrel,
   _elementalBarrel,
   _physiqueBarrel,
+  _autoCombatBarrel,
 ];
 
 /// Asserts no `.dart` file under [directoryPath] imports the plugin
@@ -102,6 +104,11 @@ void main() {
     test('Combat does not reference Physique', () {
       _assertNoPluginImport(
           'physique', _physiqueBarrel, 'lib/src/plugins/combat');
+    });
+
+    test('Combat does not reference AutoCombat', () {
+      _assertNoPluginImport(
+          'auto_combat', _autoCombatBarrel, 'lib/src/plugins/combat');
     });
   });
 

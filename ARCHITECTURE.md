@@ -1170,3 +1170,82 @@ automated dependency-governance test built in the prior
 cross-plugin-interop pass — now checks Physique in both directions
 against MartialArts and Combat, alongside its existing Elemental
 checks, making this a permanent, CI-enforceable property.
+
+## AutoCombat (`lib/src/plugins/auto_combat/`, `lib/auto_combat_plugin.dart`)
+
+A separate layer built *on top of* Combat, deciding what action to
+perform each turn — `CombatSystem` itself was not touched at all by this
+pass, and remains directly usable with zero AutoCombat involvement (its
+own test suite still passes unchanged;
+`test/plugins/auto_combat/auto_combat_controller_test.dart` also proves
+this directly, constructing and calling `CombatSystem` with no
+`AutoCombatController` in sight). This is the architectural point of the
+whole pass: `ActiveBuild -> AutoCombatController -> CombatAction ->
+CombatSystem -> CombatResult` is a data flow through existing public
+APIs, not a reason to grow `CombatSystem` into a god class.
+
+**Why this is a plugin, not Core, settled by a structural fact rather
+than a judgment call.** `AutoCombatController` needs `CombatAction`/
+`CombatSystem`/`CombatStateComponent`/`CombatantComponent` — all
+importable only via `package:build_engine/combat_plugin.dart` — and Core
+cannot import any plugin at all (enforced by
+`architecture_dependency_test.dart`'s group H). So `lib/src/plugins/
+auto_combat/` is the only place this could live, mirroring
+`MartialArts -> Combat -> Core`'s exact dependency shape.
+
+**No `AutoCombatPlugin extends GamePlugin` was added.** The task's own
+"Implement" list names only `AutoCombatController`/`TargetSelector`/
+`ActionSelector`/`CombatPolicy` — none of which need plugin lifecycle
+hooks (no persistent registration, no rules, no component cleanup);
+`AutoCombatController` is constructed directly per-battle by whoever sets
+up the fight, the same way `CombatSystem` itself is constructed directly
+and only wrapped in `CombatPlugin` for dependency-ordering purposes. Skipping
+an unrequested lifecycle wrapper here matches CLAUDE.md's own "no
+speculative abstractions" instruction.
+
+**`CombatAction.targets` is fixed at construction** — the existing Combat
+design already decided "whoever builds the action decides who's
+targeted," so "choose a target" can't mean building a new targeted action
+on the fly. Instead:
+
+- **`TargetSelector.selectTarget(actor, candidates) -> EntityId?`** picks
+  a priority target from every *other currently-alive* participant —
+  deliberately not "enemy"/"ally": only content knows which actions
+  attack versus assist, so this stays neutral. Default
+  (`FirstLivingParticipantTargetSelector`): the first candidate in
+  participant order — deterministic, no ranking.
+- **`ActionSelector.selectAction(actor, legalActions, preferredTarget) ->
+  CombatAction`** prefers a legal action whose `targets` include the
+  preferred target, falling back to the first legal action otherwise.
+  Default (`FirstMatchingActionSelector`): exactly that, no scoring.
+- **`CombatPolicy`** bundles the two; `CombatPolicy.simple()` wires up
+  both defaults — the "extremely simple" initial policy the spec asks
+  for, swappable later without touching the controller.
+
+**`AutoCombatController`** holds one flat `availableActions` pool
+spanning every battle participant (not resupplied per turn). Each `step()`
+filters it to the *legal* subset for whoever's turn it currently is —
+`action.actor` matches, and every one of `action.targets` is currently
+alive, checked via `context.queries.evaluate(state.participants,
+HealthBelowQuery(1).not())` — **the exact same query `CombatSystem`
+itself already uses internally** (`_livingParticipants`) for its own
+living-participant checks, reused rather than reinvented. `step()` never
+throws for "nothing legal to do" or "battle already over" — both return
+`false`. `runUntilBattleEnds()` loops `step()` to completion (with a
+generous safety cap against a misconfigured battle that can never end,
+not expected to matter in a normal run).
+
+**No content vocabulary anywhere** — no Sword/Boxing/Punch/Magic, only
+`EntityId`/`CombatAction`/`CombatantComponent`/`HealthComponent`, all
+already-generic Combat/Core types. `test/integration/
+architecture_dependency_test.dart` gained one new pairwise check ("Combat
+does not reference AutoCombat", alongside its existing MartialArts/
+Elemental/Physique checks) plus an entry in `_pluginBarrels` — so group H
+also automatically verifies no Core directory ever references
+`auto_combat_plugin.dart` either.
+
+Deliberately not here yet: any smarter `TargetSelector`/`ActionSelector`
+(prioritizing low-health targets, highest-damage actions, ...) — "do not
+implement sophisticated AI yet" was explicit, and the swappable
+`CombatPolicy` seam is exactly what a future pass would extend, not
+replace.
