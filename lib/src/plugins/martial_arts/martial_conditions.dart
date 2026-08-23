@@ -1,6 +1,8 @@
 import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/combat_plugin.dart';
 
+import 'martial_vocabulary.dart';
+
 /// Matches when the rule's triggering event is an `ActionCompleted` whose
 /// `targets` include at least one entity tagged `stance:tai_chi` —
 /// regardless of who the attacker is, including a plain core
@@ -30,6 +32,6 @@ class TaiChiCounterCondition implements Condition {
     final scope = QueryScope(components: context.components);
     return event.targets.any((target) =>
         target != event.actor &&
-        HasTagQuery('stance:tai_chi').matches(target, scope));
+        HasTagQuery(MartialStances.taiChi).matches(target, scope));
   }
 }

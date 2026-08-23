@@ -13,3 +13,4 @@ export 'src/plugins/martial_arts/martial_item.dart';
 export 'src/plugins/martial_arts/martial_loadout_component.dart';
 export 'src/plugins/martial_arts/martial_styles.dart';
 export 'src/plugins/martial_arts/martial_technique_action.dart';
+export 'src/plugins/martial_arts/martial_vocabulary.dart';

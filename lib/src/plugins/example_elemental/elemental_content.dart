@@ -1,3 +1,5 @@
+import 'elemental_vocabulary.dart';
+
 /// The three elemental spells this example plugin's vertical slice
 /// implements, as data — loaded via `PluginSdk.registerContentBatch` in
 /// `ExampleElementalPlugin.initialize`. Each mixes a built-in
@@ -10,7 +12,7 @@ const elementalContentDefinitions = <Map<String, dynamic>>[
     'type': 'spell',
     'tags': ['element:fire', 'attack'],
     'components': {
-      'cost': {'resource': 'mana', 'amount': 4},
+      'cost': {'resource': ElementalResources.mana, 'amount': 4},
     },
     'conditions': [
       {'type': 'hasElementalAffinity', 'element': 'fire', 'threshold': 1},
@@ -25,7 +27,7 @@ const elementalContentDefinitions = <Map<String, dynamic>>[
     'type': 'spell',
     'tags': ['element:water', 'attack'],
     'components': {
-      'cost': {'resource': 'mana', 'amount': 3},
+      'cost': {'resource': ElementalResources.mana, 'amount': 3},
     },
     'conditions': [
       {'type': 'hasElementalAffinity', 'element': 'water', 'threshold': 1},
@@ -40,7 +42,7 @@ const elementalContentDefinitions = <Map<String, dynamic>>[
     'type': 'spell',
     'tags': ['element:lightning', 'attack'],
     'components': {
-      'cost': {'resource': 'mana', 'amount': 5},
+      'cost': {'resource': ElementalResources.mana, 'amount': 5},
     },
     'conditions': [
       {

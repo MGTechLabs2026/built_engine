@@ -1,6 +1,7 @@
 import 'package:build_engine/build_engine.dart';
 
 import 'elemental_effects.dart';
+import 'elemental_vocabulary.dart';
 
 /// This example plugin's one cross-cutting interaction: "water conducts"
 /// — an entity already tagged `status:soaked` that takes damage also
@@ -11,7 +12,7 @@ List<Rule> buildElementalRules() => [
       Rule(
         trigger: EntityDamaged,
         subjectOf: (event) => (event as EntityDamaged).id,
-        conditions: const [StatusActive('status:soaked')],
+        conditions: const [StatusActive(ElementalStatuses.soaked)],
         effects: const [ApplyElementalStatus('lightning')],
       ),
     ];

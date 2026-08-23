@@ -1,6 +1,7 @@
 import 'package:build_engine/build_engine.dart';
 
 import 'martial_loadout_component.dart';
+import 'martial_vocabulary.dart';
 
 /// A wearable item or trinket. Trinkets are simply items whose behavior
 /// comes from a `Rule` reacting to their `equipped:<id>` tag (see
@@ -152,7 +153,7 @@ List<Modifier> _counterstrikeRingModifiers(EntityId wearer) => [
         stat: 'internal',
         operation: ModifierOperation.add,
         value: 3,
-        condition: HasTagQuery('stance:tai_chi'),
+        condition: HasTagQuery(MartialStances.taiChi),
       ),
     ];
 

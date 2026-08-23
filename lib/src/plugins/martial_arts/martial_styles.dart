@@ -1,5 +1,7 @@
 import 'package:build_engine/build_engine.dart';
 
+import 'martial_vocabulary.dart';
+
 /// The three martial styles this plugin's vertical slice implements. Not
 /// components — a style is a marker tag (`style:<id>`) granted by
 /// [learnStyle]. `martial` is granted alongside it so any future content
@@ -11,17 +13,6 @@ abstract final class MartialStyles {
   static const taiChi = 'taiChi';
 }
 
-RuleContext _standaloneContext(EntityId subject, PluginContext context) =>
-    RuleContext(
-      subject: subject,
-      triggerEvent: const Object(),
-      entities: context.entities,
-      components: context.components,
-      events: context.events,
-      rng: context.rng,
-      eventCounts: context.rules.eventCounts,
-    );
-
 /// Grants [entity] the `martial` and `style:$styleId` tags. Learning
 /// [MartialStyles.shaolin] additionally registers a permanent conditional
 /// `Modifier` — `+4 add` to `palm`, active only while `stance:iron_body`
@@ -29,7 +20,7 @@ RuleContext _standaloneContext(EntityId subject, PluginContext context) =>
 /// mechanic entirely through the Modifier Engine. This content-specific
 /// branch belongs here, in the content plugin, not in Core or Combat.
 void learnStyle(EntityId entity, String styleId, PluginContext context) {
-  final ctx = _standaloneContext(entity, context);
+  final ctx = context.ruleContextFor(entity);
   const AddTag('martial').apply(ctx);
   AddTag('style:$styleId').apply(ctx);
   if (styleId == MartialStyles.shaolin) {
@@ -39,7 +30,7 @@ void learnStyle(EntityId entity, String styleId, PluginContext context) {
       stat: 'palm',
       operation: ModifierOperation.add,
       value: 4,
-      condition: HasTagQuery('stance:iron_body'),
+      condition: HasTagQuery(MartialStances.ironBody),
     ));
   }
 }

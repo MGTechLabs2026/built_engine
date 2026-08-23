@@ -2,6 +2,7 @@ import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/combat_plugin.dart';
 
 import 'martial_styles.dart';
+import 'martial_vocabulary.dart';
 
 /// One class for every technique and stance — the same "don't create a
 /// new source-code class per content item" principle `AttackAction`
@@ -64,7 +65,7 @@ MartialTechniqueAction jab({
       targets: targets,
       tags: const {'martial', 'fist', 'western', 'external'},
       conditions: [HasTag('style:${MartialStyles.boxing}')],
-      costEffects: const [ModifyResource('momentum', 8)],
+      costEffects: const [ModifyResource(MartialResources.momentum, 8)],
       baseDamage: 6,
       damageStat: 'punch',
     );
@@ -79,9 +80,9 @@ MartialTechniqueAction powerCross({
       tags: const {'martial', 'fist', 'western', 'external'},
       conditions: [
         HasTag('style:${MartialStyles.boxing}'),
-        const ResourceAbove('momentum', 19),
+        const ResourceAbove(MartialResources.momentum, 19),
       ],
-      costEffects: const [ModifyResource('momentum', -20)],
+      costEffects: const [ModifyResource(MartialResources.momentum, -20)],
       baseDamage: 18,
       damageStat: 'punch',
     );
@@ -96,8 +97,8 @@ MartialTechniqueAction guardStance({
       tags: const {'martial', 'fist', 'western'},
       conditions: [HasTag('style:${MartialStyles.boxing}')],
       selfEffects: const [
-        AddTag('stance:guard'),
-        ModifyResource('momentum', 5),
+        AddTag(MartialStances.guard),
+        ModifyResource(MartialResources.momentum, 5),
       ],
     );
 
@@ -113,9 +114,9 @@ MartialTechniqueAction palmStrike({
       tags: const {'martial', 'palm', 'eastern', 'external'},
       conditions: [
         HasTag('style:${MartialStyles.shaolin}'),
-        const ResourceAbove('qi', 2),
+        const ResourceAbove(MartialResources.qi, 2),
       ],
-      costEffects: const [ModifyResource('qi', -3)],
+      costEffects: const [ModifyResource(MartialResources.qi, -3)],
       baseDamage: 8,
       damageStat: 'palm',
     );
@@ -130,9 +131,9 @@ MartialTechniqueAction blazingPalm({
       tags: const {'martial', 'palm', 'eastern', 'fire', 'qi'},
       conditions: [
         HasTag('style:${MartialStyles.shaolin}'),
-        const ResourceAbove('qi', 7),
+        const ResourceAbove(MartialResources.qi, 7),
       ],
-      costEffects: const [ModifyResource('qi', -8)],
+      costEffects: const [ModifyResource(MartialResources.qi, -8)],
       baseDamage: 14,
       damageStat: 'palm',
     );
@@ -147,10 +148,10 @@ MartialTechniqueAction ironBodyStance({
       tags: const {'martial', 'qi', 'internal', 'eastern'},
       conditions: [
         HasTag('style:${MartialStyles.shaolin}'),
-        const ResourceAbove('qi', 4),
+        const ResourceAbove(MartialResources.qi, 4),
       ],
-      costEffects: const [ModifyResource('qi', -5)],
-      selfEffects: const [AddTag('stance:iron_body')],
+      costEffects: const [ModifyResource(MartialResources.qi, -5)],
+      selfEffects: const [AddTag(MartialStances.ironBody)],
     );
 
 // --- Tai Chi ---
@@ -165,9 +166,9 @@ MartialTechniqueAction pushHands({
       tags: const {'martial', 'internal', 'eastern', 'qi'},
       conditions: [
         HasTag('style:${MartialStyles.taiChi}'),
-        const ResourceAbove('qi', 3),
+        const ResourceAbove(MartialResources.qi, 3),
       ],
-      costEffects: const [ModifyResource('qi', -4)],
+      costEffects: const [ModifyResource(MartialResources.qi, -4)],
       baseDamage: 7,
       damageStat: 'internal',
     );
@@ -182,9 +183,9 @@ MartialTechniqueAction whirlingPalm({
       tags: const {'martial', 'internal', 'eastern', 'qi', 'yang'},
       conditions: [
         HasTag('style:${MartialStyles.taiChi}'),
-        const ResourceAbove('qi', 5),
+        const ResourceAbove(MartialResources.qi, 5),
       ],
-      costEffects: const [ModifyResource('qi', -6)],
+      costEffects: const [ModifyResource(MartialResources.qi, -6)],
       baseDamage: 10,
       damageStat: 'internal',
     );
@@ -199,8 +200,8 @@ MartialTechniqueAction yieldingStance({
       tags: const {'martial', 'internal', 'eastern', 'qi', 'counter'},
       conditions: [
         HasTag('style:${MartialStyles.taiChi}'),
-        const ResourceAbove('qi', 2),
+        const ResourceAbove(MartialResources.qi, 2),
       ],
-      costEffects: const [ModifyResource('qi', -3)],
-      selfEffects: const [AddTag('stance:tai_chi')],
+      costEffects: const [ModifyResource(MartialResources.qi, -3)],
+      selfEffects: const [AddTag(MartialStances.taiChi)],
     );

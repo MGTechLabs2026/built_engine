@@ -2,22 +2,31 @@ import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/combat_plugin.dart';
 
 import 'martial_conditions.dart';
+import 'martial_item.dart';
+import 'martial_vocabulary.dart';
 
 /// The 4 rules that give MartialArts its cross-entity behavior — all
 /// reacting to Combat's existing public events, never intercepting
 /// `AttackAction`/`Damage` directly (which would require modifying
 /// Combat). Registered by `MartialArtsPlugin.initialize`.
+///
+/// The two `_passiveResourceRegenRule` calls read their target trinket's
+/// `.id` directly (`momentumTrinket.id`/`qiPendant.id`) rather than a
+/// second, independently-typed `'momentum_trinket'`/`'qi_pendant'`
+/// literal — a renamed trinket id would otherwise silently break the
+/// rule that's supposed to react to it (`ARCHITECTURE_AUDIT.md`'s
+/// observation B).
 List<Rule> buildMartialArtsRules() => [
       _shaolinDefensiveSynergyRule(),
       _taiChiCounterRule(),
       _passiveResourceRegenRule(
-        requiresTag: 'equipped:momentum_trinket',
-        resource: 'momentum',
+        requiresTag: 'equipped:${momentumTrinket.id}',
+        resource: MartialResources.momentum,
         amount: 3,
       ),
       _passiveResourceRegenRule(
-        requiresTag: 'equipped:qi_pendant',
-        resource: 'qi',
+        requiresTag: 'equipped:${qiPendant.id}',
+        resource: MartialResources.qi,
         amount: 2,
       ),
     ];
@@ -28,7 +37,7 @@ List<Rule> buildMartialArtsRules() => [
 Rule _shaolinDefensiveSynergyRule() => Rule(
       trigger: EntityDamaged,
       subjectOf: (event) => (event as EntityDamaged).id,
-      conditions: const [HasTag('stance:iron_body')],
+      conditions: const [HasTag(MartialStances.ironBody)],
       effects: const [Heal(2)],
     );
 
