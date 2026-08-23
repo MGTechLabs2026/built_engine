@@ -490,3 +490,77 @@ this time.
 other, Core imports neither" property an automated, CI-enforceable
 check (reading source files' text at test time) rather than a one-time
 manual audit that rots the next time a file moves.
+
+## Physique (`lib/src/plugins/physique/`, `lib/physique_plugin.dart`)
+
+A character's body type — Sturdy/Power/Burst/Endurance — the second
+independent content plugin depending on nothing but Core (after
+Elemental), and the first plugin built with a real cross-plugin
+mechanic as a first-class design goal from the start, rather than
+retrofitted onto an existing example.
+
+**Runtime component.** `PhysiqueComponent` holds only the stable
+physique id — no tags, no affinity, no modifiers duplicated onto it.
+Everything else is data, resolved from `ContentRegistry` when needed.
+
+**Data definition.** `physiqueContentDefinitions` (`physique_content.dart`)
+loads through `ContentRegistry` exactly like Elemental's spells and
+MartialArts' migrated techniques. `modifiers`/`affinities` aren't part
+of `ContentRegistry`'s native vocabulary (`Modifier` isn't an `Effect`/
+`Condition`) — they land in `ContentDefinition.extra` verbatim, and
+`physiqueDefinitionFromContent` turns that into a typed
+`PhysiqueDefinition` whose `modifiersFor(character)` builds real
+`Modifier` objects, mirroring `martialTechniqueFromDefinition`'s
+`baseDamage`/`damageStat` pattern exactly.
+
+**Random assignment.** `initializePhysique(character, context)` — a
+plain function, not a `Rule` on `EntityCreated` (not every entity is a
+character, so creation alone can't say when to run this) — is
+idempotent (returns the existing id if the character already has a
+`PhysiqueComponent`), selects uniformly via `context.rng.nextInt(4)`
+(never `dart:math` directly, so a run stays reproducible from its
+seed), attaches the component, registers the physique's two synergy
+`Modifier`s, and publishes `PhysiqueAssigned`. Matches
+`learnStyle`/`attuneToElement`/`equipItem`'s existing "explicit
+function, caller decides when" idiom — no game-specific
+`NewGameManager` needed; whoever creates a character calls this.
+
+**Tag model.** Each physique's content carries descriptive tags
+(`physique`, its primary-affinity name, `western_affinity`/
+`eastern_affinity`) — metadata, not read by any condition, the same
+role `MartialTechniqueAction.tags` already plays. The tags that
+actually drive synergy are different: `'western'`/`'eastern'`, granted
+on the *character entity* by MartialArts' `learnStyle`. Physique never
+inspects a physique's own descriptive tags to decide anything.
+
+**Synergy model.** Each physique registers two conditional `Modifier`s
+targeting its primary-affinity stat (`defense`/`strength`/`speed`/
+`stamina` — an arbitrary, caller-chosen name exactly like `damageStat`):
+`×1.25` gated on `HasTagQuery('western')` or `HasTagQuery('eastern')`
+(whichever tradition that physique favors), `×0.85` gated on the other.
+No explicit "neutral ×1.00" modifier exists — `ModifierResolver`
+already treats an empty active-modifier set as the identity, so an
+entity with neither tradition tag is neutral for free. This is the same
+mechanism Shaolin's own iron-body synergy proved, and the same one
+`ElementalPlugin`'s `emberCharm` proved again across a different plugin
+pair — Physique is the third independent proof of the identical
+pattern.
+
+**The one MartialArts touch.** `learnStyle` now also grants a broad
+tradition tag — `'western'` for Boxing, `'eastern'` for Shaolin and Tai
+Chi — reusing vocabulary MartialArts' own technique content
+(`martial_technique_content.dart`) already uses per-technique. This is
+the single line Physique's synergy needs to have anything to check on
+the character; it adds no Physique-specific vocabulary to MartialArts
+(Physique is never named), and any future plugin can read the same two
+tags.
+
+**Dependency direction.** `PhysiquePlugin.dependencies => const []` —
+Core only. No file under `lib/src/plugins/physique/` references
+`martial_arts`/`combat`/`elemental`; no file under
+`lib/src/plugins/martial_arts/` or `lib/src/plugins/combat/` references
+`physique`. `test/integration/architecture_dependency_test.dart` — the
+automated dependency-governance test built in the prior
+cross-plugin-interop pass — now checks Physique in both directions
+against MartialArts and Combat, alongside its existing Elemental
+checks, making this a permanent, CI-enforceable property.

@@ -226,6 +226,41 @@ proving your plugin is fully removable (see
 `test/integration/elemental_end_to_end_test.dart` and
 `test/integration/martial_arts_end_to_end_test.dart` for the pattern).
 
+## A second worked example: Physique and generic interop
+
+`PhysiquePlugin` (`lib/src/plugins/physique/`) is a second full example
+alongside `ElementalPlugin`, chosen specifically to demonstrate
+cross-plugin interoperability without a shared import — worth reading
+once you've built your first plugin from the "Writing a third-party
+plugin" steps above.
+
+- **Custom content fields via `extra`.** `ContentRegistry` has no
+  native vocabulary for arbitrary data like `Modifier`s — Physique's
+  `modifiers`/`affinities` fields land on `ContentDefinition.extra`
+  verbatim, and a small parser (`physiqueDefinitionFromContent`) turns
+  that into real, typed objects. Any plugin with data `ContentRegistry`
+  doesn't natively understand can use the same trick.
+- **Cross-plugin synergy needs no shared import — only a shared
+  vocabulary.** Physique never imports MartialArts. Its `emberCharm`-
+  style mechanic here is a conditional `Modifier` gated on a tag name
+  (`'western'`/`'eastern'`) that MartialArts happens to grant. Two
+  plugins that agree on a tag string, a stat name, or an event type
+  can interoperate with zero coupling in either direction — this is
+  the whole reason `claude.md`'s TAGS section calls tags "the universal
+  language for content interoperability."
+- **A generic interoperability hook is not the same as
+  plugin-specific logic.** MartialArts needed one addition —
+  `learnStyle` granting a `'western'`/`'eastern'` tradition tag — for
+  Physique's synergy to have anything to check. That tag names no
+  other plugin and serves any future consumer, which is what makes it
+  a generic hook rather than an exception to "plugins don't know about
+  each other."
+- **A generic initialization function, not a `Rule` on
+  `EntityCreated`.** `initializePhysique` is explicit and idempotent,
+  called by whoever creates a character — not every entity is a
+  character, so entity creation alone can't decide this. See
+  `ARCHITECTURE.md`'s Physique section for the full design.
+
 ## Plugins must not reach into each other's private implementation
 
 A plugin's only sanctioned way to affect another plugin's behavior is
