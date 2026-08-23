@@ -12,6 +12,7 @@ export 'src/components/status_component.dart';
 export 'src/components/tag_set.dart';
 export 'src/content/content_definition.dart';
 export 'src/content/content_errors.dart';
+export 'src/content/content_registry.dart';
 export 'src/content/json_helpers.dart';
 export 'src/entity/entity_id.dart';
 export 'src/entity/entity_registry.dart';
