@@ -446,6 +446,54 @@ job — and any persistence of an evolution tree itself (a plugin's own
 content registry owns that, the same way `targetId` lookup is already
 the caller's responsibility).
 
+## Reward/Loot system (`lib/src/reward/`)
+
+Reward *generation*, not a specific loot table — no `MartialLootTable`/
+`SwordLootTable` anywhere; `RewardDefinition` is the one generic shape
+every reward source (a chest, an enemy, a quest, a training opportunity,
+...) uses. There is no separate `LootTable` class: `RewardDefinition`
+*is* the "LootTable / weighted candidates" the task offered as an
+alternate name for the same thing.
+
+**Reuses `BuildComponentRef` from the Tome/Build system directly** for
+`RewardCandidate.ref`, rather than a duplicate reward-specific reference
+type — it is exactly the same opaque `{referenceType, contentId}` shape
+(item, technique, currency, consumable, trinket, or anything else a
+plugin invents; Core never interprets either field) `TomeService`
+already established. This is a pure value-type reuse, not a behavioral
+coupling — `lib/src/reward/` imports one small class from `lib/src/tome/`
+and nothing else.
+
+**Deliberately simpler than the Evolution System, matching what was
+actually asked.** The Evolution task explicitly named Rule/Condition/
+Modifier/RNG as infrastructure to reuse; this task named only "generic
+weighted candidates and existing RngService." So `RewardCandidate.weight`
+is a *plain, static* `num` — no `TrainingProfile`-driven dynamic
+weighting through `ModifierResolver` this time (there's no equivalent
+input to weight against), and `RewardResolver.resolve` takes a bare
+`RngService` rather than a full `RuleContext` — no `Condition`-based
+eligibility gating was requested, so none was added. If conditional loot
+is wanted later, it's a natural, low-risk future addition (an optional
+`conditions: List<Condition>` on `RewardCandidate`, evaluated against a
+`RuleContext` the caller supplies) — not built speculatively now.
+
+`RewardResolver` (pure, stateless — mirrors `BuildResolver`/
+`EvolutionResolver`'s exact shape) draws `rollCount` independent
+candidates *with replacement* (the same candidate can be drawn more than
+once — the simplest interpretation of "multiple rewards" that reuses one
+selection algorithm rather than introducing a second "independent
+per-candidate drop chance" paradigm alongside it). `rollCount` is a
+`resolve()`-time parameter, not baked into `RewardDefinition`, so the same
+table serves "roll once" and "roll five times" callers alike. Each draw
+is the identical weighted cumulative-sum pick `EvolutionResolver` already
+uses, over `rng.nextDouble()` — the sole randomness source. An empty
+candidate list, a zero-or-negative total weight, or `rollCount: 0` all
+yield an empty `RewardResult.rewards` rather than throwing — the "empty
+result" case is a normal, expected outcome, not an error.
+
+**No new service, no new wiring** — same as Training and Evolution:
+nothing was added to `PluginContext`/`RuleContext`/`RuleEngine`.
+
 ## Integrating EntityRegistry and ComponentStore
 
 Because `ComponentStore` does not know about `EntityRegistry`, component
