@@ -31,7 +31,7 @@ const elementalItemContentDefinitions = <Map<String, dynamic>>[
 /// never imports MartialArts).
 ElementalItemDefinition elementalItemDefinitionFromContent(
     ContentDefinition definition) {
-  final rawModifiers = (definition.extra['modifiers'] as List)
+  final rawModifiers = (definition.extra['modifiers'] as List? ?? const [])
       .map((e) => (e as Map).map((k, v) => MapEntry(k as String, v)))
       .toList();
 

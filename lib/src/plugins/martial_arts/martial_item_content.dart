@@ -99,7 +99,7 @@ const martialItemContentDefinitions = <Map<String, dynamic>>[
 /// provides for a definition with no `modifiersFor` at all.
 MartialItemDefinition martialItemDefinitionFromContent(
     ContentDefinition definition) {
-  final rawModifiers = (definition.extra['modifiers'] as List)
+  final rawModifiers = (definition.extra['modifiers'] as List? ?? const [])
       .map((e) => (e as Map).map((k, v) => MapEntry(k as String, v)))
       .toList();
 
