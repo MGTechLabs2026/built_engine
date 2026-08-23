@@ -556,10 +556,13 @@ the character; it adds no Physique-specific vocabulary to MartialArts
 tags.
 
 **Dependency direction.** `PhysiquePlugin.dependencies => const []` —
-Core only. No file under `lib/src/plugins/physique/` references
+Core only. No file under `lib/src/plugins/physique/` imports
 `martial_arts`/`combat`/`elemental`; no file under
-`lib/src/plugins/martial_arts/` or `lib/src/plugins/combat/` references
-`physique`. `test/integration/architecture_dependency_test.dart` — the
+`lib/src/plugins/martial_arts/` or `lib/src/plugins/combat/` imports
+`physique` (a doc comment may still name another plugin in prose — the
+governance test below checks import-shaped substrings, not the bare
+plugin name, precisely so a legitimate mention like that doesn't fail
+it). `test/integration/architecture_dependency_test.dart` — the
 automated dependency-governance test built in the prior
 cross-plugin-interop pass — now checks Physique in both directions
 against MartialArts and Combat, alongside its existing Elemental

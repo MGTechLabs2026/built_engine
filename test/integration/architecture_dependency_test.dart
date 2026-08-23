@@ -76,6 +76,16 @@ void main() {
       _assertNoPluginImport('martial_arts', _martialArtsBarrel,
           'lib/src/plugins/physique');
     });
+
+    test('Physique does not reference Combat', () {
+      _assertNoPluginImport(
+          'combat', _combatBarrel, 'lib/src/plugins/physique');
+    });
+
+    test('Physique does not reference Elemental', () {
+      _assertNoPluginImport(
+          'elemental', _elementalBarrel, 'lib/src/plugins/physique');
+    });
   });
 
   group('Combat remains unaware of both content plugins', () {

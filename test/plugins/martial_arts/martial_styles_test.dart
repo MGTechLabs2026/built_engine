@@ -106,5 +106,18 @@ void main() {
       expect(context.components.get<TagSet>(taiChiPractitioner)!.tags,
           isNot(contains('western')));
     });
+
+    test('an unrecognized style id is still accepted, with no tradition '
+        'tag granted', () {
+      final context = _newContext();
+      final entity = context.entities.create();
+
+      expect(() => learnStyle(entity, 'wrestling', context), returnsNormally);
+
+      final tags = context.components.get<TagSet>(entity)!.tags;
+      expect(tags, containsAll(['martial', 'style:wrestling']));
+      expect(tags, isNot(contains('western')));
+      expect(tags, isNot(contains('eastern')));
+    });
   });
 }

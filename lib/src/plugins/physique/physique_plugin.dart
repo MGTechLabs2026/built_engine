@@ -38,10 +38,10 @@ class PhysiquePlugin extends GamePlugin {
         description: "Endurance's primary affinity.");
     sdk.registerTag('western_affinity',
         description:
-            'A physique with strong synergy against western martial traditions.');
+            'A physique with strong synergy with western martial traditions.');
     sdk.registerTag('eastern_affinity',
         description:
-            'A physique with strong synergy against eastern martial traditions.');
+            'A physique with strong synergy with eastern martial traditions.');
 
     // ContentRegistry has no unload operation, so content loaded here
     // outlives unregister — guard against loading it twice if this
