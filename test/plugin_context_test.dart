@@ -15,6 +15,7 @@ void main() {
     );
     final queries = QueryEngine(QueryScope(components: components));
     final modifiers = ModifierCollection();
+    final content = ContentRegistry();
 
     final context = PluginContext(
       entities: entities,
@@ -24,6 +25,7 @@ void main() {
       rules: rules,
       queries: queries,
       modifiers: modifiers,
+      content: content,
     );
 
     expect(context.entities, same(entities));
@@ -33,5 +35,6 @@ void main() {
     expect(context.rules, same(rules));
     expect(context.queries, same(queries));
     expect(context.modifiers, same(modifiers));
+    expect(context.content, same(content));
   });
 }

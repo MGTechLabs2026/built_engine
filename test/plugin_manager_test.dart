@@ -53,6 +53,7 @@ PluginContext _newContext() {
     ),
     queries: QueryEngine(QueryScope(components: components)),
     modifiers: ModifierCollection(),
+    content: ContentRegistry(),
   );
 }
 
