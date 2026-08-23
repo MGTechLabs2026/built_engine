@@ -170,9 +170,9 @@ vocabulary, not a content domain's:
 
 | key | event type | subjectOf |
 |---|---|---|
-| `EntityDamaged` | `EntityDamaged` | `.entity` |
-| `EntityHealed` | `EntityHealed` | `.entity` |
-| `EntityKilled` | `EntityKilled` | `.entity` |
+| `EntityDamaged` | `EntityDamaged` | `.id` |
+| `EntityHealed` | `EntityHealed` | `.id` |
+| `EntityKilled` | `EntityKilled` | `.id` |
 | `EntityCreated` | `EntityCreated` | `.id` |
 | `EntityDestroyed` | `EntityDestroyed` | `.id` |
 
@@ -238,14 +238,18 @@ class ContentRegistry {
 - `load`/`loadRule` validate and register one definition immediately;
   `requires` is checked against everything already registered (no
   forward-reference partner in a single-definition call).
-- `loadAll` parses every entry structurally first (id/type presence,
-  factory dispatch, cost shape), registers them, *then* validates every
-  entry's `requires` against the now-complete registry — so entries
-  within one batch may reference each other in either order. If any
-  entry fails structural parsing, nothing in that call is registered
-  (all-or-nothing batch) — a partially-loaded batch would let one
-  definition's `requires` accidentally resolve against another that
-  will itself turn out to be invalid.
+- `loadAll` is fully atomic — it commits nothing to the registry until
+  every entry in the batch has cleared every check. Order: (1) parse
+  every entry structurally (id/type presence, factory dispatch, cost
+  shape) — a raw JSON entry never mutates registry state; (2) check
+  every parsed entry's id for a duplicate, against both the registry and
+  the rest of the batch; (3) check every parsed entry's `requires`
+  against the union of the registry and every id in the batch — so
+  entries within one batch may reference each other in either order;
+  (4) only once every entry has cleared all three checks, register them
+  all. A failure at any step — a bad field, a duplicate id, an
+  unresolved `requires` — leaves the registry exactly as it was before
+  the call; nothing partially lands.
 - IDs are globally unique across every type and across rules (`claude.md`:
   "use stable IDs") — `load`/`loadAll`/`loadRule` throw
   `ContentDuplicateIdException` on collision, including within the same
@@ -298,13 +302,16 @@ required num field missing` in one exception's `toString()`, mirroring
 `PluginSystemException`'s existing `toString() => message` convention
 exactly.
 
-A small set of typed field-extraction helpers
-(`requireString`/`requireNum`/`optionalNum`/`requireMap`/`requireList`,
-in `lib/src/content/json_helpers.dart`) throw `ContentFieldException`
+A small set of typed field-extraction helpers — static methods on a
+`ContentField` class (`requireString`/`requireNum`/`requireMap`/
+`optionalMapList`/`optionalStringSet`), in
+`lib/src/content/json_helpers.dart` — throw `ContentFieldException`
 directly and are used both by Core's built-in factories and available
-for any plugin's own factories — this is what keeps every individual
-factory a few lines long rather than each reimplementing field
-validation.
+for any plugin's own factories. Namespaced under one class rather than
+exported as top-level functions specifically so the package's public
+surface doesn't gain generic top-level names like `requireString`; this
+is also what keeps every individual factory a few lines long rather than
+each reimplementing field validation.
 
 ## Serialization
 
