@@ -56,13 +56,72 @@ class PluginContext {
   final RuleEngine rules;
   final QueryEngine queries;
   final ModifierCollection modifiers;
+  final ContentRegistry content;
 }
 ```
 
 The only access a plugin's lifecycle methods get to core services. Exposes
 exactly the services that exist — no placeholder getters for services
-(effects, spatial, resources, assets, save/load) that haven't been built
-yet. When those services are built, `PluginContext` grows to expose them.
+(spatial, resources, save/load) that haven't been built yet. When those
+services are built, `PluginContext` grows to expose them. `content` (a
+`ContentRegistry`, `claude.md`'s Asset/Data Registry) was the most recent
+addition — see `ARCHITECTURE.md`'s Content Registry section.
+
+## Plugin SDK
+
+`PluginSdk` (`lib/src/plugin/plugin_sdk.dart`) is a convenience façade
+over `PluginContext` for writing a plugin without touching Core. It adds
+no new Core capability — every method delegates to a service
+`PluginContext` already exposes — it only gives the categories
+`claude.md`'s PLUGIN SYSTEM section names discoverable, named methods,
+and automatically tracks subscriptions so a plugin author never has to
+manage a `List<EventSubscription>` by hand the way `MartialArtsPlugin`
+originally did.
+
+Construct one per plugin, typically once in `initialize`:
+
+```dart
+class MyPlugin extends GamePlugin {
+  @override
+  String get id => 'my_plugin';
+  @override
+  String get version => '0.1.0';
+
+  late PluginSdk sdk;
+
+  @override
+  void initialize(PluginContext context) {
+    sdk = PluginSdk(context);
+    // sdk.register... calls go here
+  }
+
+  @override
+  void unregister(PluginContext context) => sdk.disposeAll();
+}
+```
+
+| Category | Method | Delegates to |
+|---|---|---|
+| component | `registerComponentCleanup<T extends Object>()` | subscribes `EntityDestroyed` → `components.remove<T>` |
+| event | `registerEvent<T>(handler)` | `events.subscribe<T>` |
+| effect | `registerEffect(key, factory)` | `content.registerEffectFactory` |
+| condition | `registerCondition(key, factory)` | `content.registerConditionFactory` |
+| rule | `registerRule(rule)` | `rules.register` |
+| tag | `registerTag(tag, {description})` | records your plugin's own tag vocabulary (Core never interprets tags either way) |
+| content | `registerContent(json)` / `registerContentBatch(list)` | `content.load` / `loadAll` |
+| asset | `registerAsset({id, data})` | `content.load` with `type: 'asset'` fixed |
+| localization | `registerLocalization({locale, key, value})` / `localize(locale, key)` | `content.load`/`find` with `type: 'localization'` fixed |
+
+`registerComponentCleanup`/`registerEvent`/`registerRule` are tracked
+internally; `sdk.disposeAll()` cancels all of them in one call — that's
+the whole content of a typical plugin's `unregister`. Effect/condition
+factory registration and loaded content are **not** undone by
+`disposeAll()` — `ContentRegistry` has no factory-removal or unload
+operation today, so a plugin's removability guarantee covers its
+subscriptions and rules, not its factories or data. `asset`/
+`localization` registration are sugar over `content` (`claude.md`'s
+core-service list already merges "Asset" and "Data" into one registry,
+#12) — not separate services.
 
 ## Dependency resolution
 
@@ -115,6 +174,57 @@ manager.register(SomeOtherPlugin());
 manager.initialize(context);
 manager.start(context);
 ```
+
+## Writing a third-party plugin
+
+`ExampleElementalPlugin` (`lib/src/plugins/example_elemental/`,
+`lib/example_elemental_plugin.dart`) is the reference: Fire/Water/
+Lightning, built entirely with `PluginSdk`, depending on nothing but
+Core — not Combat, not MartialArts. Copy it, not `MartialArtsPlugin`, as
+your starting point; `MartialArtsPlugin` additionally demonstrates
+depending on another plugin (`-> combat`), which most third-party
+plugins won't need on day one.
+
+Steps, in the order `ExampleElementalPlugin` follows them:
+
+1. **Define your component(s)**, if any — plain state, no logic (see
+   `ElementalAffinityComponent`).
+2. **Define your tags** as `static const` string constants on an
+   `abstract final class` (see `Elements`), and a small helper that
+   grants them via core's `AddTag` effect through a standalone
+   `RuleContext` (see `attuneToElement` — the same pattern
+   `martial_item.dart`'s `equipItem` already established).
+3. **Define your `Condition`/`Effect` classes**, implementing Core's
+   interfaces directly (see `HasElementalAffinity`,
+   `ApplyElementalStatus`) — compose Core's existing effects
+   (`ApplyStatus`, `Damage`, `Heal`, ...) where you can, rather than
+   reimplementing state mutation.
+4. **Define your `Rule`s** as a `List<Rule> buildXRules()` function (see
+   `buildElementalRules`) — react to Core's own events
+   (`EntityDamaged`/`EntityHealed`/`EntityKilled`/`EntityCreated`/
+   `EntityDestroyed`) rather than trying to intercept another plugin's
+   effects directly; see `ARCHITECTURE.md`'s MartialArts section for why
+   that's the right shape when a real cross-plugin need arises.
+5. **Define your content** as a `List<Map<String, dynamic>>` of
+   JSON-shaped definitions (see `elementalContentDefinitions`), mixing
+   `ContentRegistry`'s built-in effect/condition factories with your
+   own.
+6. **Wire it all up in your `GamePlugin.initialize`** via `PluginSdk` —
+   one `sdk.register*` call per thing you defined above (see
+   `ExampleElementalPlugin.initialize`) — and call `sdk.disposeAll()` in
+   `unregister`.
+7. **Export a barrel** (`lib/my_plugin.dart`) so consumers import your
+   plugin the same way they import `combat_plugin.dart`/
+   `martial_arts_plugin.dart`/`example_elemental_plugin.dart` — never
+   `lib/src/...` directly.
+
+Test the same way every plugin in this engine is tested (see
+`claude.md`'s TESTING section): registration, initialization, behavior,
+serialization where applicable, dependency, and — if you react to
+another plugin's events like MartialArts does — an integration test
+proving your plugin is fully removable (see
+`test/integration/example_elemental_end_to_end_test.dart` and
+`test/integration/martial_arts_end_to_end_test.dart` for the pattern).
 
 ## Plugins must not reach into each other's private implementation
 

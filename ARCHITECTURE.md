@@ -395,3 +395,44 @@ than attempting to re-serialize live `Effect`/`Condition` objects.
 This pass also grew `PluginContext` with a `content` field (alongside
 the existing seven services) — every plugin can now register its own
 factories/triggers and load/query content from any lifecycle method.
+
+## Plugin SDK and ExampleElementalPlugin (`lib/src/plugin/plugin_sdk.dart`, `lib/src/plugins/example_elemental/`)
+
+`PluginSdk` is a convenience façade over `PluginContext`, not a new Core
+capability — every method delegates to a service `PluginContext` already
+exposed before this pass (`entities`/`components`/`events`/`rules`/
+`content`). Its entire value is eliminating the
+`List<EventSubscription>` bookkeeping `MartialArtsPlugin` originally had
+to manage by hand: `registerComponentCleanup`/`registerEvent`/
+`registerRule` all track their `EventSubscription` internally, and
+`disposeAll()` cancels every one of them in a plugin's `unregister` —
+see `PLUGIN_SYSTEM.md` for the full method table and a step-by-step
+walkthrough for third-party developers.
+
+`registerAsset`/`registerLocalization` are sugar over `content` rather
+than new services: `claude.md`'s numbered core-service list has one
+combined entry, "12. Asset/Data Registry" — `ContentRegistry` (the prior
+pass) already is that registry, so "asset" and "localization" are simply
+two more opaque `type` values, no different in kind from "skill" or
+"item". This does mean neither is undoable via `disposeAll()` —
+`ContentRegistry` has no factory-removal or unload operation, a
+limitation this pass didn't change, so it's documented rather than
+papered over.
+
+`ExampleElementalPlugin` is the SDK's reference implementation:
+Fire/Water/Lightning, depending on nothing but Core (`dependencies =>
+const []`) — deliberately not Combat, unlike `MartialArtsPlugin`, so a
+third-party developer's first example is the simplest one, not one that
+also demonstrates cross-plugin dependency. Its "water conducts"
+interaction (a `status:soaked` entity that takes damage also becomes
+`status:shocked`) reacts to Core's own `EntityDamaged` event exactly the
+way MartialArts' Shaolin rule does, proving the same "react to events,
+don't intercept effects" pattern holds with zero Combat involvement at
+all. Its `ElementalAffinityComponent`/`HasElementalAffinity`/
+`ApplyElementalStatus` mirror `MartialLoadoutComponent`/`ResourceAbove`/
+composed-`ApplyStatus` in shape, and its three content definitions
+(`fireball`/`tidal_wave`/`spark_bolt`) each mix a built-in
+`ContentRegistry` factory (`damage`) with two of the plugin's own
+(`applyElementalStatus`, `hasElementalAffinity`), loaded atomically via
+`sdk.registerContentBatch` — proving last pass's `loadAll` atomicity
+composes cleanly with a real plugin's `initialize`.
