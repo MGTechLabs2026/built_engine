@@ -4,7 +4,9 @@ import 'elemental_affinity_component.dart';
 import 'elemental_conditions.dart';
 import 'elemental_content.dart';
 import 'elemental_effects.dart';
+import 'elemental_item_content.dart';
 import 'elemental_rules.dart';
+import 'elemental_vocabulary.dart';
 
 /// The reference plugin for the Plugin SDK: Fire/Water/Lightning, built
 /// entirely with `PluginSdk`, depending on nothing but Core — not
@@ -62,6 +64,9 @@ class ElementalPlugin extends GamePlugin {
     // plugin is initialize()d again on the same context afterward.
     if (context.content.find('fireball') == null) {
       sdk.registerContentBatch(elementalContentDefinitions);
+    }
+    if (context.content.find(ElementalItemIds.emberCharm) == null) {
+      sdk.registerContentBatch(elementalItemContentDefinitions);
     }
   }
 

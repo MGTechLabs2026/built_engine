@@ -1,12 +1,3 @@
-// NOTE: the direct `src/` import below is TEMPORARY —
-// `elementalItemContentDefinitions`, `elementalItemDefinitionFromContent`,
-// and `elementalItem` are not yet exported from
-// `package:build_engine/elemental_plugin.dart`; Task 5 adds that barrel
-// export, at which point this import is flagged by the analyzer's
-// `unnecessary_import` lint and must be removed by Task 5 (same
-// deferral pattern as Task 2 / `martial_item_content_test.dart`).
-import 'package:build_engine/src/plugins/elemental/elemental_item_content.dart';
-
 import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/elemental_plugin.dart';
 import 'package:test/test.dart';

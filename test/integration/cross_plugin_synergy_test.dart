@@ -128,7 +128,8 @@ void main() {
       const HealthComponent(current: 100, max: 100),
     );
     learnStyle(enchanted, MartialStyles.boxing, context);
-    equipElementalItem(emberCharm, enchanted, context);
+    equipElementalItem(
+        elementalItem(ElementalItemIds.emberCharm, context), enchanted, context);
     final battleEnchanted = combat.system.startBattle([
       enchanted,
       enchantedTarget,

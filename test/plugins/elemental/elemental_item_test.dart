@@ -7,7 +7,7 @@ PluginContext _newContext() {
   final entities = EntityRegistry(events);
   final components = ComponentStore();
   final rng = RngService(1);
-  return PluginContext(
+  final context = PluginContext(
     entities: entities,
     components: components,
     events: events,
@@ -22,17 +22,23 @@ PluginContext _newContext() {
     modifiers: ModifierCollection(),
     content: ContentRegistry(),
   );
+  ElementalPlugin().initialize(context);
+  return context;
 }
 
 void main() {
   group('emberCharm', () {
     test('has the expected id and tags', () {
+      final context = _newContext();
+      final emberCharm = elementalItem(ElementalItemIds.emberCharm, context);
       expect(emberCharm.id, equals('ember_charm'));
       expect(emberCharm.tags,
           equals({'magic', 'fire', 'elemental', 'trinket'}));
     });
 
     test('modifiersFor returns a single +4 add punch modifier', () {
+      final context = _newContext();
+      final emberCharm = elementalItem(ElementalItemIds.emberCharm, context);
       const wearer = EntityId(1);
       final modifiers = emberCharm.modifiersFor(wearer);
 
@@ -51,7 +57,8 @@ void main() {
       final wearer = context.entities.create();
       AddTag('martial').apply(context.ruleContextFor(wearer));
 
-      equipElementalItem(emberCharm, wearer, context);
+      equipElementalItem(
+          elementalItem(ElementalItemIds.emberCharm, context), wearer, context);
 
       final active = context.modifiers
           .activeModifiersFor(wearer, 'punch', context.components);
@@ -62,7 +69,8 @@ void main() {
       final context = _newContext();
       final wearer = context.entities.create();
 
-      equipElementalItem(emberCharm, wearer, context);
+      equipElementalItem(
+          elementalItem(ElementalItemIds.emberCharm, context), wearer, context);
 
       final active = context.modifiers
           .activeModifiersFor(wearer, 'punch', context.components);
@@ -73,7 +81,8 @@ void main() {
       final context = _newContext();
       final wearer = context.entities.create();
 
-      equipElementalItem(emberCharm, wearer, context);
+      equipElementalItem(
+          elementalItem(ElementalItemIds.emberCharm, context), wearer, context);
 
       expect(context.components.get<TagSet>(wearer)!.tags,
           contains('equipped:ember_charm'));
