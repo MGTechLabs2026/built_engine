@@ -1,0 +1,66 @@
+import 'package:build_engine/build_engine.dart';
+
+import 'elemental_affinity_component.dart';
+import 'elemental_conditions.dart';
+import 'elemental_content.dart';
+import 'elemental_effects.dart';
+import 'elemental_rules.dart';
+
+/// The reference plugin for the Plugin SDK: Fire/Water/Lightning, built
+/// entirely with `PluginSdk`, depending on nothing but Core — not
+/// Combat, not MartialArts. Copy this plugin, not MartialArts, as the
+/// starting point for a new content plugin.
+class ExampleElementalPlugin extends GamePlugin {
+  @override
+  String get id => 'example_elemental';
+
+  @override
+  String get version => '0.1.0';
+
+  /// Constructed in [initialize]; not `late final` since a plugin can be
+  /// `initialize`d again after `unregister` (same reasoning as
+  /// `CombatPlugin.system`).
+  late PluginSdk sdk;
+
+  @override
+  void initialize(PluginContext context) {
+    sdk = PluginSdk(context);
+
+    sdk.registerComponentCleanup<ElementalAffinityComponent>();
+
+    sdk.registerEffect(
+      'applyElementalStatus',
+      (p) => ApplyElementalStatus(ContentField.requireString(p, 'element')),
+    );
+    sdk.registerCondition(
+      'hasElementalAffinity',
+      (p) => HasElementalAffinity(
+        ContentField.requireString(p, 'element'),
+        ContentField.requireNum(p, 'threshold'),
+      ),
+    );
+
+    sdk.registerTag('element:fire',
+        description: 'Fire-aligned entity or content.');
+    sdk.registerTag('element:water',
+        description: 'Water-aligned entity or content.');
+    sdk.registerTag('element:lightning',
+        description: 'Lightning-aligned entity or content.');
+
+    for (final rule in buildElementalRules()) {
+      sdk.registerRule(rule);
+    }
+
+    sdk.registerContentBatch(elementalContentDefinitions);
+  }
+
+  /// Mirrors [initialize]: cancels every subscription taken out there —
+  /// component cleanup and the "water conducts" rule — so an
+  /// unregistered `ExampleElementalPlugin` stops reacting to events
+  /// entirely, the same teardown discipline `CombatPlugin`/
+  /// `MartialArtsPlugin` already established.
+  @override
+  void unregister(PluginContext context) {
+    sdk.disposeAll();
+  }
+}

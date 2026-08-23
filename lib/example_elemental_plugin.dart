@@ -8,3 +8,4 @@ export 'src/plugins/example_elemental/elemental_content.dart';
 export 'src/plugins/example_elemental/elemental_effects.dart';
 export 'src/plugins/example_elemental/elemental_rules.dart';
 export 'src/plugins/example_elemental/elements.dart';
+export 'src/plugins/example_elemental/example_elemental_plugin.dart';
