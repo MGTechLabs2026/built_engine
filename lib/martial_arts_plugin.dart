@@ -10,6 +10,7 @@ export 'src/plugins/martial_arts/martial_arts_plugin.dart';
 export 'src/plugins/martial_arts/martial_arts_rules.dart';
 export 'src/plugins/martial_arts/martial_conditions.dart';
 export 'src/plugins/martial_arts/martial_item.dart';
+export 'src/plugins/martial_arts/martial_item_content.dart';
 export 'src/plugins/martial_arts/martial_loadout_component.dart';
 export 'src/plugins/martial_arts/martial_styles.dart';
 export 'src/plugins/martial_arts/martial_technique_action.dart';

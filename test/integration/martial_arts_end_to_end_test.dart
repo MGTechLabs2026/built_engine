@@ -46,8 +46,8 @@ void main() {
     context.components.add(player, ResourceComponent({'momentum': 0, 'qi': 0}));
 
     learnStyle(player, MartialStyles.boxing, context);
-    equipItem(brassKnuckles, player, context);
-    equipItem(momentumTrinket, player, context);
+    equipItem(martialItem(MartialItemIds.brassKnuckles, context), player, context);
+    equipItem(martialItem(MartialItemIds.momentumTrinket, context), player, context);
 
     final battle = combat.system.startBattle([player, enemy]);
 

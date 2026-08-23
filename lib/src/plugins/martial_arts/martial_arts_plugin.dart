@@ -1,8 +1,10 @@
 import 'package:build_engine/build_engine.dart';
 
 import 'martial_arts_rules.dart';
+import 'martial_item_content.dart';
 import 'martial_loadout_component.dart';
 import 'martial_technique_content.dart';
+import 'martial_vocabulary.dart';
 
 /// MartialArts as an ordinary plugin: styles, techniques, stances, items,
 /// and trinkets, expressed entirely through Combat's and Core's public
@@ -38,6 +40,9 @@ class MartialArtsPlugin extends GamePlugin {
     // plugin is initialize()d again on the same context afterward.
     if (context.content.find('jab') == null) {
       sdk.registerContentBatch(martialTechniqueContentDefinitions);
+    }
+    if (context.content.find(MartialItemIds.brassKnuckles) == null) {
+      sdk.registerContentBatch(martialItemContentDefinitions);
     }
   }
 

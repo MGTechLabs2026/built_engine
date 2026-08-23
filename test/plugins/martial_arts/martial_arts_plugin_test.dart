@@ -97,7 +97,7 @@ void main() {
       plugin.initialize(context);
 
       final wearer = context.entities.create();
-      equipItem(brassKnuckles, wearer, context);
+      equipItem(martialItem(MartialItemIds.brassKnuckles, context), wearer, context);
       expect(context.components.has<MartialLoadoutComponent>(wearer), isTrue);
 
       context.entities.destroy(wearer);
@@ -111,7 +111,7 @@ void main() {
       plugin.initialize(context);
 
       final wearer = context.entities.create();
-      equipItem(brassKnuckles, wearer, context);
+      equipItem(martialItem(MartialItemIds.brassKnuckles, context), wearer, context);
 
       plugin.unregister(context);
       context.entities.destroy(wearer);

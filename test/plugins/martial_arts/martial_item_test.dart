@@ -7,7 +7,7 @@ PluginContext _newContext() {
   final entities = EntityRegistry(events);
   final components = ComponentStore();
   final rng = RngService(1);
-  return PluginContext(
+  final context = PluginContext(
     entities: entities,
     components: components,
     events: events,
@@ -22,17 +22,24 @@ PluginContext _newContext() {
     modifiers: ModifierCollection(),
     content: ContentRegistry(),
   );
+  MartialArtsPlugin().initialize(context);
+  return context;
 }
 
 void main() {
   group('content lists', () {
-    test('martialItems has 5 entries and martialTrinkets has 3', () {
-      expect(martialItems, hasLength(5));
-      expect(martialTrinkets, hasLength(3));
+    test('5 martial_item entries and 3 martial_trinket entries', () {
+      final context = _newContext();
+      expect(context.content.allOfType('martial_item'), hasLength(5));
+      expect(context.content.allOfType('martial_trinket'), hasLength(3));
     });
 
     test('every item/trinket id is unique', () {
-      final ids = [...martialItems, ...martialTrinkets].map((i) => i.id);
+      final context = _newContext();
+      final ids = [
+        ...context.content.allOfType('martial_item'),
+        ...context.content.allOfType('martial_trinket'),
+      ].map((d) => d.id);
       expect(ids.toSet(), hasLength(8));
     });
   });
@@ -41,6 +48,7 @@ void main() {
     test('creates an item entity carrying the item\'s tags', () {
       final context = _newContext();
       final wearer = context.entities.create();
+      final brassKnuckles = martialItem(MartialItemIds.brassKnuckles, context);
 
       final itemEntity = equipItem(brassKnuckles, wearer, context);
 
@@ -54,7 +62,7 @@ void main() {
       final context = _newContext();
       final wearer = context.entities.create();
 
-      equipItem(brassKnuckles, wearer, context);
+      equipItem(martialItem(MartialItemIds.brassKnuckles, context), wearer, context);
 
       final resolved = const ModifierResolver().resolve(
         10,
@@ -68,8 +76,10 @@ void main() {
       final context = _newContext();
       final wearer = context.entities.create();
 
-      equipItem(brassKnuckles, wearer, context); // +6 add to punch
-      equipItem(weightedVest, wearer, context); // x1.1 multiply on punch
+      equipItem(martialItem(MartialItemIds.brassKnuckles, context), wearer,
+          context); // +6 add to punch
+      equipItem(martialItem(MartialItemIds.weightedVest, context), wearer,
+          context); // x1.1 multiply on punch
 
       final resolved = const ModifierResolver().resolve(
         10,
@@ -84,7 +94,7 @@ void main() {
       final wearer = context.entities.create();
       learnStyle(wearer, MartialStyles.boxing, context);
 
-      equipItem(brassKnuckles, wearer, context);
+      equipItem(martialItem(MartialItemIds.brassKnuckles, context), wearer, context);
 
       final tags = context.components.get<TagSet>(wearer)!.tags;
       expect(tags, containsAll({'martial', 'style:boxing', 'equipped:brass_knuckles'}));
@@ -95,8 +105,10 @@ void main() {
       final context = _newContext();
       final wearer = context.entities.create();
 
-      final first = equipItem(brassKnuckles, wearer, context);
-      final second = equipItem(momentumTrinket, wearer, context);
+      final first = equipItem(
+          martialItem(MartialItemIds.brassKnuckles, context), wearer, context);
+      final second = equipItem(
+          martialItem(MartialItemIds.momentumTrinket, context), wearer, context);
 
       final loadout = context.components.get<MartialLoadoutComponent>(wearer)!;
       expect(loadout.equippedItems, equals([first, second]));
@@ -106,7 +118,7 @@ void main() {
       final context = _newContext();
       final wearer = context.entities.create();
 
-      equipItem(momentumTrinket, wearer, context);
+      equipItem(martialItem(MartialItemIds.momentumTrinket, context), wearer, context);
 
       expect(
         context.modifiers
@@ -120,7 +132,7 @@ void main() {
       final context = _newContext();
       final wearer = context.entities.create();
 
-      equipItem(counterstrikeRing, wearer, context);
+      equipItem(martialItem(MartialItemIds.counterstrikeRing, context), wearer, context);
 
       expect(
         context.modifiers

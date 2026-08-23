@@ -1,13 +1,14 @@
 import 'package:build_engine/build_engine.dart';
 
 import 'martial_loadout_component.dart';
-import 'martial_vocabulary.dart';
 
 /// A wearable item or trinket. Trinkets are simply items whose behavior
 /// comes from a `Rule` reacting to their `equipped:<id>` tag (see
 /// `martial_arts_rules.dart`) rather than from [modifiersFor] — one class
 /// covers both, matching CLAUDE.md's "don't create a new source-code
-/// class for every individual item" guidance.
+/// class for every individual item" guidance. Instances are built from
+/// loaded content via `martialItemDefinitionFromContent`/`martialItem`
+/// (`martial_item_content.dart`), never hand-written here.
 class MartialItemDefinition {
   const MartialItemDefinition({
     required this.id,
@@ -47,120 +48,3 @@ EntityId equipItem(
   );
   return itemEntity;
 }
-
-List<Modifier> _brassKnucklesModifiers(EntityId wearer) => [
-      Modifier(
-        source: ModifierSource('item:brass_knuckles:${wearer.value}'),
-        target: wearer,
-        stat: 'punch',
-        operation: ModifierOperation.add,
-        value: 6,
-      ),
-    ];
-
-const brassKnuckles = MartialItemDefinition(
-  id: 'brass_knuckles',
-  tags: {'martial', 'fist', 'western'},
-  modifiersFor: _brassKnucklesModifiers,
-);
-
-List<Modifier> _ironPalmWrapsModifiers(EntityId wearer) => [
-      Modifier(
-        source: ModifierSource('item:iron_palm_wraps:${wearer.value}'),
-        target: wearer,
-        stat: 'palm',
-        operation: ModifierOperation.add,
-        value: 6,
-      ),
-    ];
-
-const ironPalmWraps = MartialItemDefinition(
-  id: 'iron_palm_wraps',
-  tags: {'martial', 'palm', 'eastern'},
-  modifiersFor: _ironPalmWrapsModifiers,
-);
-
-List<Modifier> _taiChiSilkSashModifiers(EntityId wearer) => [
-      Modifier(
-        source: ModifierSource('item:tai_chi_silk_sash:${wearer.value}'),
-        target: wearer,
-        stat: 'internal',
-        operation: ModifierOperation.add,
-        value: 5,
-      ),
-    ];
-
-const taiChiSilkSash = MartialItemDefinition(
-  id: 'tai_chi_silk_sash',
-  tags: {'martial', 'internal', 'eastern', 'qi'},
-  modifiersFor: _taiChiSilkSashModifiers,
-);
-
-List<Modifier> _sparringGlovesModifiers(EntityId wearer) => [
-      Modifier(
-        source: ModifierSource('item:sparring_gloves:${wearer.value}'),
-        target: wearer,
-        stat: 'punch',
-        operation: ModifierOperation.add,
-        value: 3,
-      ),
-    ];
-
-const sparringGloves = MartialItemDefinition(
-  id: 'sparring_gloves',
-  tags: {'martial', 'fist', 'western'},
-  modifiersFor: _sparringGlovesModifiers,
-);
-
-List<Modifier> _weightedVestModifiers(EntityId wearer) => [
-      Modifier(
-        source: ModifierSource('item:weighted_vest:${wearer.value}'),
-        target: wearer,
-        stat: 'punch',
-        operation: ModifierOperation.multiply,
-        value: 1.1,
-      ),
-    ];
-
-const weightedVest = MartialItemDefinition(
-  id: 'weighted_vest',
-  tags: {'martial', 'fist', 'western', 'external'},
-  modifiersFor: _weightedVestModifiers,
-);
-
-const martialItems = [
-  brassKnuckles,
-  ironPalmWraps,
-  taiChiSilkSash,
-  sparringGloves,
-  weightedVest,
-];
-
-const momentumTrinket = MartialItemDefinition(
-  id: 'momentum_trinket',
-  tags: {'martial', 'western'},
-);
-
-const qiPendant = MartialItemDefinition(
-  id: 'qi_pendant',
-  tags: {'martial', 'qi', 'eastern'},
-);
-
-List<Modifier> _counterstrikeRingModifiers(EntityId wearer) => [
-      Modifier(
-        source: ModifierSource('item:counterstrike_ring:${wearer.value}'),
-        target: wearer,
-        stat: 'internal',
-        operation: ModifierOperation.add,
-        value: 3,
-        condition: HasTagQuery(MartialStances.taiChi),
-      ),
-    ];
-
-const counterstrikeRing = MartialItemDefinition(
-  id: 'counterstrike_ring',
-  tags: {'martial', 'eastern', 'counter'},
-  modifiersFor: _counterstrikeRingModifiers,
-);
-
-const martialTrinkets = [momentumTrinket, qiPendant, counterstrikeRing];

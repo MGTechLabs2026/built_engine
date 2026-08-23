@@ -1,10 +1,4 @@
 import 'package:build_engine/build_engine.dart';
-// Direct src import until Task 3 adds the barrel export
-// (`export 'src/plugins/martial_arts/martial_item_content.dart'` to
-// `package:build_engine/martial_arts_plugin.dart`) — adding that export
-// is Task 3 wiring, not part of this task. Once exported, both imports
-// resolve to the same declarations and this line can be removed.
-import 'package:build_engine/src/plugins/martial_arts/martial_item_content.dart';
 import 'package:build_engine/martial_arts_plugin.dart';
 import 'package:test/test.dart';
 
