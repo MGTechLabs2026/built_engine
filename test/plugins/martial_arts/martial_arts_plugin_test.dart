@@ -90,5 +90,33 @@ void main() {
       expect(() => manager.stop(context), returnsNormally);
       expect(() => manager.unregister(context), returnsNormally);
     });
+
+    test('removes MartialLoadoutComponent when its entity is destroyed', () {
+      final context = _newContext();
+      final plugin = MartialArtsPlugin();
+      plugin.initialize(context);
+
+      final wearer = context.entities.create();
+      equipItem(brassKnuckles, wearer, context);
+      expect(context.components.has<MartialLoadoutComponent>(wearer), isTrue);
+
+      context.entities.destroy(wearer);
+
+      expect(context.components.has<MartialLoadoutComponent>(wearer), isFalse);
+    });
+
+    test('component cleanup stops after unregister', () {
+      final context = _newContext();
+      final plugin = MartialArtsPlugin();
+      plugin.initialize(context);
+
+      final wearer = context.entities.create();
+      equipItem(brassKnuckles, wearer, context);
+
+      plugin.unregister(context);
+      context.entities.destroy(wearer);
+
+      expect(context.components.has<MartialLoadoutComponent>(wearer), isTrue);
+    });
   });
 }

@@ -1,6 +1,7 @@
 import 'package:build_engine/build_engine.dart';
 
 import 'martial_arts_rules.dart';
+import 'martial_loadout_component.dart';
 
 /// MartialArts as an ordinary plugin: styles, techniques, stances, items,
 /// and trinkets, expressed entirely through Combat's and Core's public
@@ -20,24 +21,25 @@ class MartialArtsPlugin extends GamePlugin {
   @override
   List<String> get dependencies => const ['combat'];
 
-  final List<EventSubscription> _subscriptions = [];
+  /// Constructed in [initialize]; not `late final` since a plugin can be
+  /// `initialize`d again after `unregister`.
+  late PluginSdk sdk;
 
   @override
   void initialize(PluginContext context) {
+    sdk = PluginSdk(context);
+    sdk.registerComponentCleanup<MartialLoadoutComponent>();
     for (final rule in buildMartialArtsRules()) {
-      _subscriptions.add(context.rules.register(rule));
+      sdk.registerRule(rule);
     }
   }
 
-  /// Mirrors [initialize]: cancels every rule subscription taken out
-  /// there, so an unregistered `MartialArtsPlugin` stops reacting to
-  /// events entirely — the same teardown discipline `CombatPlugin`
-  /// established for its own `EntityKilled` subscription.
+  /// Mirrors [initialize]: cancels every rule and cleanup subscription
+  /// [sdk] took out, so an unregistered `MartialArtsPlugin` stops
+  /// reacting to events entirely — the same teardown discipline
+  /// `CombatPlugin` established for its own `EntityKilled` subscription.
   @override
   void unregister(PluginContext context) {
-    for (final subscription in _subscriptions) {
-      subscription.cancel();
-    }
-    _subscriptions.clear();
+    sdk.disposeAll();
   }
 }

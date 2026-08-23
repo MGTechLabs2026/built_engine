@@ -111,5 +111,44 @@ void main() {
       expect(lost, isEmpty);
       expect(context.components.get<CombatStateComponent>(battle)!.active, isTrue);
     });
+
+    test(
+        'removes CombatantComponent and CombatStateComponent when their '
+        'entity is destroyed', () {
+      final context = _newContext();
+      final plugin = CombatPlugin();
+      plugin.initialize(context);
+
+      final a = context.entities.create();
+      context.components.add(a, const CombatantComponent(team: 'alpha'));
+      final battle = plugin.system.startBattle([a]);
+      expect(context.components.has<CombatantComponent>(a), isTrue);
+      expect(context.components.has<CombatStateComponent>(battle), isTrue);
+
+      context.entities.destroy(a);
+      context.entities.destroy(battle);
+
+      expect(context.components.has<CombatantComponent>(a), isFalse);
+      expect(context.components.has<CombatStateComponent>(battle), isFalse);
+    });
+
+    test('component cleanup stops after unregister', () {
+      final context = _newContext();
+      final manager = PluginManager();
+      final plugin = CombatPlugin();
+      manager.register(plugin);
+      manager.initialize(context);
+      manager.start(context);
+
+      final a = context.entities.create();
+      context.components.add(a, const CombatantComponent(team: 'alpha'));
+
+      manager.stop(context);
+      manager.unregister(context);
+
+      context.entities.destroy(a);
+
+      expect(context.components.has<CombatantComponent>(a), isTrue);
+    });
   });
 }
