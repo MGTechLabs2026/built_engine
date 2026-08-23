@@ -5,4 +5,5 @@
 library;
 
 export 'src/plugins/physique/physique_component.dart';
+export 'src/plugins/physique/physique_content.dart';
 export 'src/plugins/physique/physique_types.dart';
