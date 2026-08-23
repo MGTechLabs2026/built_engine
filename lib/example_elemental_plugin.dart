@@ -4,6 +4,7 @@ library;
 
 export 'src/plugins/example_elemental/elemental_affinity_component.dart';
 export 'src/plugins/example_elemental/elemental_conditions.dart';
+export 'src/plugins/example_elemental/elemental_content.dart';
 export 'src/plugins/example_elemental/elemental_effects.dart';
 export 'src/plugins/example_elemental/elemental_rules.dart';
 export 'src/plugins/example_elemental/elements.dart';
