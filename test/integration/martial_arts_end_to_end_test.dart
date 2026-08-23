@@ -179,6 +179,47 @@ void main() {
     expect(context.components.get<HealthComponent>(attacker)!.current, equals(97));
   });
 
+  test('Tai Chi: activating Yielding Stance through the real battle '
+      'pipeline does not self-damage, and the enemy IS countered on their '
+      'next attack', () {
+    final context = _newContext();
+    final combat = CombatPlugin();
+    final martialArts = MartialArtsPlugin();
+    combat.initialize(context);
+    martialArts.initialize(context);
+
+    final player = context.entities.create();
+    final enemy = context.entities.create();
+    context.components
+        .add(player, const CombatantComponent(team: 'player', initiative: 10));
+    context.components
+        .add(enemy, const CombatantComponent(team: 'enemy', initiative: 5));
+    context.components.add(player, const HealthComponent(current: 100, max: 100));
+    context.components.add(enemy, const HealthComponent(current: 100, max: 100));
+    context.components.add(player, ResourceComponent({'qi': 10}));
+    learnStyle(player, MartialStyles.taiChi, context);
+
+    final battle = combat.system.startBattle([player, enemy]);
+
+    // Player's turn: activate Yielding Stance through the real pipeline.
+    // Before the fix, this alone would have redirected 3 damage onto the
+    // player (the stance action's own ActionCompleted targets the player,
+    // who already carries stance:tai_chi by the time it fires).
+    combat.system
+        .executeAction(battle, yieldingStance(actor: player, targets: [player]));
+    expect(context.components.get<HealthComponent>(player)!.current, equals(100));
+
+    // Enemy's turn: a plain core AttackAction, zero martial-arts
+    // awareness — should land on the player AND trigger the counter back
+    // onto the enemy.
+    combat.system.executeAction(
+      battle,
+      AttackAction(actor: enemy, targets: [player], baseDamage: 5, damageStat: 'attack'),
+    );
+    expect(context.components.get<HealthComponent>(player)!.current, equals(95));
+    expect(context.components.get<HealthComponent>(enemy)!.current, equals(97));
+  });
+
   test('MartialArts is removable: after unregister, Combat keeps working '
       'and MartialArts rules no longer fire', () {
     final context = _newContext();

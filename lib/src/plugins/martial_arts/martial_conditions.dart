@@ -12,6 +12,14 @@ import 'package:build_engine/combat_plugin.dart';
 /// land" flag on the event, and adding one would require modifying
 /// Combat) — so this matches on any completed action targeting a Tai Chi
 /// stance, landed or not.
+///
+/// `event.actor` is excluded from the target scan, so a self-targeted
+/// action (e.g. activating a Tai Chi stance, which targets its own actor)
+/// never counters itself. A third party's non-damaging action that
+/// targets a Tai Chi-stanced entity (e.g. an ally's heal) still matches —
+/// this condition has no way to distinguish "damaging" from "any
+/// completed action" without a Combat-side change, same reasoning as the
+/// landed-vs-missed simplification above.
 class TaiChiCounterCondition implements Condition {
   const TaiChiCounterCondition();
 
@@ -20,7 +28,8 @@ class TaiChiCounterCondition implements Condition {
     final event = context.triggerEvent;
     if (event is! ActionCompleted) return false;
     final scope = QueryScope(components: context.components);
-    return event.targets
-        .any((target) => HasTagQuery('stance:tai_chi').matches(target, scope));
+    return event.targets.any((target) =>
+        target != event.actor &&
+        HasTagQuery('stance:tai_chi').matches(target, scope));
   }
 }
