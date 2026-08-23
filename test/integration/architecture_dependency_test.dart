@@ -27,7 +27,13 @@ void _assertNoSubstringInDirectory(String forbidden, String directoryPath) {
 const _combatBarrel = 'combat_plugin.dart';
 const _martialArtsBarrel = 'martial_arts_plugin.dart';
 const _elementalBarrel = 'elemental_plugin.dart';
-const _pluginBarrels = [_combatBarrel, _martialArtsBarrel, _elementalBarrel];
+const _physiqueBarrel = 'physique_plugin.dart';
+const _pluginBarrels = [
+  _combatBarrel,
+  _martialArtsBarrel,
+  _elementalBarrel,
+  _physiqueBarrel,
+];
 
 /// Asserts no `.dart` file under [directoryPath] imports the plugin
 /// whose barrel filename is [barrel] and whose own source lives under
@@ -60,6 +66,18 @@ void main() {
     });
   });
 
+  group('MartialArts and Physique do not import each other', () {
+    test('MartialArts does not reference Physique', () {
+      _assertNoPluginImport(
+          'physique', _physiqueBarrel, 'lib/src/plugins/martial_arts');
+    });
+
+    test('Physique does not reference MartialArts', () {
+      _assertNoPluginImport('martial_arts', _martialArtsBarrel,
+          'lib/src/plugins/physique');
+    });
+  });
+
   group('Combat remains unaware of both content plugins', () {
     test('Combat does not reference MartialArts', () {
       _assertNoPluginImport(
@@ -69,6 +87,11 @@ void main() {
     test('Combat does not reference Elemental', () {
       _assertNoPluginImport(
           'elemental', _elementalBarrel, 'lib/src/plugins/combat');
+    });
+
+    test('Combat does not reference Physique', () {
+      _assertNoPluginImport(
+          'physique', _physiqueBarrel, 'lib/src/plugins/combat');
     });
   });
 
