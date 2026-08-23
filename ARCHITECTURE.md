@@ -339,7 +339,7 @@ audit (`ARCHITECTURE_AUDIT.md`) flagged the 9 techniques/stances above as
 hardcoded Dart, since `ContentRegistry` postdates this plugin. They were
 migrated to data — `martialTechniqueContentDefinitions`, loaded into the
 real `PluginContext.content` via `PluginSdk.registerContentBatch` in
-`MartialArtsPlugin.initialize`, exactly like `ExampleElementalPlugin`'s
+`MartialArtsPlugin.initialize`, exactly like `ElementalPlugin`'s
 spells. `MartialTechniqueAction` itself stayed hand-written Dart — it
 has to, since resolving `baseDamage` against the actor's *current*
 modifiers at execution time isn't expressible as a static, load-time
@@ -426,7 +426,7 @@ This pass also grew `PluginContext` with a `content` field (alongside
 the existing seven services) — every plugin can now register its own
 factories/triggers and load/query content from any lifecycle method.
 
-## Plugin SDK and ExampleElementalPlugin (`lib/src/plugin/plugin_sdk.dart`, `lib/src/plugins/example_elemental/`)
+## Plugin SDK and ElementalPlugin (`lib/src/plugin/plugin_sdk.dart`, `lib/src/plugins/elemental/`)
 
 `PluginSdk` is a convenience façade over `PluginContext`, not a new Core
 capability — every method delegates to a service `PluginContext` already
@@ -449,7 +449,7 @@ two more opaque `type` values, no different in kind from "skill" or
 limitation this pass didn't change, so it's documented rather than
 papered over.
 
-`ExampleElementalPlugin` is the SDK's reference implementation:
+`ElementalPlugin` is the SDK's reference implementation:
 Fire/Water/Lightning, depending on nothing but Core (`dependencies =>
 const []`) — deliberately not Combat, unlike `MartialArtsPlugin`, so a
 third-party developer's first example is the simplest one, not one that
@@ -469,11 +469,11 @@ composes cleanly with a real plugin's `initialize`.
 
 ## Cross-plugin interoperability proof (`test/integration/cross_plugin_synergy_test.dart`, `test/integration/architecture_dependency_test.dart`)
 
-`MartialArtsPlugin` and `ExampleElementalPlugin` are two independent
+`MartialArtsPlugin` and `ElementalPlugin` are two independent
 content plugins — neither imports or depends on the other, and neither
 is a dependency of the other in `claude.md`'s sense (only MartialArts's
 existing `-> combat` edge is real). Their one demonstrated synergy uses
-tags and the Modifier Engine together: `ExampleElementalPlugin`'s
+tags and the Modifier Engine together: `ElementalPlugin`'s
 `emberCharm` registers a `Modifier` against stat `'punch'` — the exact,
 arbitrary-caller-chosen `damageStat` MartialArts' `jab`/`powerCross`
 already resolve through `ModifierResolver` — gated on

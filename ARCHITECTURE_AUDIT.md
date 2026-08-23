@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-23
 **Scope:** `lib/` (all Core services and all plugins: Combat, MartialArts,
-ExampleElemental) against the architecture contract in `CLAUDE.md`.
+Elemental) against the architecture contract in `CLAUDE.md`.
 **Method:** full read of `CLAUDE.md`; a complete file inventory of `lib/`
 (64 files); import-graph inspection of every directory under `lib/src/`;
 targeted greps for domain vocabulary in Core, `dart:math`/`Random` usage
@@ -97,7 +97,7 @@ No plugin holds a live reference to another plugin's internal class.
 `MartialArtsPlugin` explicitly documents (and the code confirms) that it
 "never holds a reference to `CombatPlugin`/`CombatSystem` — only to
 Combat's public event vocabulary" (`lib/src/plugins/martial_arts/
-martial_arts_plugin.dart:8-12`). `ExampleElementalPlugin` imports nothing
+martial_arts_plugin.dart:8-12`). `ElementalPlugin` imports nothing
 from either Combat or MartialArts at all.
 
 ## 5. Circular dependencies
@@ -105,7 +105,7 @@ from either Combat or MartialArts at all.
 **Result: No violations found.**
 
 The import graph is a strict DAG: `Core <- Combat <- MartialArts`,
-`Core <- ExampleElemental`. No file under `lib/src/` imports anything
+`Core <- Elemental`. No file under `lib/src/` imports anything
 under `lib/src/plugins/`, so a cycle back into Core is structurally
 impossible. `PluginManager.resolveLoadOrder()`
 (`lib/src/plugin/plugin_manager.dart:36-71`) additionally detects and
@@ -118,11 +118,11 @@ dependency cycle at runtime — a second, independent guard.
 
 Every cross-entity interaction found (Shaolin's `stance:iron_body`
 mitigation, Tai Chi's `TaiChiCounterCondition`, both passive-regen
-trinket rules, ExampleElemental's "water conducts" rule) is gated by a
+trinket rules, Elemental's "water conducts" rule) is gated by a
 single generic tag/status check, not a hardcoded pairing of two specific
 named items or techniques
 (`lib/src/plugins/martial_arts/martial_arts_rules.dart:10-57`,
-`lib/src/plugins/example_elemental/elemental_rules.dart:9-16`). No file
+`lib/src/plugins/elemental/elemental_rules.dart:9-16`). No file
 contains an `if (id == 'x' && id2 == 'y')`-shaped combination check.
 
 ## 7. Hardcoded content
@@ -146,8 +146,8 @@ contains an `if (id == 'x' && id2 == 'y')`-shaped combination check.
   `MartialTechniqueAction` class covers all 9 techniques/stances. The
   gap is the softer, "preferably data" half of the same guidance, and
   exists because `MartialArtsPlugin` was built in an earlier pass,
-  before `ContentRegistry` existed. `ExampleElementalPlugin`
-  (`lib/src/plugins/example_elemental/elemental_content.dart`) shows the
+  before `ContentRegistry` existed. `ElementalPlugin`
+  (`lib/src/plugins/elemental/elemental_content.dart`) shows the
   fully-migrated version of the same pattern: three spells as
   `Map<String, dynamic>` definitions loaded via
   `PluginSdk.registerContentBatch`.
@@ -210,7 +210,7 @@ Every component class in the repository was read in full:
 `CombatStateComponent`, `CombatantComponent`
 (`lib/src/plugins/combat/`), `MartialLoadoutComponent`
 (`lib/src/plugins/martial_arts/`), `ElementalAffinityComponent`
-(`lib/src/plugins/example_elemental/`). Every one is a plain data holder
+(`lib/src/plugins/elemental/`). Every one is a plain data holder
 — constructor plus fields, at most a `toJson`/`fromJson` pair for
 marshaling (which is data transformation, not gameplay logic). No
 component contains a conditional, a loop over other entities, or a call
@@ -275,7 +275,7 @@ left it as-is; still worth a future look if `CombatSystem` grows further.
 
 - **Files:**
   - `lib/src/plugins/martial_arts/martial_item.dart:24-33`
-  - `lib/src/plugins/example_elemental/elements.dart:14-23`
+  - `lib/src/plugins/elemental/elements.dart:14-23`
   - `lib/src/plugins/combat/combat_system.dart:128-137` (a third,
     near-identical variant, `_ruleContextFor`)
 - **Problem:** `martial_item.dart:24-33` and `elements.dart:14-23` are a
@@ -326,7 +326,7 @@ Grepped every plugin for references to another plugin's system classes
 (`CombatSystem`, `CombatPlugin`); every hit outside `lib/src/plugins/
 combat/` itself is inside a documentation comment, never executable
 code. Every actual cross-entity interaction (Shaolin's mitigation, Tai
-Chi's counter, ExampleElemental's "water conducts") is implemented as a
+Chi's counter, Elemental's "water conducts") is implemented as a
 `Rule` reacting to a published event (`EntityDamaged`/`ActionCompleted`)
 through the shared `RuleEngine`, exactly the pattern `ARCHITECTURE.md`'s
 MartialArts section documents as the deliberate resolution to this
@@ -384,7 +384,7 @@ and `lib/src/plugins/martial_arts/` returns zero hits. This is a latent
 component-store leak (harmless at test scale, real in a long-running
 game). `PluginSdk.registerComponentCleanup<T>()`
 (`lib/src/plugin/plugin_sdk.dart:30-41`) now exists as the sanctioned
-fix and is already used by `ExampleElementalPlugin` — Combat and
+fix and is already used by `ElementalPlugin` — Combat and
 MartialArts predate it and haven't been retrofitted. Low-to-Medium
 severity; straightforward fix (one `sdk.registerComponentCleanup<T>()`
 call per owned component type, in each plugin's `initialize`).
@@ -434,11 +434,11 @@ short design pass first per this report's own recommendation).
    (`lib/src/plugins/martial_arts/martial_technique_content.dart`),
    loaded into the real `PluginContext.content` via
    `PluginSdk.registerContentBatch` in `MartialArtsPlugin.initialize`,
-   mirroring `ExampleElementalPlugin`'s spells — see `ARCHITECTURE.md`'s
+   mirroring `ElementalPlugin`'s spells — see `ARCHITECTURE.md`'s
    MartialArts section for the full design (why `MartialTechniqueAction`
    itself stayed hand-written Dart, and why items/trinkets were
    deliberately *not* migrated). This pass also surfaced and fixed a
-   latent bug: both `MartialArtsPlugin` and `ExampleElementalPlugin`
+   latent bug: both `MartialArtsPlugin` and `ElementalPlugin`
    would throw `ContentDuplicateIdException` if re-initialized on the
    same context after `unregister` (`ContentRegistry` has no unload) —
    both now guard against loading their content twice. Commit `04f776d`.
@@ -446,7 +446,7 @@ short design pass first per this report's own recommendation).
    `MartialResources`/`MartialStances`
    (`lib/src/plugins/martial_arts/martial_vocabulary.dart`) and
    `ElementalResources`/`ElementalStatuses`
-   (`lib/src/plugins/example_elemental/elemental_vocabulary.dart`);
+   (`lib/src/plugins/elemental/elemental_vocabulary.dart`);
    also tied the two passive-regen rules' `equipped:<id>` tags directly
    to `momentumTrinket.id`/`qiPendant.id` instead of an
    independently-typed literal. Commit `9350f52`.

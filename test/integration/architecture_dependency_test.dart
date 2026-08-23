@@ -21,39 +21,54 @@ void _assertNoSubstringInDirectory(String forbidden, String directoryPath) {
   }
 }
 
-/// Every plugin barrel filename — a Core service directory referencing
-/// any of these by name (whether via a relative escape or the
-/// `package:build_engine/<name>` form) would be exactly the coupling
-/// this test exists to forbid, and neither import form contains the
-/// bare `plugins/` substring the directory-scan checks below look for.
-const _pluginBarrels = [
-  'combat_plugin.dart',
-  'martial_arts_plugin.dart',
-  'example_elemental_plugin.dart',
-];
+/// Every plugin barrel filename this test checks for — a real import
+/// (the `package:build_engine/<name>` barrel form) always contains one
+/// of these verbatim.
+const _combatBarrel = 'combat_plugin.dart';
+const _martialArtsBarrel = 'martial_arts_plugin.dart';
+const _elementalBarrel = 'elemental_plugin.dart';
+const _pluginBarrels = [_combatBarrel, _martialArtsBarrel, _elementalBarrel];
+
+/// Asserts no `.dart` file under [directoryPath] imports the plugin
+/// whose barrel filename is [barrel] and whose own source lives under
+/// `lib/src/plugins/<pluginDirName>/`. Checks two forms: the barrel
+/// import (`_assertNoSubstringInDirectory` against [barrel]) and a
+/// relative escape into that plugin's directory (`'<pluginDirName>/'`).
+/// Deliberately *not* the bare plugin name alone — a short, common word
+/// like `elemental` can legitimately appear in prose (a doc comment
+/// explaining an analogous mechanism in another plugin, by name, is not
+/// a real dependency), so only import-shaped substrings are checked.
+void _assertNoPluginImport(
+  String pluginDirName,
+  String barrel,
+  String directoryPath,
+) {
+  _assertNoSubstringInDirectory(barrel, directoryPath);
+  _assertNoSubstringInDirectory('$pluginDirName/', directoryPath);
+}
 
 void main() {
   group('G: neither content plugin imports the other', () {
-    test('MartialArts does not reference ExampleElemental', () {
-      _assertNoSubstringInDirectory(
-          'example_elemental', 'lib/src/plugins/martial_arts');
+    test('MartialArts does not reference Elemental', () {
+      _assertNoPluginImport(
+          'elemental', _elementalBarrel, 'lib/src/plugins/martial_arts');
     });
 
-    test('ExampleElemental does not reference MartialArts', () {
-      _assertNoSubstringInDirectory(
-          'martial_arts', 'lib/src/plugins/example_elemental');
+    test('Elemental does not reference MartialArts', () {
+      _assertNoPluginImport('martial_arts', _martialArtsBarrel,
+          'lib/src/plugins/elemental');
     });
   });
 
   group('Combat remains unaware of both content plugins', () {
     test('Combat does not reference MartialArts', () {
-      _assertNoSubstringInDirectory(
-          'martial_arts', 'lib/src/plugins/combat');
+      _assertNoPluginImport(
+          'martial_arts', _martialArtsBarrel, 'lib/src/plugins/combat');
     });
 
-    test('Combat does not reference ExampleElemental', () {
-      _assertNoSubstringInDirectory(
-          'example_elemental', 'lib/src/plugins/combat');
+    test('Combat does not reference Elemental', () {
+      _assertNoPluginImport(
+          'elemental', _elementalBarrel, 'lib/src/plugins/combat');
     });
   });
 

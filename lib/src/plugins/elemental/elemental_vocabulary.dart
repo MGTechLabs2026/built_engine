@@ -1,4 +1,4 @@
-/// Centralized resource/status name constants for ExampleElemental —
+/// Centralized resource/status name constants for Elemental —
 /// `ARCHITECTURE_AUDIT.md`'s observation B flagged these as raw string
 /// literals repeated across several files, where a typo would be a
 /// silent runtime mismatch (a rule/effect that quietly never matches)

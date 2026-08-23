@@ -1,10 +1,10 @@
 import 'package:build_engine/build_engine.dart';
-import 'package:build_engine/example_elemental_plugin.dart';
+import 'package:build_engine/elemental_plugin.dart';
 import 'package:test/test.dart';
 
 void main() {
   test(
-      'ExampleElementalPlugin runs standalone (no Combat, no MartialArts) '
+      'ElementalPlugin runs standalone (no Combat, no MartialArts) '
       'and is fully removable', () {
     final events = EventBus();
     final entities = EntityRegistry(events);
@@ -27,7 +27,7 @@ void main() {
     );
 
     final manager = PluginManager();
-    manager.register(ExampleElementalPlugin());
+    manager.register(ElementalPlugin());
     manager.initialize(context);
     manager.start(context);
 

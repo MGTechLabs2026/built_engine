@@ -1,6 +1,6 @@
 import 'package:build_engine/build_engine.dart';
 
-/// A wearable item or trinket for ExampleElemental — mirrors
+/// A wearable item or trinket for Elemental — mirrors
 /// `MartialItemDefinition`/`equipItem`'s exact shape (the second
 /// occurrence of an already-proven pattern, not a new one). Deliberately
 /// has no item-entity-creation or loadout-tracking — nothing here needs

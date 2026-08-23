@@ -10,9 +10,9 @@ import 'elemental_rules.dart';
 /// entirely with `PluginSdk`, depending on nothing but Core — not
 /// Combat, not MartialArts. Copy this plugin, not MartialArts, as the
 /// starting point for a new content plugin.
-class ExampleElementalPlugin extends GamePlugin {
+class ElementalPlugin extends GamePlugin {
   @override
-  String get id => 'example_elemental';
+  String get id => 'elemental';
 
   @override
   String get version => '0.1.0';
@@ -67,7 +67,7 @@ class ExampleElementalPlugin extends GamePlugin {
 
   /// Mirrors [initialize]: cancels every subscription taken out there —
   /// component cleanup and the "water conducts" rule — so an
-  /// unregistered `ExampleElementalPlugin` stops reacting to events
+  /// unregistered `ElementalPlugin` stops reacting to events
   /// entirely, the same teardown discipline `CombatPlugin`/
   /// `MartialArtsPlugin` already established.
   @override

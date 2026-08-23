@@ -1,4 +1,4 @@
-import 'package:build_engine/example_elemental_plugin.dart';
+import 'package:build_engine/elemental_plugin.dart';
 import 'package:test/test.dart';
 
 void main() {

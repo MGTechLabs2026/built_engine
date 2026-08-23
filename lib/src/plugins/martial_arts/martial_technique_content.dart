@@ -7,7 +7,7 @@ import 'martial_vocabulary.dart';
 /// The 6 techniques and 3 stances this plugin's vertical slice
 /// implements, as data — loaded into `PluginContext.content` via
 /// `PluginSdk.registerContentBatch` in `MartialArtsPlugin.initialize`
-/// (mirroring `ExampleElementalPlugin`'s `elementalContentDefinitions`),
+/// (mirroring `ElementalPlugin`'s `elementalContentDefinitions`),
 /// and also what the 9 convenience factory functions below build a
 /// [MartialTechniqueAction] from (see `martialTechniqueFromDefinition`).
 ///

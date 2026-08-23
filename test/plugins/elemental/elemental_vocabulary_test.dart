@@ -1,12 +1,12 @@
-import 'package:build_engine/example_elemental_plugin.dart';
+import 'package:build_engine/elemental_plugin.dart';
 import 'package:test/test.dart';
 
 void main() {
-  test('ElementalResources names the resource ExampleElemental spends', () {
+  test('ElementalResources names the resource Elemental spends', () {
     expect(ElementalResources.mana, equals('mana'));
   });
 
-  test('ElementalStatuses names the three status tags ExampleElemental '
+  test('ElementalStatuses names the three status tags Elemental '
       'applies', () {
     expect(ElementalStatuses.burning, equals('status:burning'));
     expect(ElementalStatuses.soaked, equals('status:soaked'));

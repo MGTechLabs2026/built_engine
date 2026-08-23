@@ -1,5 +1,5 @@
 import 'package:build_engine/build_engine.dart';
-import 'package:build_engine/example_elemental_plugin.dart';
+import 'package:build_engine/elemental_plugin.dart';
 import 'package:test/test.dart';
 
 PluginContext _newContext() {
@@ -26,12 +26,12 @@ PluginContext _newContext() {
 
 void main() {
   test('declares no dependencies', () {
-    expect(ExampleElementalPlugin().dependencies, isEmpty);
+    expect(ElementalPlugin().dependencies, isEmpty);
   });
 
   test('initialize registers the content definitions and the rule', () {
     final context = _newContext();
-    final plugin = ExampleElementalPlugin();
+    final plugin = ElementalPlugin();
     plugin.initialize(context);
 
     expect(context.content.get('fireball'), isNotNull);
@@ -51,7 +51,7 @@ void main() {
 
   test('unregister stops the rule and component cleanup from firing', () {
     final context = _newContext();
-    final plugin = ExampleElementalPlugin();
+    final plugin = ElementalPlugin();
     plugin.initialize(context);
     plugin.unregister(context);
 
@@ -74,7 +74,7 @@ void main() {
   test('re-initializing on the same context does not throw '
       'ContentDuplicateIdException', () {
     final context = _newContext();
-    final plugin = ExampleElementalPlugin();
+    final plugin = ElementalPlugin();
     plugin.initialize(context);
     plugin.unregister(context);
 

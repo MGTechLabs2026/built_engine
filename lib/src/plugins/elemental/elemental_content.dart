@@ -2,7 +2,7 @@ import 'elemental_vocabulary.dart';
 
 /// The three elemental spells this example plugin's vertical slice
 /// implements, as data — loaded via `PluginSdk.registerContentBatch` in
-/// `ExampleElementalPlugin.initialize`. Each mixes a built-in
+/// `ElementalPlugin.initialize`. Each mixes a built-in
 /// `ContentRegistry` factory (`damage`) with this plugin's own
 /// (`applyElementalStatus`, `hasElementalAffinity`), demonstrating the
 /// complete data pipeline end to end.

@@ -177,15 +177,15 @@ manager.start(context);
 
 ## Writing a third-party plugin
 
-`ExampleElementalPlugin` (`lib/src/plugins/example_elemental/`,
-`lib/example_elemental_plugin.dart`) is the reference: Fire/Water/
+`ElementalPlugin` (`lib/src/plugins/elemental/`,
+`lib/elemental_plugin.dart`) is the reference: Fire/Water/
 Lightning, built entirely with `PluginSdk`, depending on nothing but
 Core — not Combat, not MartialArts. Copy it, not `MartialArtsPlugin`, as
 your starting point; `MartialArtsPlugin` additionally demonstrates
 depending on another plugin (`-> combat`), which most third-party
 plugins won't need on day one.
 
-Steps, in the order `ExampleElementalPlugin` follows them:
+Steps, in the order `ElementalPlugin` follows them:
 
 1. **Define your component(s)**, if any — plain state, no logic (see
    `ElementalAffinityComponent`).
@@ -211,11 +211,11 @@ Steps, in the order `ExampleElementalPlugin` follows them:
    own.
 6. **Wire it all up in your `GamePlugin.initialize`** via `PluginSdk` —
    one `sdk.register*` call per thing you defined above (see
-   `ExampleElementalPlugin.initialize`) — and call `sdk.disposeAll()` in
+   `ElementalPlugin.initialize`) — and call `sdk.disposeAll()` in
    `unregister`.
 7. **Export a barrel** (`lib/my_plugin.dart`) so consumers import your
    plugin the same way they import `combat_plugin.dart`/
-   `martial_arts_plugin.dart`/`example_elemental_plugin.dart` — never
+   `martial_arts_plugin.dart`/`elemental_plugin.dart` — never
    `lib/src/...` directly.
 
 Test the same way every plugin in this engine is tested (see
@@ -223,7 +223,7 @@ Test the same way every plugin in this engine is tested (see
 serialization where applicable, dependency, and — if you react to
 another plugin's events like MartialArts does — an integration test
 proving your plugin is fully removable (see
-`test/integration/example_elemental_end_to_end_test.dart` and
+`test/integration/elemental_end_to_end_test.dart` and
 `test/integration/martial_arts_end_to_end_test.dart` for the pattern).
 
 ## Plugins must not reach into each other's private implementation
