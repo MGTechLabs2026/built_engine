@@ -9,6 +9,42 @@ abstract final class ItemIds {
   static const trainingStaff = 'training_staff';
   static const clothArmor = 'cloth_armor';
   static const trainingShoes = 'training_shoes';
+
+  // Combine grade chains — each of the 6 items above branches into 2
+  // named grade-2 items (weighted by the base item's own trainingWeights
+  // tags), each continuing linearly to one grade-3 "masterwork" tier.
+  // Reachable only via `combineItems`, never placed directly as starter
+  // content. See `docs/superpowers/specs/2026-08-24-item-combine-design.md`.
+
+  static const sharpKnife = 'sharp_knife';
+  static const masterworkSharpKnife = 'masterwork_sharp_knife';
+  static const fastKnife = 'fast_knife';
+  static const windcutterKnife = 'windcutter_knife';
+
+  static const temperedIronSword = 'tempered_iron_sword';
+  static const runicIronSword = 'runic_iron_sword';
+  static const reinforcedIronSword = 'reinforced_iron_sword';
+  static const warlordsIronSword = 'warlords_iron_sword';
+
+  static const swiftGloves = 'swift_gloves';
+  static const lightningGloves = 'lightning_gloves';
+  static const ironKnuckleGloves = 'iron_knuckle_gloves';
+  static const crushingGauntlets = 'crushing_gauntlets';
+
+  static const balancedStaff = 'balanced_staff';
+  static const sagesStaff = 'sages_staff';
+  static const battleStaff = 'battle_staff';
+  static const warstaffOfTheVanguard = 'warstaff_of_the_vanguard';
+
+  static const paddedClothArmor = 'padded_cloth_armor';
+  static const fortifiedClothArmor = 'fortified_cloth_armor';
+  static const reinforcedClothArmor = 'reinforced_cloth_armor';
+  static const bastionClothArmor = 'bastion_cloth_armor';
+
+  static const swiftShoes = 'swift_shoes';
+  static const windwalkerBoots = 'windwalker_boots';
+  static const surefootedShoes = 'surefooted_shoes';
+  static const steadfastBoots = 'steadfast_boots';
 }
 
 /// `ContentDefinition.type` values this plugin's content uses — plain

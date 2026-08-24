@@ -82,12 +82,31 @@ void main() {
 
   test('an item with no maxClass/gradeEvolution declared stays non-combinable', () {
     final registry = ContentRegistry();
+    registry.load({
+      'id': 'plain_item',
+      'type': 'weapon',
+      'tags': ['item', 'weapon'],
+      'properties': {'attack': 1},
+    });
+
+    final plainItem = itemDefinitionFromContent(registry.get('plain_item'));
+
+    expect(plainItem.maxClass, isNull);
+    expect(plainItem.gradeEvolutionCandidates, isEmpty);
+    expect(plainItem.classScalingPercent, equals(15)); // default
+  });
+
+  test('every shipped item now carries a real Combine grade chain', () {
+    final registry = ContentRegistry();
     registry.loadAll(itemContentDefinitions);
 
     final knife = itemDefinitionFromContent(registry.get(ItemIds.knife));
 
-    expect(knife.maxClass, isNull);
-    expect(knife.gradeEvolutionCandidates, isEmpty);
-    expect(knife.classScalingPercent, equals(15)); // default
+    expect(knife.maxClass, equals(3));
+    expect(
+      knife.gradeEvolutionCandidates.map((c) => c.targetId),
+      equals([ItemIds.sharpKnife, ItemIds.fastKnife]),
+    );
+    expect(knife.gradeEvolutionCandidates.first.tags, equals({TrainingDimensions.precision}));
   });
 }

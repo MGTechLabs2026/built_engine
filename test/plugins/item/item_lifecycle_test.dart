@@ -333,9 +333,15 @@ void main() {
     });
 
     test('a non-combinable item (no maxClass declared) throws CombineNotAvailableException', () {
+      context.content.load({
+        'id': 'plain_item',
+        'type': 'weapon',
+        'tags': ['item', 'weapon'],
+        'properties': {'attack': 1},
+      });
       final owner = context.entities.create();
-      final a = ownItem(owner, ItemIds.knife, context);
-      final b = ownItem(owner, ItemIds.knife, context);
+      final a = ownItem(owner, 'plain_item', context);
+      final b = ownItem(owner, 'plain_item', context);
       context.resources.set(owner, ItemResources.upgradePoints, 10);
 
       expect(
@@ -416,7 +422,7 @@ void main() {
 
     test('a gradeUpgrade outcome swaps the survivor\'s definitionId, itemClass unchanged', () {
       loadSimpleKnife(context, gradeEvolution: [
-        {'targetId': 'sharp_knife'},
+        {'targetId': 'fixture_sharp_knife'},
       ]);
       final owner = context.entities.create();
       final a = ownItem(owner, 'simple_knife', context);
@@ -434,13 +440,13 @@ void main() {
       final survivor = combineItems(owner, [a, b], seededContext);
 
       final instance = context.components.get<ItemInstance>(survivor)!;
-      expect(instance.definitionId, equals('sharp_knife'));
+      expect(instance.definitionId, equals('fixture_sharp_knife'));
       expect(instance.itemClass, equals(1));
     });
 
     test('a Tome-placed survivor\'s placement is transparently updated', () {
       loadSimpleKnife(context, gradeEvolution: [
-        {'targetId': 'sharp_knife'},
+        {'targetId': 'fixture_sharp_knife'},
       ]);
       final owner = context.entities.create();
       final a = ownItem(owner, 'simple_knife', context);
@@ -468,7 +474,7 @@ void main() {
       final survivor = combineItems(owner, [a, b], seededContext);
 
       final placement = context.tome.inspect(owner).single;
-      expect(placement.buildComponentRef.contentId, equals('sharp_knife'));
+      expect(placement.buildComponentRef.contentId, equals('fixture_sharp_knife'));
       expect(placement.buildComponentRef.instanceEntityId, equals(survivor));
       expect(placement.slot, equals(const SlotId('weapon'))); // slot preserved
     });
@@ -667,7 +673,7 @@ void main() {
 
     test('at maxClass with a grade path available, combine proceeds toward grade upgrades only', () {
       loadSimpleKnife(context, maxClass: 1, gradeEvolution: [
-        {'targetId': 'sharp_knife'},
+        {'targetId': 'fixture_sharp_knife'},
       ]);
       final owner = context.entities.create();
       final a = ownItem(owner, 'simple_knife', context);
@@ -686,7 +692,7 @@ void main() {
 
       final survivor = combineItems(owner, [a, b], seededContext);
 
-      expect(context.components.get<ItemInstance>(survivor)!.definitionId, equals('sharp_knife'));
+      expect(context.components.get<ItemInstance>(survivor)!.definitionId, equals('fixture_sharp_knife'));
     });
   });
 }
