@@ -30,6 +30,7 @@ const _elementalBarrel = 'elemental_plugin.dart';
 const _physiqueBarrel = 'physique_plugin.dart';
 const _autoCombatBarrel = 'auto_combat_plugin.dart';
 const _itemBarrel = 'item_plugin.dart';
+const _techniqueBarrel = 'technique_plugin.dart';
 const _pluginBarrels = [
   _combatBarrel,
   _martialArtsBarrel,
@@ -37,6 +38,7 @@ const _pluginBarrels = [
   _physiqueBarrel,
   _autoCombatBarrel,
   _itemBarrel,
+  _techniqueBarrel,
 ];
 
 /// Asserts no `.dart` file under [directoryPath] imports the plugin
@@ -137,6 +139,36 @@ void main() {
     test('Item does not reference AutoCombat', () {
       _assertNoPluginImport(
           'auto_combat', _autoCombatBarrel, 'lib/src/plugins/item');
+    });
+  });
+
+  group('Technique plugin is fully decoupled from every other plugin', () {
+    test('Technique does not reference MartialArts', () {
+      _assertNoPluginImport(
+          'martial_arts', _martialArtsBarrel, 'lib/src/plugins/technique');
+    });
+
+    test('Technique does not reference Elemental', () {
+      _assertNoPluginImport(
+          'elemental', _elementalBarrel, 'lib/src/plugins/technique');
+    });
+
+    test('Technique does not reference Physique', () {
+      _assertNoPluginImport(
+          'physique', _physiqueBarrel, 'lib/src/plugins/technique');
+    });
+
+    test('Technique does not reference Combat', () {
+      _assertNoPluginImport('combat', _combatBarrel, 'lib/src/plugins/technique');
+    });
+
+    test('Technique does not reference AutoCombat', () {
+      _assertNoPluginImport(
+          'auto_combat', _autoCombatBarrel, 'lib/src/plugins/technique');
+    });
+
+    test('Technique does not reference Item', () {
+      _assertNoPluginImport('item', _itemBarrel, 'lib/src/plugins/technique');
     });
   });
 
