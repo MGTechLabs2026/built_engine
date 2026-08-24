@@ -14,3 +14,35 @@ class ItemAddedToTome {
   final String definitionId;
   final SlotId slot;
 }
+
+/// Published by `combineItems` when a combine attempt succeeds — either
+/// [CombineOutcome.classUpgrade] (same [toDefinitionId] as
+/// [fromDefinitionId], [newClass] = old class + 1) or
+/// [CombineOutcome.gradeUpgrade] ([toDefinitionId] is the chosen grade
+/// target, [newClass] unchanged from the inputs' shared class).
+class ItemCombineSucceeded {
+  const ItemCombineSucceeded(
+    this.owner,
+    this.fromDefinitionId,
+    this.outcome,
+    this.toDefinitionId,
+    this.newClass,
+  );
+
+  final EntityId owner;
+  final String fromDefinitionId;
+  final CombineOutcome outcome;
+  final String toDefinitionId;
+  final int newClass;
+}
+
+/// Published by `combineItems` when a combine attempt fails — the
+/// survivor is left unchanged at [itemClass]; N-1 of the inputs were
+/// destroyed regardless.
+class ItemCombineFailed {
+  const ItemCombineFailed(this.owner, this.definitionId, this.itemClass);
+
+  final EntityId owner;
+  final String definitionId;
+  final int itemClass;
+}

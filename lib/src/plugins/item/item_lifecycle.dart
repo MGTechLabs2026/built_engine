@@ -1,5 +1,6 @@
 import 'package:build_engine/build_engine.dart';
 
+import 'item_content.dart';
 import 'item_definition.dart';
 import 'item_events.dart';
 import 'item_instance.dart';
@@ -142,4 +143,143 @@ void addItemToTome(
     ),
   );
   context.events.publish(ItemAddedToTome(owner, item.id, slot));
+}
+
+/// Combines [instanceEntities] — 2+ owned copies sharing the same
+/// `definitionId`/`itemClass` — into one surviving, upgraded copy. Costs
+/// `ItemResources.upgradePoints` flat per attempt (= the shared
+/// `itemClass`), consumed via the generic `ResourcePool` *before* rolling
+/// (an `InsufficientResourceException` leaves nothing mutated). One
+/// `CombineResolver` roll then decides fail/classUpgrade/gradeUpgrade;
+/// exactly one input entity survives (the rest destroyed), mutated in
+/// place. If the survivor is currently Tome-placed, its placement is
+/// transparently updated to the new definitionId via `TomeService.replace`
+/// — mirrors `game_run.dart`'s `replaceWithEvolved` pattern exactly.
+/// Returns the surviving instance's entity id. See
+/// `docs/superpowers/specs/2026-08-24-item-combine-design.md`.
+///
+/// The upfront "is there anywhere left to go" terminal check
+/// ([hasGradePath] below) deliberately does NOT call
+/// `EvolutionResolver.resolve` — that call draws from `context.rng`
+/// (via `weightedPick`) whenever at least one candidate is eligible, which
+/// would silently shift every subsequent roll `CombineResolver.resolve`
+/// makes (the fail/classUpgrade/gradeUpgrade roll itself, and the grade
+/// pick within it) by one draw, breaking reproducibility from a given
+/// seed. So eligibility is checked directly against
+/// [EvolutionCandidate.conditions] instead — the same eligibility test
+/// `EvolutionResolver.resolve` runs internally before it ever touches
+/// `rng`.
+EntityId combineItems(
+  EntityId owner,
+  List<EntityId> instanceEntities,
+  PluginContext context,
+) {
+  if (instanceEntities.length < 2) {
+    throw ArgumentError.value(
+      instanceEntities.length, 'instanceEntities', 'Combine requires at least 2 items');
+  }
+
+  final instances = [
+    for (final e in instanceEntities) context.components.get<ItemInstance>(e)!,
+  ];
+  final first = instances.first;
+  for (var i = 1; i < instances.length; i++) {
+    if (instances[i].definitionId != first.definitionId ||
+        instances[i].itemClass != first.itemClass) {
+      throw CombineMismatchException(
+        CombineInput(matchKey: first.definitionId, tier: first.itemClass),
+        CombineInput(matchKey: instances[i].definitionId, tier: instances[i].itemClass),
+      );
+    }
+  }
+
+  final definition = itemDefinition(first.definitionId, context);
+  if (definition.maxClass == null) {
+    throw CombineNotAvailableException(first.definitionId);
+  }
+  final atMax = first.itemClass >= definition.maxClass!;
+  final gradeEvolution = definition.toGradeEvolutionDefinition();
+  final ruleContext = context.ruleContextFor(owner);
+  final gradeProfile = TrainingProfile(definition.trainingWeights);
+  final hasGradePath = gradeEvolution.candidates.any(
+    (candidate) => candidate.conditions.every((c) => c.evaluate(ruleContext)),
+  );
+  if (atMax && !hasGradePath) {
+    throw CombineNotAvailableException(first.definitionId);
+  }
+
+  context.resources.consume(owner, ItemResources.upgradePoints, first.itemClass);
+
+  final result = const CombineResolver().resolve(
+    inputs: [
+      for (final i in instances) CombineInput(matchKey: i.definitionId, tier: i.itemClass),
+    ],
+    atMaxTierForGrade: atMax,
+    gradeContext: ruleContext,
+    gradeEvolution: gradeEvolution,
+    gradeProfile: gradeProfile,
+    rng: context.rng,
+  );
+
+  final survivor = instanceEntities[result.survivorIndex];
+  for (final e in instanceEntities) {
+    if (e != survivor) {
+      context.components.remove<ItemInstance>(e);
+      context.entities.destroy(e);
+    }
+  }
+
+  switch (result.outcome) {
+    case CombineOutcome.fail:
+      context.events.publish(
+        ItemCombineFailed(owner, first.definitionId, first.itemClass),
+      );
+    case CombineOutcome.classUpgrade:
+      final newClass = first.itemClass + 1;
+      context.components.add(
+        survivor,
+        ItemInstance(definitionId: first.definitionId, owner: owner, itemClass: newClass),
+      );
+      _reflectCombineInTome(owner, first.definitionId, first.definitionId, survivor, context);
+      context.events.publish(ItemCombineSucceeded(
+        owner, first.definitionId, CombineOutcome.classUpgrade, first.definitionId, newClass,
+      ));
+    case CombineOutcome.gradeUpgrade:
+      final newId = result.chosenGradeTargetId!;
+      context.components.add(
+        survivor,
+        ItemInstance(definitionId: newId, owner: owner, itemClass: first.itemClass),
+      );
+      _reflectCombineInTome(owner, first.definitionId, newId, survivor, context);
+      context.events.publish(ItemCombineSucceeded(
+        owner, first.definitionId, CombineOutcome.gradeUpgrade, newId, first.itemClass,
+      ));
+  }
+  return survivor;
+}
+
+/// Updates [owner]'s Tome placement for [oldId] (if any) to point at
+/// [newId]/[survivorInstance] instead — a no-op if the survivor wasn't
+/// placed. Mirrors `game_run.dart`'s `replaceWithEvolved` exactly: find
+/// the placement by matching `contentId`, then `TomeService.replace`.
+void _reflectCombineInTome(
+  EntityId owner,
+  String oldId,
+  String newId,
+  EntityId survivorInstance,
+  PluginContext context,
+) {
+  final placement = context.tome.inspect(owner).where((p) =>
+      p.buildComponentRef.referenceType == itemReferenceType &&
+      p.buildComponentRef.contentId == oldId);
+  if (placement.isEmpty) return;
+  context.tome.replace(
+    owner,
+    placement.single.slot,
+    BuildComponentRef(
+      referenceType: itemReferenceType,
+      contentId: newId,
+      instanceEntityId: survivorInstance,
+    ),
+  );
 }

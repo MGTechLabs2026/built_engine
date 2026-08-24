@@ -104,4 +104,14 @@ void main() {
     // cleanup subscription was cancelled; nothing throws either way —
     // this only proves teardown ran without leaving a dangling handler.
   });
+
+  test('ItemPlugin registers the upgrade_points resource', () {
+    final context = _newContext();
+    ItemPlugin().initialize(context);
+
+    // unbounded by default: adding a large amount never clamps
+    context.resources.add(const EntityId(1), ItemResources.upgradePoints, 999999);
+    expect(context.resources.currentOf(const EntityId(1), ItemResources.upgradePoints),
+        equals(999999));
+  });
 }

@@ -34,3 +34,10 @@ String itemSubject(String definitionId) => 'item:$definitionId';
 /// `test/integration/support/vertical_slice_runner.dart`) with no shared
 /// source of truth.
 const itemReferenceType = 'item';
+
+/// Resource ids the Item plugin registers via `ResourcePool` — currently
+/// just the Combine feature's cost
+/// (`docs/superpowers/specs/2026-08-24-item-combine-design.md`).
+abstract final class ItemResources {
+  static const upgradePoints = 'upgrade_points';
+}

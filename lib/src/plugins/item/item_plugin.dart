@@ -38,6 +38,10 @@ class ItemPlugin extends GamePlugin {
     sdk = PluginSdk(context);
     sdk.registerComponentCleanup<ItemInstance>();
 
+    context.resources.define(
+      const ResourceDefinition(id: ItemResources.upgradePoints, max: double.infinity),
+    );
+
     sdk.registerTag('item', description: 'Generic physical equipment.');
     sdk.registerTag(ItemCategories.weapon, description: 'A wielded weapon item.');
     sdk.registerTag(ItemCategories.armor, description: 'A worn armor item.');
