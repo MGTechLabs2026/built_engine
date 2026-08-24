@@ -34,3 +34,7 @@ doc/api/
 # Subagent-driven-development scratch workspace (ledgers, dispatch
 # prompts, hermes logs/usage) — never part of the shipped source.
 .superpowers/
+
+# Generated run reports (tool/vertical_slice_report.dart) — inspection
+# output, not source.
+/output/
