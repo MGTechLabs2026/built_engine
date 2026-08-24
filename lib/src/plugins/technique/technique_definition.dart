@@ -11,7 +11,11 @@ import 'package:build_engine/build_engine.dart';
 /// builds one on demand rather than storing a redundant nested object.
 /// [properties]/[modifiersFor] mirror `ItemDefinition`'s exact shape:
 /// descriptive only, never auto-applied this pass (no combat action
-/// interpretation yet).
+/// interpretation yet). [trainingWeights] is content data too
+/// (`ARCHITECTURE_AUDIT.md`'s category-7 finding) — previously a
+/// hand-written Dart constant in `technique_training_weights.dart`
+/// disconnected from `ContentRegistry`; now parsed the same way
+/// [properties] is.
 class TechniqueDefinition {
   const TechniqueDefinition({
     required this.id,
@@ -21,6 +25,7 @@ class TechniqueDefinition {
     required this.properties,
     this.requirements = const [],
     this.evolutionCandidates = const [],
+    this.trainingWeights = const {},
     this.modifiersFor = _noModifiers,
   });
 
@@ -31,6 +36,7 @@ class TechniqueDefinition {
   final Map<String, num> properties;
   final List<Condition> requirements;
   final List<EvolutionCandidate> evolutionCandidates;
+  final Map<String, double> trainingWeights;
   final List<Modifier> Function(EntityId owner) modifiersFor;
 
   static List<Modifier> _noModifiers(EntityId owner) => const [];

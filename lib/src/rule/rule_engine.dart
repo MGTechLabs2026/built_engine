@@ -7,6 +7,7 @@ import '../progression/progression_engine.dart';
 import '../resource/resource_pool.dart';
 import '../rng/rng_service.dart';
 import 'condition.dart';
+import 'core_services.dart';
 import 'event_counter.dart';
 import 'rule.dart';
 import 'rule_context.dart';
@@ -24,23 +25,30 @@ class RuleEngine {
     required ComponentStore components,
     required EventBus events,
     required RngService rng,
+    CoreServices? shared,
     ResourcePool? resources,
     MasteryTracker? mastery,
     ProgressionEngine? progression,
     DiscoveryTracker? discovery,
   }) {
-    final sharedMastery =
-        mastery ?? MasteryTracker(components: components, events: events);
+    final sharedMastery = mastery ??
+        shared?.mastery ??
+        MasteryTracker(components: components, events: events);
     return RuleEngine._(
       entities: entities,
       components: components,
       events: events,
       rng: rng,
-      resources: resources ?? ResourcePool(components: components, events: events),
+      resources: resources ??
+          shared?.resources ??
+          ResourcePool(components: components, events: events),
       mastery: sharedMastery,
       progression: progression ??
+          shared?.progression ??
           ProgressionEngine(components: components, events: events, mastery: sharedMastery),
-      discovery: discovery ?? DiscoveryTracker(components: components, events: events),
+      discovery: discovery ??
+          shared?.discovery ??
+          DiscoveryTracker(components: components, events: events),
     );
   }
 

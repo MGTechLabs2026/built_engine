@@ -4,6 +4,7 @@ import 'package:build_engine/technique_plugin.dart';
 
 import 'build_action_interpreter.dart';
 import 'self_effect_action.dart';
+import 'weapon_stat_tags.dart';
 
 /// Translates `technique`-typed [ActiveBuild] components into
 /// [CombatAction]s — the plugin-level replacement for
@@ -24,8 +25,6 @@ import 'self_effect_action.dart';
 /// with zero import between the two plugins.
 class TechniqueActionInterpreter implements BuildActionInterpreter {
   const TechniqueActionInterpreter();
-
-  static const _weaponStatTags = ['fist', 'blade'];
 
   @override
   List<CombatAction> interpret({
@@ -67,10 +66,6 @@ class TechniqueActionInterpreter implements BuildActionInterpreter {
     );
   }
 
-  String _damageStatFor(TechniqueDefinition technique) {
-    for (final tag in _weaponStatTags) {
-      if (technique.tags.contains(tag)) return tag;
-    }
-    return techniqueSubject(technique.id);
-  }
+  String _damageStatFor(TechniqueDefinition technique) =>
+      WeaponStatTags.matchOrFallback(technique.tags, techniqueSubject(technique.id));
 }

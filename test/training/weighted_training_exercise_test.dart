@@ -11,6 +11,23 @@ class _FixedExercise implements TrainingExercise {
   TrainingProfile evaluate(List<TrainingAttempt> attempts) => profile;
 }
 
+PluginContext _newContext() {
+  final events = EventBus();
+  final entities = EntityRegistry(events);
+  final components = ComponentStore();
+  final rng = RngService(1);
+  return PluginContext(
+    entities: entities,
+    components: components,
+    events: events,
+    rng: rng,
+    rules: RuleEngine(entities: entities, components: components, events: events, rng: rng),
+    queries: QueryEngine(QueryScope(components: components)),
+    modifiers: ModifierCollection(),
+    content: ContentRegistry(),
+  );
+}
+
 void main() {
   test('weighting scales each dimension by its configured weight', () {
     const fixed = _FixedExercise(TrainingProfile({'speed': 0.8, 'power': 0.8}));
@@ -29,11 +46,15 @@ void main() {
     expect(weighted.evaluate(const []).dimensions['reaction'], equals(0.5));
   });
 
-  test('profile weighting: basic_punch weighting favors speed/reaction over power/precision', () {
+  test('profile weighting: a technique\'s own content-defined weighting favors '
+      'speed/reaction over power/precision', () {
+    final context = _newContext();
+    context.content.loadAll(techniqueContentDefinitions);
+    final basicPunch = techniqueDefinition(TechniqueIds.basicPunch, context);
     const rawProfile = TrainingProfile({'speed': 0.8, 'power': 0.8, 'precision': 0.8, 'reaction': 0.8});
     const fixed = _FixedExercise(rawProfile);
 
-    final weighted = techniqueTrainingExerciseFor('basic_punch', fixed).evaluate(const []);
+    final weighted = techniqueTrainingExerciseFor(basicPunch, fixed).evaluate(const []);
 
     expect(weighted.dimensions['speed'], equals(weighted.dimensions['reaction']));
     expect(weighted.dimensions['speed']! > weighted.dimensions['power']!, isTrue);
@@ -41,8 +62,14 @@ void main() {
 
   test('an item with no configured weights returns the base exercise unchanged', () {
     const fixed = _FixedExercise(TrainingProfile({'speed': 0.5}));
+    const unweighted = ItemDefinition(
+      id: 'unregistered_item',
+      category: 'weapon',
+      tags: {},
+      properties: {},
+    );
 
-    final result = itemTrainingExerciseFor('unregistered_item', fixed);
+    final result = itemTrainingExerciseFor(unweighted, fixed);
 
     expect(result, same(fixed));
   });

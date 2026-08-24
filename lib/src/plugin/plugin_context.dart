@@ -11,6 +11,7 @@ import '../progression/progression_engine.dart';
 import '../query/query_engine.dart';
 import '../resource/resource_pool.dart';
 import '../rng/rng_service.dart';
+import '../rule/core_services.dart';
 import '../rule/rule_context.dart';
 import '../rule/rule_engine.dart';
 import '../tome/tome_service.dart';
@@ -37,14 +38,16 @@ class PluginContext {
     required ModifierCollection modifiers,
     required ContentRegistry content,
     CharacterService? characters,
+    CoreServices? shared,
     ResourcePool? resources,
     MasteryTracker? mastery,
     ProgressionEngine? progression,
     DiscoveryTracker? discovery,
     TomeService? tome,
   }) {
-    final sharedMastery =
-        mastery ?? MasteryTracker(components: components, events: events);
+    final sharedMastery = mastery ??
+        shared?.mastery ??
+        MasteryTracker(components: components, events: events);
     return PluginContext._(
       entities: entities,
       components: components,
@@ -56,11 +59,16 @@ class PluginContext {
       content: content,
       characters: characters ??
           CharacterService(entities: entities, components: components, events: events),
-      resources: resources ?? ResourcePool(components: components, events: events),
+      resources: resources ??
+          shared?.resources ??
+          ResourcePool(components: components, events: events),
       mastery: sharedMastery,
       progression: progression ??
+          shared?.progression ??
           ProgressionEngine(components: components, events: events, mastery: sharedMastery),
-      discovery: discovery ?? DiscoveryTracker(components: components, events: events),
+      discovery: discovery ??
+          shared?.discovery ??
+          DiscoveryTracker(components: components, events: events),
       tome: tome ?? TomeService(entities: entities, components: components),
     );
   }

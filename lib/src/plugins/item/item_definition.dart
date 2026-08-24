@@ -14,7 +14,11 @@ import 'item_requirement.dart';
 /// [modifiersFor] exposes that capability for a future pass (equip/
 /// active-build interpretation) to call, per the milestone's "expose
 /// enough information for ActiveBuild interpretation later, don't
-/// implement full combat action conversion yet."
+/// implement full combat action conversion yet." [trainingWeights] is
+/// content data too (`ARCHITECTURE_AUDIT.md`'s category-7 finding) —
+/// previously a hand-written Dart constant in `item_training_weights.dart`
+/// disconnected from `ContentRegistry`; now parsed the same way
+/// [properties] is.
 class ItemDefinition {
   const ItemDefinition({
     required this.id,
@@ -22,6 +26,7 @@ class ItemDefinition {
     required this.tags,
     required this.properties,
     this.requirement,
+    this.trainingWeights = const {},
     this.modifiersFor = _noModifiers,
   });
 
@@ -30,6 +35,7 @@ class ItemDefinition {
   final Set<String> tags;
   final Map<String, num> properties;
   final ItemRequirement? requirement;
+  final Map<String, double> trainingWeights;
   final List<Modifier> Function(EntityId owner) modifiersFor;
 
   static List<Modifier> _noModifiers(EntityId owner) => const [];

@@ -148,18 +148,12 @@ PhysiqueDefinition physiqueDefinitionFromContent(
       .map((e) => (e as Map).map((k, v) => MapEntry(k as String, v)))
       .toList();
 
-  List<Modifier> modifiersFor(EntityId character) => [
-        for (var i = 0; i < rawModifiers.length; i++)
-          Modifier(
-            source:
-                ModifierSource('physique:${definition.id}:$i:${character.value}'),
-            target: character,
-            stat: rawModifiers[i]['stat'] as String,
-            operation: _operationFor(rawModifiers[i]['operation'] as String),
-            value: rawModifiers[i]['value'] as num,
-            condition: HasTagQuery(rawModifiers[i]['condition'] as String),
-          ),
-      ];
+  List<Modifier> modifiersFor(EntityId character) => modifiersFromRawList(
+        domain: 'physique',
+        contentId: definition.id,
+        rawModifiers: rawModifiers,
+        target: character,
+      );
 
   return PhysiqueDefinition(
     id: definition.id,
@@ -168,12 +162,3 @@ PhysiqueDefinition physiqueDefinitionFromContent(
     modifiersFor: modifiersFor,
   );
 }
-
-ModifierOperation _operationFor(String name) => switch (name) {
-      'add' => ModifierOperation.add,
-      'multiply' => ModifierOperation.multiply,
-      'override' => ModifierOperation.override,
-      'min' => ModifierOperation.min,
-      'max' => ModifierOperation.max,
-      _ => throw ArgumentError('unknown modifier operation: $name'),
-    };

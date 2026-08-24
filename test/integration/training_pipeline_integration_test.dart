@@ -7,10 +7,7 @@ PluginContext _newContext() {
   final entities = EntityRegistry(events);
   final components = ComponentStore();
   final rng = RngService(1);
-  final mastery = MasteryTracker(components: components, events: events);
-  final progression =
-      ProgressionEngine(components: components, events: events, mastery: mastery);
-  final discovery = DiscoveryTracker(components: components, events: events);
+  final shared = CoreServices(components: components, events: events);
   return PluginContext(
     entities: entities,
     components: components,
@@ -21,16 +18,12 @@ PluginContext _newContext() {
       components: components,
       events: events,
       rng: rng,
-      mastery: mastery,
-      progression: progression,
-      discovery: discovery,
+      shared: shared,
     ),
     queries: QueryEngine(QueryScope(components: components)),
     modifiers: ModifierCollection(),
     content: ContentRegistry(),
-    mastery: mastery,
-    progression: progression,
-    discovery: discovery,
+    shared: shared,
   );
 }
 
@@ -44,7 +37,7 @@ void main() {
     final character = context.entities.create();
     final basicPunch = techniqueDefinition(TechniqueIds.basicPunch, context);
 
-    final exercise = techniqueTrainingExerciseFor(TechniqueIds.basicPunch, const TimingExercise());
+    final exercise = techniqueTrainingExerciseFor(basicPunch, const TimingExercise());
     final session = TrainingSession(
       trainee: character,
       subject: techniqueSubject(TechniqueIds.basicPunch),
@@ -74,10 +67,13 @@ void main() {
 
   test('deterministic: an identical training session always yields an identical result', () {
     TrainingResult runOnce() {
+      final context = _newContext();
+      context.content.loadAll(techniqueContentDefinitions);
+      final basicPunch = techniqueDefinition(TechniqueIds.basicPunch, context);
       final session = TrainingSession(
         trainee: const EntityId(1),
         subject: 'technique:basic_punch',
-        exercise: techniqueTrainingExerciseFor(TechniqueIds.basicPunch, const TimingExercise()),
+        exercise: techniqueTrainingExerciseFor(basicPunch, const TimingExercise()),
       );
       session.submitAttempt(const TrainingAttempt({'windowStart': 100, 'windowEnd': 200, 'actual': 160}));
       session.submitAttempt(const TrainingAttempt({'windowStart': 100, 'windowEnd': 200, 'actual': 145}));

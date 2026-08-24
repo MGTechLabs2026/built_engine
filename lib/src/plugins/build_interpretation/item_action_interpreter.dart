@@ -3,6 +3,7 @@ import 'package:build_engine/combat_plugin.dart';
 import 'package:build_engine/item_plugin.dart';
 
 import 'build_action_interpreter.dart';
+import 'weapon_stat_tags.dart';
 
 /// Interprets `item`-typed [ActiveBuild] components by registering their
 /// content-defined `attack` property as a [Modifier] on [actor] — items
@@ -27,8 +28,6 @@ import 'build_action_interpreter.dart';
 /// deduplication.
 class ItemActionInterpreter implements BuildActionInterpreter {
   const ItemActionInterpreter();
-
-  static const _weaponStatTags = ['fist', 'blade'];
 
   @override
   List<CombatAction> interpret({
@@ -58,10 +57,6 @@ class ItemActionInterpreter implements BuildActionInterpreter {
     return const [];
   }
 
-  String _statFor(ItemDefinition item) {
-    for (final tag in _weaponStatTags) {
-      if (item.tags.contains(tag)) return tag;
-    }
-    return 'item:${item.id}';
-  }
+  String _statFor(ItemDefinition item) =>
+      WeaponStatTags.matchOrFallback(item.tags, 'item:${item.id}');
 }

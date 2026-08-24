@@ -103,20 +103,12 @@ MartialItemDefinition martialItemDefinitionFromContent(
       .map((e) => (e as Map).map((k, v) => MapEntry(k as String, v)))
       .toList();
 
-  List<Modifier> modifiersFor(EntityId wearer) => [
-        for (var i = 0; i < rawModifiers.length; i++)
-          Modifier(
-            source:
-                ModifierSource('item:${definition.id}:$i:${wearer.value}'),
-            target: wearer,
-            stat: rawModifiers[i]['stat'] as String,
-            operation: _operationFor(rawModifiers[i]['operation'] as String),
-            value: rawModifiers[i]['value'] as num,
-            condition: rawModifiers[i].containsKey('condition')
-                ? HasTagQuery(rawModifiers[i]['condition'] as String)
-                : null,
-          ),
-      ];
+  List<Modifier> modifiersFor(EntityId wearer) => modifiersFromRawList(
+        domain: 'item',
+        contentId: definition.id,
+        rawModifiers: rawModifiers,
+        target: wearer,
+      );
 
   return MartialItemDefinition(
     id: definition.id,
@@ -132,12 +124,3 @@ MartialItemDefinition martialItemDefinitionFromContent(
 /// caching.
 MartialItemDefinition martialItem(String id, PluginContext context) =>
     martialItemDefinitionFromContent(context.content.get(id));
-
-ModifierOperation _operationFor(String name) => switch (name) {
-      'add' => ModifierOperation.add,
-      'multiply' => ModifierOperation.multiply,
-      'override' => ModifierOperation.override,
-      'min' => ModifierOperation.min,
-      'max' => ModifierOperation.max,
-      _ => throw ArgumentError('unknown modifier operation: $name'),
-    };

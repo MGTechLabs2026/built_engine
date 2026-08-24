@@ -19,6 +19,7 @@ const itemContentDefinitions = <Map<String, dynamic>>[
     'type': ItemCategories.weapon,
     'tags': ['item', 'weapon', 'blade'],
     'properties': {'attack': 2},
+    'training': {'speed': 0.4, 'precision': 0.4, 'control': 0.2},
     'requirements': {
       'mastery': {'subject': 'item:knife', 'minimum': 0},
     },
@@ -28,6 +29,7 @@ const itemContentDefinitions = <Map<String, dynamic>>[
     'type': ItemCategories.weapon,
     'tags': ['item', 'weapon', 'blade'],
     'properties': {'attack': 3},
+    'training': {'power': 0.4, 'precision': 0.3, 'control': 0.3},
     'requirements': {
       'mastery': {
         'subject': 'item:iron_sword',
@@ -41,6 +43,7 @@ const itemContentDefinitions = <Map<String, dynamic>>[
     'type': ItemCategories.weapon,
     'tags': ['item', 'weapon', 'fist'],
     'properties': {'attack': 1},
+    'training': {'speed': 0.35, 'reaction': 0.35, 'power': 0.3},
     'requirements': {
       'mastery': {'subject': 'item:gloves', 'minimum': 0},
     },
@@ -85,14 +88,24 @@ const itemContentDefinitions = <Map<String, dynamic>>[
 /// Builds an [ItemDefinition] from a loaded [ContentDefinition].
 /// `extra['properties']` supplies [ItemDefinition.properties] and
 /// [ItemDefinition.modifiersFor] (one unconditional `add` `Modifier` per
-/// property); `extra['requirements']['mastery']` supplies
-/// [ItemDefinition.requirement], if present.
+/// property, via the shared `modifiersFromProperties`);
+/// `extra['requirements']['mastery']` supplies [ItemDefinition.requirement],
+/// if present; `extra['training']` supplies
+/// [ItemDefinition.trainingWeights] — content data, not a hand-written
+/// Dart constant (`ARCHITECTURE_AUDIT.md`'s category-7 finding).
 ItemDefinition itemDefinitionFromContent(ContentDefinition definition) {
   final rawProperties =
       (definition.extra['properties'] as Map?) ?? const <String, dynamic>{};
   final properties = <String, num>{
     for (final entry in rawProperties.entries)
       entry.key as String: entry.value as num,
+  };
+
+  final rawTraining =
+      (definition.extra['training'] as Map?) ?? const <String, dynamic>{};
+  final trainingWeights = <String, double>{
+    for (final entry in rawTraining.entries)
+      entry.key as String: (entry.value as num).toDouble(),
   };
 
   final masteryRaw =
@@ -104,17 +117,12 @@ ItemDefinition itemDefinitionFromContent(ContentDefinition definition) {
           minimumLevel: masteryRaw['minimum'] as int,
         );
 
-  List<Modifier> modifiersFor(EntityId owner) => [
-        for (final entry in properties.entries)
-          Modifier(
-            source: ModifierSource(
-                'item:${definition.id}:${entry.key}:${owner.value}'),
-            target: owner,
-            stat: entry.key,
-            operation: ModifierOperation.add,
-            value: entry.value,
-          ),
-      ];
+  List<Modifier> modifiersFor(EntityId owner) => modifiersFromProperties(
+        domain: 'item',
+        contentId: definition.id,
+        properties: properties,
+        target: owner,
+      );
 
   return ItemDefinition(
     id: definition.id,
@@ -122,6 +130,7 @@ ItemDefinition itemDefinitionFromContent(ContentDefinition definition) {
     tags: definition.tags,
     properties: properties,
     requirement: requirement,
+    trainingWeights: trainingWeights,
     modifiersFor: modifiersFor,
   );
 }

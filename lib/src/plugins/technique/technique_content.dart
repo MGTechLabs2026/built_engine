@@ -23,6 +23,7 @@ const techniqueContentDefinitions = <Map<String, dynamic>>[
     'tier': EvolutionTiers.basic,
     'tags': ['technique', 'fist'],
     'properties': {'damage': 6},
+    'training': {'speed': 0.3, 'power': 0.2, 'precision': 0.2, 'reaction': 0.3},
     'evolution': [
       {'targetId': TechniqueIds.lightPunch, 'tags': [TrainingDimensions.precision]},
       {'targetId': TechniqueIds.heavyPunch, 'tags': [TrainingDimensions.power]},
@@ -37,6 +38,7 @@ const techniqueContentDefinitions = <Map<String, dynamic>>[
     'tier': EvolutionTiers.basic,
     'tags': ['technique', 'blade'],
     'properties': {'damage': 8},
+    'training': {'speed': 0.25, 'power': 0.35, 'precision': 0.25, 'reaction': 0.15},
     'evolution': [
       {'targetId': TechniqueIds.quickSlash, 'tags': [TrainingDimensions.speed]},
       {'targetId': TechniqueIds.heavySlash, 'tags': [TrainingDimensions.power]},
@@ -49,6 +51,7 @@ const techniqueContentDefinitions = <Map<String, dynamic>>[
     'tier': EvolutionTiers.basic,
     'tags': ['technique', 'guard'],
     'properties': {'defense': 4},
+    'training': {'reaction': 0.4, 'control': 0.3, 'consistency': 0.3},
     'evolution': [
       {'targetId': TechniqueIds.fastGuard, 'tags': [TrainingDimensions.speed]},
       {'targetId': TechniqueIds.counterGuard, 'tags': [TrainingDimensions.reaction]},
@@ -125,14 +128,25 @@ const techniqueContentDefinitions = <Map<String, dynamic>>[
 /// doesn't natively parse; `definition.conditions` (native) supplies
 /// [TechniqueDefinition.requirements] verbatim; `extra['evolution']`
 /// supplies [TechniqueDefinition.evolutionCandidates]; `extra['properties']`
-/// supplies properties + [TechniqueDefinition.modifiersFor], exactly
-/// mirroring `itemDefinitionFromContent`.
+/// supplies properties + [TechniqueDefinition.modifiersFor] (via the
+/// shared `modifiersFromProperties`), exactly mirroring
+/// `itemDefinitionFromContent`; `extra['training']` supplies
+/// [TechniqueDefinition.trainingWeights] — content data, not a
+/// hand-written Dart constant (`ARCHITECTURE_AUDIT.md`'s category-7
+/// finding).
 TechniqueDefinition techniqueDefinitionFromContent(ContentDefinition definition) {
   final rawProperties =
       (definition.extra['properties'] as Map?) ?? const <String, dynamic>{};
   final properties = <String, num>{
     for (final entry in rawProperties.entries)
       entry.key as String: entry.value as num,
+  };
+
+  final rawTraining =
+      (definition.extra['training'] as Map?) ?? const <String, dynamic>{};
+  final trainingWeights = <String, double>{
+    for (final entry in rawTraining.entries)
+      entry.key as String: (entry.value as num).toDouble(),
   };
 
   final rawEvolution = (definition.extra['evolution'] as List?) ?? const [];
@@ -146,17 +160,12 @@ TechniqueDefinition techniqueDefinitionFromContent(ContentDefinition definition)
       ),
   ];
 
-  List<Modifier> modifiersFor(EntityId owner) => [
-        for (final entry in properties.entries)
-          Modifier(
-            source: ModifierSource(
-                'technique:${definition.id}:${entry.key}:${owner.value}'),
-            target: owner,
-            stat: entry.key,
-            operation: ModifierOperation.add,
-            value: entry.value,
-          ),
-      ];
+  List<Modifier> modifiersFor(EntityId owner) => modifiersFromProperties(
+        domain: 'technique',
+        contentId: definition.id,
+        properties: properties,
+        target: owner,
+      );
 
   return TechniqueDefinition(
     id: definition.id,
@@ -166,6 +175,7 @@ TechniqueDefinition techniqueDefinitionFromContent(ContentDefinition definition)
     properties: properties,
     requirements: definition.conditions,
     evolutionCandidates: evolutionCandidates,
+    trainingWeights: trainingWeights,
     modifiersFor: modifiersFor,
   );
 }

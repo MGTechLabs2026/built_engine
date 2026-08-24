@@ -25,30 +25,22 @@ const elementalItemContentDefinitions = <Map<String, dynamic>>[
 ];
 
 /// Builds an [ElementalItemDefinition] from a loaded [ContentDefinition].
-/// See `martialItemDefinitionFromContent` (the MartialArts counterpart
-/// in `martial_item_content.dart`) for the full parsing rationale —
-/// this is the identical pattern, independently applied here (Elemental
-/// never imports MartialArts).
+/// The actual `Modifier` construction is shared with
+/// `martialItemDefinitionFromContent`/`physiqueDefinitionFromContent` via
+/// the generic `modifiersFromRawList` (Core) — Elemental still never
+/// imports MartialArts; both independently call the same Core helper.
 ElementalItemDefinition elementalItemDefinitionFromContent(
     ContentDefinition definition) {
   final rawModifiers = (definition.extra['modifiers'] as List? ?? const [])
       .map((e) => (e as Map).map((k, v) => MapEntry(k as String, v)))
       .toList();
 
-  List<Modifier> modifiersFor(EntityId wearer) => [
-        for (var i = 0; i < rawModifiers.length; i++)
-          Modifier(
-            source:
-                ModifierSource('item:${definition.id}:$i:${wearer.value}'),
-            target: wearer,
-            stat: rawModifiers[i]['stat'] as String,
-            operation: _operationFor(rawModifiers[i]['operation'] as String),
-            value: rawModifiers[i]['value'] as num,
-            condition: rawModifiers[i].containsKey('condition')
-                ? HasTagQuery(rawModifiers[i]['condition'] as String)
-                : null,
-          ),
-      ];
+  List<Modifier> modifiersFor(EntityId wearer) => modifiersFromRawList(
+        domain: 'item',
+        contentId: definition.id,
+        rawModifiers: rawModifiers,
+        target: wearer,
+      );
 
   return ElementalItemDefinition(
     id: definition.id,
@@ -63,12 +55,3 @@ ElementalItemDefinition elementalItemDefinitionFromContent(
 /// `context.content` on every call, no caching.
 ElementalItemDefinition elementalItem(String id, PluginContext context) =>
     elementalItemDefinitionFromContent(context.content.get(id));
-
-ModifierOperation _operationFor(String name) => switch (name) {
-      'add' => ModifierOperation.add,
-      'multiply' => ModifierOperation.multiply,
-      'override' => ModifierOperation.override,
-      'min' => ModifierOperation.min,
-      'max' => ModifierOperation.max,
-      _ => throw ArgumentError('unknown modifier operation: $name'),
-    };

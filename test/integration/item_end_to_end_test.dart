@@ -10,8 +10,7 @@ PluginContext _newContext() {
   final entities = EntityRegistry(events);
   final components = ComponentStore();
   final rng = RngService(1);
-  final mastery = MasteryTracker(components: components, events: events);
-  final discovery = DiscoveryTracker(components: components, events: events);
+  final shared = CoreServices(components: components, events: events);
   return PluginContext(
     entities: entities,
     components: components,
@@ -22,14 +21,12 @@ PluginContext _newContext() {
       components: components,
       events: events,
       rng: rng,
-      mastery: mastery,
-      discovery: discovery,
+      shared: shared,
     ),
     queries: QueryEngine(QueryScope(components: components)),
     modifiers: ModifierCollection(),
     content: ContentRegistry(),
-    mastery: mastery,
-    discovery: discovery,
+    shared: shared,
   );
 }
 
