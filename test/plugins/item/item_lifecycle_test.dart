@@ -250,6 +250,31 @@ void main() {
       throw StateError('no seed up to $maxSeed produced $target');
     }
 
+    // A seed where a 2-input classUpgrade combine's `CombineResolver`-
+    // chosen `survivorIndex` lands on the SECOND input — used to prove
+    // combineItems' Tome-placement survivor override actually overrides
+    // something, rather than coincidentally matching (unlike the "two
+    // currently-placed" test above, whose fixed seed happens to draw
+    // survivorIndex == 0, the already-placed instance).
+    int seedForSecondIndexSurvivor({required int tier, required int inputCount, int maxSeed = 2000}) {
+      final odds = CombineOdds.forAttempt(tier: tier, inputCount: inputCount);
+      for (var seed = 1; seed <= maxSeed; seed++) {
+        final rng = RngService(seed);
+        final roll = rng.nextDouble() * 100;
+        final outcome = roll < odds.failPercent
+            ? CombineOutcome.fail
+            : roll < odds.failPercent + odds.normalPercent
+                ? CombineOutcome.classUpgrade
+                : CombineOutcome.gradeUpgrade;
+        // classUpgrade at a non-max tier draws exactly one further value —
+        // survivorIndex — matching CombineResolver.resolve's own sequence.
+        if (outcome == CombineOutcome.classUpgrade && rng.nextInt(inputCount) == inputCount - 1) {
+          return seed;
+        }
+      }
+      throw StateError('no seed up to $maxSeed produced the desired combination');
+    }
+
     test('combining fewer than 2 instances throws ArgumentError', () {
       loadSimpleKnife(context);
       final owner = context.entities.create();
@@ -456,6 +481,46 @@ void main() {
           .single;
       expect(survivorPlacement.buildComponentRef.contentId, equals('simple_knife'));
       expect(context.components.get<ItemInstance>(survivor)!.itemClass, equals(2));
+    });
+
+    test('when only one input is Tome-placed, that one survives even if '
+        'CombineResolver\'s own RNG pick would have chosen the other', () {
+      loadSimpleKnife(context);
+      final owner = context.entities.create();
+      final a = ownItem(owner, 'simple_knife', context); // placed
+      final b = ownItem(owner, 'simple_knife', context); // unplaced
+      context.resources.set(owner, ItemResources.upgradePoints, 10);
+      context.tome.defineTome(
+        TomeDefinition.namedSlots(id: 'basic_tome', slotIds: ['weapon']),
+      );
+      context.tome.createTome(owner, 'basic_tome');
+      context.tome.insert(
+        owner,
+        const SlotId('weapon'),
+        BuildComponentRef(
+          referenceType: itemReferenceType, contentId: 'simple_knife', instanceEntityId: a),
+      );
+      final seed = seedForSecondIndexSurvivor(tier: 1, inputCount: 2);
+      final seededContext = PluginContext(
+        entities: context.entities, components: context.components, events: context.events,
+        rng: RngService(seed), rules: context.rules, queries: context.queries,
+        modifiers: context.modifiers, content: context.content, resources: context.resources,
+        mastery: context.mastery, progression: context.progression, discovery: context.discovery,
+        tome: context.tome,
+      );
+
+      // Passing [a, b] means CombineResolver's own RNG-chosen survivorIndex
+      // for this seed points at `b` (index 1) — but `a` is the one that's
+      // Tome-placed, so it must be the one that actually survives.
+      final survivor = combineItems(owner, [a, b], seededContext);
+
+      expect(survivor, equals(a));
+      expect(context.components.get<ItemInstance>(a), isNotNull);
+      expect(context.components.get<ItemInstance>(b), isNull);
+      final placement = context.tome.inspect(owner).single;
+      expect(placement.buildComponentRef.instanceEntityId, equals(a));
+      expect(placement.buildComponentRef.contentId, equals('simple_knife'));
+      expect(context.components.get<ItemInstance>(a)!.itemClass, equals(2));
     });
 
     test('an unrelated placed instance of the same definitionId is left untouched', () {

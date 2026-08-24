@@ -221,7 +221,24 @@ EntityId combineItems(
     rng: context.rng,
   );
 
-  final survivor = instanceEntities[result.survivorIndex];
+  // CombineResolver's survivorIndex is uniform-random over all inputs —
+  // correctly so, since Core has no concept of Tome placement and every
+  // input is otherwise interchangeable to it. But the Item plugin DOES
+  // know about Tome placement, and a currently-placed input surviving
+  // unplaced (or vice versa) is a real, everyday outcome difference: if
+  // exactly one of the original inputs is Tome-placed, that one must
+  // survive, or its slot goes stale pointing at a destroyed entity. Only
+  // this plugin-level override reaches into that decision — Core/
+  // CombineResolver itself is untouched.
+  final placedIds = context.tome
+      .inspect(owner)
+      .where((p) => p.buildComponentRef.referenceType == itemReferenceType)
+      .map((p) => p.buildComponentRef.instanceEntityId)
+      .toSet();
+  final survivor = instanceEntities.firstWhere(
+    placedIds.contains,
+    orElse: () => instanceEntities[result.survivorIndex],
+  );
   for (final e in instanceEntities) {
     if (e != survivor) {
       context.components.remove<ItemInstance>(e);
@@ -240,7 +257,7 @@ EntityId combineItems(
         survivor,
         ItemInstance(definitionId: first.definitionId, owner: owner, itemClass: newClass),
       );
-      _reflectCombineInTome(owner, first.definitionId, first.definitionId, survivor, context);
+      _reflectCombineInTome(owner, first.definitionId, survivor, context);
       context.events.publish(ItemCombineSucceeded(
         owner, first.definitionId, CombineOutcome.classUpgrade, first.definitionId, newClass,
       ));
@@ -250,7 +267,7 @@ EntityId combineItems(
         survivor,
         ItemInstance(definitionId: newId, owner: owner, itemClass: first.itemClass),
       );
-      _reflectCombineInTome(owner, first.definitionId, newId, survivor, context);
+      _reflectCombineInTome(owner, newId, survivor, context);
       context.events.publish(ItemCombineSucceeded(
         owner, first.definitionId, CombineOutcome.gradeUpgrade, newId, first.itemClass,
       ));
@@ -281,7 +298,6 @@ EntityId combineItems(
 /// tolerates.
 void _reflectCombineInTome(
   EntityId owner,
-  String oldId,
   String newId,
   EntityId survivorInstance,
   PluginContext context,
