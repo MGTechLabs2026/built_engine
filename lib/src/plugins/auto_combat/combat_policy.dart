@@ -1,7 +1,9 @@
 import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/combat_plugin.dart';
 
+import 'action_scorer.dart';
 import 'action_selector.dart';
+import 'scored_action_selector.dart';
 import 'target_selector.dart';
 
 /// Bundles a [TargetSelector] and an [ActionSelector] into the strategy
@@ -10,11 +12,21 @@ import 'target_selector.dart';
 class CombatPolicy {
   const CombatPolicy({required this.targetSelector, required this.actionSelector});
 
-  /// The initial, deliberately simple policy the spec asks for: choose a
-  /// legal action, choose a target, nothing more sophisticated.
+  /// The original, deliberately simple policy: choose a legal action,
+  /// choose a target, nothing more sophisticated.
   const CombatPolicy.simple()
       : targetSelector = const FirstLivingParticipantTargetSelector(),
         actionSelector = const FirstMatchingActionSelector();
+
+  /// The scoring policy: enumerate legal actions, remove unavailable ones
+  /// (conditions/resource affordability), score the rest (priority +
+  /// Modifier-Engine-aware effectiveness by default, via [scorer]),
+  /// select the highest score, break ties deterministically by list
+  /// order. See `ScoredActionSelector`/`DefaultActionScorer`.
+  CombatPolicy.scored({
+    this.targetSelector = const FirstLivingParticipantTargetSelector(),
+    ActionScorer scorer = const DefaultActionScorer(),
+  }) : actionSelector = ScoredActionSelector(scorer: scorer);
 
   final TargetSelector targetSelector;
   final ActionSelector actionSelector;
@@ -24,9 +36,10 @@ class CombatPolicy {
     EntityId actor,
     List<CombatAction> legalActions,
     List<EntityId> otherLivingParticipants,
+    PluginContext context,
   ) {
     if (legalActions.isEmpty) return null;
     final preferredTarget = targetSelector.selectTarget(actor, otherLivingParticipants);
-    return actionSelector.selectAction(actor, legalActions, preferredTarget);
+    return actionSelector.selectAction(actor, legalActions, preferredTarget, context);
   }
 }

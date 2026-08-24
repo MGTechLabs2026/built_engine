@@ -6,7 +6,9 @@
 /// are content, not AutoCombat's concern.
 library;
 
+export 'src/plugins/auto_combat/action_scorer.dart';
 export 'src/plugins/auto_combat/action_selector.dart';
 export 'src/plugins/auto_combat/auto_combat_controller.dart';
 export 'src/plugins/auto_combat/combat_policy.dart';
+export 'src/plugins/auto_combat/scored_action_selector.dart';
 export 'src/plugins/auto_combat/target_selector.dart';

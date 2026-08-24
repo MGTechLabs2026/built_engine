@@ -22,6 +22,13 @@ abstract class CombatAction {
   /// Applied once to [actor] if [conditions] all pass.
   List<Effect> get costEffects => const [];
 
+  /// A caller-chosen priority hint for a decision layer's scoring policy
+  /// (e.g. AutoCombat's `DefaultActionScorer`) — an arbitrary number added
+  /// directly into that score. `CombatSystem` itself never reads this;
+  /// it exists purely for a future decision layer to consult. Defaults to
+  /// `0`, so no existing `CombatAction` implementation needs to change.
+  num get priority => 0;
+
   /// Applied once for each entry in [targets] if [conditions] all pass.
   /// [context] is the owning `PluginContext` — passed in at call time
   /// (rather than resolved once at construction) so an action can read

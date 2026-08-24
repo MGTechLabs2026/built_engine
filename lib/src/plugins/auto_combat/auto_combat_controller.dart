@@ -59,7 +59,8 @@ class AutoCombatController {
         if (id != actor && living.contains(id)) id,
     ];
 
-    final chosen = policy.decideNextAction(actor, legalActions, otherLivingParticipants);
+    final chosen =
+        policy.decideNextAction(actor, legalActions, otherLivingParticipants, context);
     if (chosen == null) return false;
 
     combatSystem.executeAction(battle, chosen);
