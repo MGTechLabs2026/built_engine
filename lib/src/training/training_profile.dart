@@ -12,6 +12,8 @@ abstract final class TrainingDimensions {
   static const rhythm = 'rhythm';
   static const accuracy = 'accuracy';
   static const consistency = 'consistency';
+  static const timing = 'timing';
+  static const execution = 'execution';
 }
 
 /// The output of a [TrainingExercise] evaluating a trainee's attempts — a

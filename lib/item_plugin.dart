@@ -11,4 +11,5 @@ export 'src/plugins/item/item_lifecycle.dart';
 export 'src/plugins/item/item_plugin.dart';
 export 'src/plugins/item/item_requirement.dart';
 export 'src/plugins/item/item_rules.dart';
+export 'src/plugins/item/item_training_weights.dart';
 export 'src/plugins/item/item_vocabulary.dart';

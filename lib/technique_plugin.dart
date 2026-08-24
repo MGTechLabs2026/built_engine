@@ -9,4 +9,5 @@ export 'src/plugins/technique/technique_evolution.dart';
 export 'src/plugins/technique/technique_events.dart';
 export 'src/plugins/technique/technique_lifecycle.dart';
 export 'src/plugins/technique/technique_plugin.dart';
+export 'src/plugins/technique/technique_training_weights.dart';
 export 'src/plugins/technique/technique_vocabulary.dart';
