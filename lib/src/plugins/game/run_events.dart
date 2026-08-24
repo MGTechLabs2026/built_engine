@@ -23,6 +23,7 @@ import 'run_decision_policy.dart';
 /// | Reward selected | [RewardSelected] | new |
 /// | Slot unlocked | [SlotUnlocked] | new |
 /// | Upgrade point spent | [UpgradePointSpent] | new |
+/// | Status snapshot (health/slots/inventory) | [RunStatus] | new — published once per cycle |
 /// | Item discovered | `SubjectDiscovered` (subject `item:<id>`) | existing (Discovery) |
 /// | Item mastery changed | `MasteryChanged` (subject `item:<id>`) | existing (Mastery) |
 /// | Technique discovered | `SubjectDiscovered` (subject `technique:<id>`) | existing (Discovery) |
@@ -123,4 +124,35 @@ class TomeChanged {
 class ActiveBuildResolved {
   const ActiveBuildResolved(this.components);
   final List<BuildComponentRef> components;
+}
+
+/// One Tome slot's status — whether it's unlocked yet, and what (if
+/// anything) currently occupies it. `occupant` is `null` for an empty
+/// unlocked slot; a locked slot is always also empty.
+typedef SlotStatus = ({SlotId slot, bool unlocked, BuildComponentRef? occupant});
+
+/// A full status snapshot — health, banked upgrade points, every Tome
+/// slot's occupancy, and the player's full inventory (owned items and
+/// known techniques, including ones not currently placed). Published
+/// once per cycle (right after [CycleStarted]) so a human/LLM playing
+/// interactively has everything needed to make the next decision without
+/// having to reconstruct it from earlier events.
+class RunStatus {
+  const RunStatus({
+    required this.health,
+    required this.maxHealth,
+    required this.initiative,
+    required this.upgradePoints,
+    required this.slots,
+    required this.ownedItemIds,
+    required this.knownTechniqueIds,
+  });
+
+  final num health;
+  final num maxHealth;
+  final num initiative;
+  final num upgradePoints;
+  final List<SlotStatus> slots;
+  final List<String> ownedItemIds;
+  final List<String> knownTechniqueIds;
 }

@@ -32,8 +32,11 @@ abstract class RunDecisionPolicy {
   /// western).
   String chooseStartingStyle(List<String> candidates);
 
-  /// Picks combat or training for this loop cycle, from [candidates]
-  /// (always `['combat', 'training']`).
+  /// Picks combat or training for this loop cycle, from [candidates] —
+  /// always includes `'combat'`; `'training'` is included only if there is
+  /// currently something trainable (an owned-but-not-usable item or a
+  /// discovered-but-not-learned technique), so this never offers a choice
+  /// that would silently do nothing.
   String chooseCombatOrTraining(List<String> candidates);
 
   /// Picks one of [candidates] — an index into a small, fixed list of

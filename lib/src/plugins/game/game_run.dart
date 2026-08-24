@@ -259,23 +259,28 @@ RunResult runGame(
     }
   }
 
-  void manageTome() {
-    while (context.resources.currentOf(character, 'upgrade_points') > 0) {
-      final ownedItemIds = <String>{};
-      for (final entity in context.components.entitiesWith<ItemInstance>()) {
-        final instance = context.components.get<ItemInstance>(entity)!;
-        if (instance.owner == character) ownedItemIds.add(instance.definitionId);
-      }
-      final knownTechniqueIds = <String>{
+  Set<String> ownedItemIds() {
+    final ids = <String>{};
+    for (final entity in context.components.entitiesWith<ItemInstance>()) {
+      final instance = context.components.get<ItemInstance>(entity)!;
+      if (instance.owner == character) ids.add(instance.definitionId);
+    }
+    return ids;
+  }
+
+  Set<String> knownTechniqueIds() => {
         for (final id in rewardPoolTechniqueIds)
           if (isTechniqueLearned(character, techniqueDefinition(id, context), context)) id,
       };
+
+  void manageTome() {
+    while (context.resources.currentOf(character, 'upgrade_points') > 0) {
       final candidates = <String>[
         'stat:health',
         'stat:attack',
         'stat:speed',
-        for (final id in ownedItemIds) 'item:$id',
-        for (final id in knownTechniqueIds) 'technique:$id',
+        for (final id in ownedItemIds()) 'item:$id',
+        for (final id in knownTechniqueIds()) 'technique:$id',
         'skip',
       ];
       final choice = recordingPolicy.chooseUpgradeSpend(candidates);
@@ -388,13 +393,8 @@ RunResult runGame(
   }
 
   List<String> trainingCandidates() {
-    final ownedItemIds = <String>{};
-    for (final entity in context.components.entitiesWith<ItemInstance>()) {
-      final instance = context.components.get<ItemInstance>(entity)!;
-      if (instance.owner == character) ownedItemIds.add(instance.definitionId);
-    }
     final candidates = <String>[
-      for (final id in ownedItemIds)
+      for (final id in ownedItemIds())
         if (!isItemUsable(character, itemDefinition(id, context), context)) itemSubject(id),
     ];
     for (final id in rewardPoolTechniqueIds) {
@@ -555,11 +555,36 @@ RunResult runGame(
 
   // ---- The endless loop --------------------------------------------------
   const cycleCap = 200;
+  void publishStatus() {
+    final placements = {
+      for (final p in context.tome.inspect(character)) p.slot: p.buildComponentRef,
+    };
+    final health = context.components.get<HealthComponent>(character)!;
+    final combatant = context.components.get<CombatantComponent>(character)!;
+    events.publish(RunStatus(
+      health: health.current,
+      maxHealth: health.max,
+      initiative: combatant.initiative,
+      upgradePoints: context.resources.currentOf(character, 'upgrade_points'),
+      slots: [
+        for (final slot in RunTomeSlots.all)
+          (slot: slot, unlocked: unlockedSlots.contains(slot), occupant: placements[slot]),
+      ],
+      ownedItemIds: ownedItemIds().toList(),
+      knownTechniqueIds: knownTechniqueIds().toList(),
+    ));
+  }
+
   for (cycleIndex = 0; cycleIndex < cycleCap; cycleIndex++) {
     final cycleNumber = cycleIndex + 1;
     events.publish(CycleStarted(cycleNumber));
+    publishStatus();
 
-    final choice = recordingPolicy.chooseCombatOrTraining(const ['combat', 'training']);
+    final combatOrTrainingCandidates = <String>[
+      'combat',
+      if (trainingCandidates().isNotEmpty) 'training',
+    ];
+    final choice = recordingPolicy.chooseCombatOrTraining(combatOrTrainingCandidates);
     if (choice == 'training') {
       runTraining();
       restoreHealth();

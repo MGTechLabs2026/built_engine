@@ -30,6 +30,12 @@ import 'package:build_engine/combat_plugin.dart';
 import 'package:build_engine/game.dart';
 import 'package:build_engine/physique_plugin.dart';
 
+String _rewardLabel(RewardKind kind) => switch (kind) {
+      RewardKind.unlockSlot => 'Unlock a new Tome slot',
+      RewardKind.itemOrTechnique => 'Random item or technique',
+      RewardKind.upgradePoint => '+1 upgrade point',
+    };
+
 String _askName() {
   stdout.writeln('\n=== What is your name? ===');
   stdout.write('> ');
@@ -50,12 +56,34 @@ void main(List<String> args) {
   events.subscribe<TomeChanged>((e) => stdout.writeln('Tome changed (${e.stepName}): '
       '${e.components.map((c) => '${c.referenceType}:${c.contentId}').join(', ')}'));
   events.subscribe<CycleStarted>((e) => stdout.writeln('\n===== Cycle ${e.cycleNumber} ====='));
+  events.subscribe<RunStatus>((e) {
+    stdout.writeln('Health: ${e.health}/${e.maxHealth}   Speed: ${e.initiative}   '
+        'Upgrade points: ${e.upgradePoints}');
+    final slotLines = [
+      for (final s in e.slots)
+        if (s.unlocked)
+          '  ${s.slot.id}: ${s.occupant == null ? '(empty)' : '${s.occupant!.referenceType}:${s.occupant!.contentId}'}'
+        else
+          '  ${s.slot.id}: (locked)',
+    ];
+    stdout.writeln('Tome:\n${slotLines.join('\n')}');
+    stdout.writeln('Owned items: ${e.ownedItemIds.isEmpty ? '(none)' : e.ownedItemIds.join(', ')}');
+    stdout.writeln(
+        'Known techniques: ${e.knownTechniqueIds.isEmpty ? '(none)' : e.knownTechniqueIds.join(', ')}');
+  });
   events.subscribe<EncounterStarted>((e) => stdout.writeln('\n>> Fight: ${e.name} vs ${e.enemyId}'));
   events.subscribe<ActionCompleted>(
     (e) => stdout.writeln('   ${e.actor} used ${e.action.runtimeType} -> ${e.targets.join(', ')}'),
   );
   events.subscribe<EncounterResolved>((e) => stdout
       .writeln('<< ${e.name}: ${e.won ? 'WON' : 'LOST'} (player health ${e.playerHealthAfter})'));
+  events.subscribe<RewardSelected>((e) => stdout.writeln('Reward chosen: ${_rewardLabel(e.chosen)}'));
+  events.subscribe<SubjectDiscovered>((e) => stdout.writeln('Acquired: ${e.subject}'));
+  events.subscribe<ResourceChanged>((e) {
+    if (e.resource == 'upgrade_points' && e.delta > 0) {
+      stdout.writeln('Gained an upgrade point (now ${e.newCurrent}).');
+    }
+  });
   events.subscribe<SlotUnlocked>((e) => stdout.writeln('*** Tome slot ${e.slot.id} unlocked! ***'));
   events.subscribe<UpgradePointSpent>((e) => stdout.writeln('Upgrade point spent on ${e.target}.'));
   events.subscribe<TrainingStarted>((e) => stdout.writeln('\n>> Training: ${e.subject}'));
