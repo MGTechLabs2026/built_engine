@@ -65,8 +65,9 @@ class ItemDefinition {
 
   /// Pure per-class stat scaling: `base * (1 + classScalingPercent/100 *
   /// (itemClass-1))` per property. Used by `ItemActionInterpreter`
+  /// (`lib/src/plugins/build_interpretation/item_action_interpreter.dart`)
   /// instead of raw [properties] once it knows a placement's live
-  /// `itemClass` — see Task 4.
+  /// `itemClass`.
   Map<String, num> scaledProperties(int itemClass) => {
         for (final entry in properties.entries)
           entry.key: entry.value * (1 + classScalingPercent / 100 * (itemClass - 1)),

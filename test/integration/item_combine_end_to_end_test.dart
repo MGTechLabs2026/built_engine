@@ -84,10 +84,46 @@ void main() {
   });
 
   test('a multi-candidate grade branch picks among targets according to trainingWeights', () {
+    // The bug this replaced: the old version computed `gradeSeed` from
+    // `_seedForOutcome(CombineOutcome.gradeUpgrade, tier: 1, inputCount: 2)`
+    // — a pure function of constant arguments — so it evaluated to the
+    // exact same seed on every loop iteration. Every trial then drew the
+    // identical RNG sequence and produced the identical target every time,
+    // making `sharpWins` deterministically either 0 or `trials`; the
+    // `greaterThan` assertion passed without genuinely exercising
+    // `trainingWeights`.
+    //
+    // Fixed approach: genuinely vary the raw seed used for the actual
+    // `combineItems` call. `CombineResolver.resolve`'s very first RNG draw
+    // (`rng.nextDouble() * 100`, in `combine_resolver.dart`) decides the
+    // fail/classUpgrade/gradeUpgrade bucket, and nothing before it in
+    // `combineItems` touches `context.rng` -- so a fresh `RngService(seed)`
+    // used standalone to check which bucket a seed lands in reproduces
+    // exactly the same first draw a `PluginContext` built from
+    // `RngService(seed)` will make inside the real call. Seeds that don't
+    // land in the gradeUpgrade bucket are skipped (not counted) rather than
+    // exercising fail/classUpgrade, since only a gradeUpgrade roll actually
+    // reaches the weighted grade-candidate pick this test is about.
     var sharpWins = 0;
+    var counted = 0;
     const trials = 60;
-    for (var seed = 1; seed <= trials; seed++) {
-      final context = _newContext(seed);
+    const tier = 1;
+    const inputCount = 2;
+    final odds = CombineOdds.forAttempt(tier: tier, inputCount: inputCount);
+
+    var rawSeed = 0;
+    while (counted < trials) {
+      rawSeed++;
+      if (rawSeed > 20000) {
+        fail('could not find $trials seeds landing in the gradeUpgrade bucket '
+            'within $rawSeed raw seeds');
+      }
+      final roll = RngService(rawSeed).nextDouble() * 100;
+      final landsInGradeUpgrade = roll >= odds.failPercent + odds.normalPercent;
+      if (!landsInGradeUpgrade) continue; // fail/classUpgrade for this seed -- not a real trial
+
+      counted++;
+      final context = _newContext(rawSeed);
       ItemPlugin().initialize(context);
       context.content.load({
         'id': 'branching_knife',
@@ -105,25 +141,22 @@ void main() {
       final a = ownItem(owner, 'branching_knife', context);
       final b = ownItem(owner, 'branching_knife', context);
       context.resources.add(owner, ItemResources.upgradePoints, 10);
-      final gradeSeed = _seedForOutcome(CombineOutcome.gradeUpgrade, tier: 1, inputCount: 2);
-      final seededContext = PluginContext(
-        entities: context.entities, components: context.components, events: context.events,
-        rng: RngService(gradeSeed), rules: context.rules, queries: context.queries,
-        modifiers: context.modifiers, content: context.content, resources: context.resources,
-        mastery: context.mastery, progression: context.progression, discovery: context.discovery,
-        tome: context.tome,
-      );
 
-      final survivor = combineItems(owner, [a, b], seededContext);
+      final survivor = combineItems(owner, [a, b], context);
       if (context.components.get<ItemInstance>(survivor)!.definitionId == 'sharp_knife') {
         sharpWins++;
       }
     }
 
     // precision-weighted profile heavily favors sharp_knife; a clear
-    // majority across the sweep proves real influence, mirroring
-    // technique_evolution_test.dart's statistical assertion style.
-    expect(sharpWins, greaterThan(trials ~/ 2));
+    // majority among the counted (genuinely gradeUpgrade-bucket) trials
+    // proves real influence, mirroring technique_evolution_test.dart's
+    // statistical assertion style. Hand-verified: dropping the 'training'
+    // weight from the content above collapses sharpWins to roughly
+    // counted/2 and this assertion fails, confirming the sweep is not
+    // vacuous.
+    expect(counted, equals(trials));
+    expect(sharpWins, greaterThan(counted ~/ 2));
   });
 
   test('a fully terminal item (maxClass reached, no grade path) cannot be combined', () {

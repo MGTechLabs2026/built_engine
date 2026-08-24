@@ -178,6 +178,10 @@ EntityId combineItems(
     throw ArgumentError.value(
       instanceEntities.length, 'instanceEntities', 'Combine requires at least 2 items');
   }
+  if (instanceEntities.toSet().length != instanceEntities.length) {
+    throw ArgumentError.value(
+      instanceEntities, 'instanceEntities', 'Combine requires distinct instance entities');
+  }
 
   final instances = [
     for (final e in instanceEntities) context.components.get<ItemInstance>(e)!,
@@ -191,6 +195,10 @@ EntityId combineItems(
         CombineInput(matchKey: instances[i].definitionId, tier: instances[i].itemClass),
       );
     }
+  }
+  if (instances.any((i) => i.owner != owner)) {
+    throw ArgumentError.value(
+      owner, 'owner', 'Combine requires all instances to be owned by owner');
   }
 
   final definition = itemDefinition(first.definitionId, context);
@@ -230,17 +238,29 @@ EntityId combineItems(
   // survive, or its slot goes stale pointing at a destroyed entity. Only
   // this plugin-level override reaches into that decision — Core/
   // CombineResolver itself is untouched.
-  final placedIds = context.tome
+  final itemPlacements = context.tome
       .inspect(owner)
       .where((p) => p.buildComponentRef.referenceType == itemReferenceType)
-      .map((p) => p.buildComponentRef.instanceEntityId)
-      .toSet();
+      .toList();
+  final placedIds = itemPlacements.map((p) => p.buildComponentRef.instanceEntityId).toSet();
   final survivor = instanceEntities.firstWhere(
     placedIds.contains,
     orElse: () => instanceEntities[result.survivorIndex],
   );
   for (final e in instanceEntities) {
     if (e != survivor) {
+      // A non-survivor that was itself separately Tome-placed (distinct
+      // from the survivor's own placement, handled by
+      // `_reflectCombineInTome` below) would otherwise leave that slot's
+      // `BuildComponentRef` pointing at a destroyed entity —
+      // `ItemActionInterpreter`'s `?? 1` fallback then treats the stale
+      // placement as a live class-1 item and grants a phantom stat
+      // modifier for it. Remove any such placement before destroying.
+      for (final placement in itemPlacements) {
+        if (placement.buildComponentRef.instanceEntityId == e) {
+          context.tome.remove(owner, placement.slot);
+        }
+      }
       context.components.remove<ItemInstance>(e);
       context.entities.destroy(e);
     }
@@ -292,10 +312,10 @@ EntityId combineItems(
 /// still degrades to "update the first one found" instead of crashing —
 /// this helper's whole purpose is to never throw here, since it runs
 /// after resources are already consumed and inputs already destroyed. A
-/// destroyed *non-survivor* input that was separately Tome-placed
-/// elsewhere is deliberately not handled — out of scope; that placement
-/// goes stale exactly like any other case `ItemActionInterpreter` already
-/// tolerates.
+/// non-survivor input that was separately Tome-placed elsewhere has
+/// already had that placement removed by `combineItems`'s destroy loop
+/// before this helper runs, so no stale placement is left for it to
+/// worry about here.
 void _reflectCombineInTome(
   EntityId owner,
   String newId,

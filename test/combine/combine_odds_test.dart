@@ -46,7 +46,7 @@ void main() {
   group('extra inputs improve odds, with floor redistribution', () {
     test('tier 1 with 3 inputs shifts odds toward success', () {
       final odds = CombineOdds.forAttempt(tier: 1, inputCount: 3);
-      expect(odds.failPercent, equals(5)); // 10 - 6, above the floor
+      expect(odds.failPercent, equals(5)); // 10 - 6 = 4, below the floor of 5 -> clamped to 5, deficit redistributed
       expect(odds.normalPercent, equals(78));
       expect(odds.rarePercent, equals(17));
     });

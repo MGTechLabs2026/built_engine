@@ -286,6 +286,20 @@ void main() {
       );
     });
 
+    test('combining the same owned instance entity twice throws ArgumentError '
+        'and consumes nothing', () {
+      loadSimpleKnife(context);
+      final owner = context.entities.create();
+      final a = ownItem(owner, 'simple_knife', context);
+      context.resources.set(owner, ItemResources.upgradePoints, 10);
+
+      expect(
+        () => combineItems(owner, [a, a], context),
+        throwsArgumentError,
+      );
+      expect(context.resources.currentOf(owner, ItemResources.upgradePoints), equals(10));
+    });
+
     test('mismatched definitionId throws CombineMismatchException', () {
       loadSimpleKnife(context);
       final owner = context.entities.create();
@@ -297,6 +311,25 @@ void main() {
         () => combineItems(owner, [a, b], context),
         throwsA(isA<CombineMismatchException>()),
       );
+    });
+
+    test('combining an instance owned by a different entity throws ArgumentError '
+        'and consumes nothing from owner', () {
+      loadSimpleKnife(context);
+      final owner = context.entities.create();
+      final other = context.entities.create();
+      final mine = ownItem(owner, 'simple_knife', context);
+      final theirs = ownItem(other, 'simple_knife', context);
+      context.resources.set(owner, ItemResources.upgradePoints, 10);
+
+      expect(
+        () => combineItems(owner, [mine, theirs], context),
+        throwsArgumentError,
+      );
+      expect(context.resources.currentOf(owner, ItemResources.upgradePoints), equals(10));
+      // neither instance was touched
+      expect(context.components.get<ItemInstance>(mine), isNotNull);
+      expect(context.components.get<ItemInstance>(theirs), isNotNull);
     });
 
     test('a non-combinable item (no maxClass declared) throws CombineNotAvailableException', () {
@@ -481,6 +514,51 @@ void main() {
           .single;
       expect(survivorPlacement.buildComponentRef.contentId, equals('simple_knife'));
       expect(context.components.get<ItemInstance>(survivor)!.itemClass, equals(2));
+    });
+
+    test('a non-survivor\'s own separate Tome placement is cleaned up, not left '
+        'dangling, so exactly one placement remains after the combine', () {
+      loadSimpleKnife(context);
+      final owner = context.entities.create();
+      final a = ownItem(owner, 'simple_knife', context);
+      final b = ownItem(owner, 'simple_knife', context);
+      context.resources.set(owner, ItemResources.upgradePoints, 10);
+      context.tome.defineTome(
+        TomeDefinition.namedSlots(id: 'basic_tome', slotIds: ['weapon', 'offhand']),
+      );
+      context.tome.createTome(owner, 'basic_tome');
+      context.tome.insert(
+        owner,
+        const SlotId('weapon'),
+        BuildComponentRef(
+          referenceType: itemReferenceType, contentId: 'simple_knife', instanceEntityId: a),
+      );
+      context.tome.insert(
+        owner,
+        const SlotId('offhand'),
+        BuildComponentRef(
+          referenceType: itemReferenceType, contentId: 'simple_knife', instanceEntityId: b),
+      );
+      final seed = seedForOutcome(CombineOutcome.classUpgrade, tier: 1, inputCount: 2);
+      final seededContext = PluginContext(
+        entities: context.entities, components: context.components, events: context.events,
+        rng: RngService(seed), rules: context.rules, queries: context.queries,
+        modifiers: context.modifiers, content: context.content, resources: context.resources,
+        mastery: context.mastery, progression: context.progression, discovery: context.discovery,
+        tome: context.tome,
+      );
+
+      // Both inputs are Tome-placed; the placed-instance-preference logic
+      // (`instanceEntities.firstWhere(placedIds.contains, ...)`) picks the
+      // first one found in `[a, b]` order, i.e. `a`, leaving `b`'s own
+      // placement (in 'offhand') a genuinely separate, non-survivor
+      // placement that must be cleaned up rather than left dangling.
+      final survivor = combineItems(owner, [a, b], seededContext);
+
+      final placements = context.tome.inspect(owner);
+      expect(placements, hasLength(1));
+      expect(placements.single.buildComponentRef.instanceEntityId, equals(survivor));
+      expect(placements.single.buildComponentRef.contentId, equals('simple_knife'));
     });
 
     test('when only one input is Tome-placed, that one survives even if '
