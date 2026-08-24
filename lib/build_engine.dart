@@ -7,6 +7,7 @@ library;
 export 'src/character/character_component.dart';
 export 'src/character/character_events.dart';
 export 'src/character/character_service.dart';
+export 'src/combine/combine_odds.dart';
 export 'src/component/component_store.dart';
 export 'src/components/discovery_component.dart';
 export 'src/components/health_component.dart';
