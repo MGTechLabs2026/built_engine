@@ -72,11 +72,21 @@ class CombineOdds {
 }
 ```
 
-Reference values this must reproduce (all sum to exactly 100):
-tier 1/2 inputs → fail 10, normal 75, rare 15;
-tier 1/4 inputs → fail 5, normal 78, rare 17 (deficit 7 pulled 2:1 out of the nominal 83/19);
-tier 3/2 inputs → fail 30, normal 55, rare 15;
-tier 6/2 inputs → fail 60, normal 35, rare 5 (corrected — `rare = max(15-(6-1)*2, 5) = 5`, not 15).
+Reference values this must reproduce (all sum to exactly 100; the full
+2-input table for every tier 1-6, since `rare = max(15-(tier-1)*2, 5)`
+decreases every tier and it's easy to miscompute by hand):
+
+| tier | fail | normal | rare |
+|------|------|--------|------|
+| 1    | 10   | 75     | 15   |
+| 2    | 20   | 67     | 13   |
+| 3    | 30   | 59     | 11   |
+| 4    | 40   | 51     | 9    |
+| 5    | 50   | 43     | 7    |
+| 6    | 60   | 35     | 5    |
+
+Plus the N>2 floor-redistribution case: tier 1/4 inputs → fail 5, normal
+78, rare 17 (deficit 7 pulled 2:1 out of the nominal 83/19).
 
 **`combine_outcome.dart`** — `enum CombineOutcome { fail, classUpgrade, gradeUpgrade }`
 
