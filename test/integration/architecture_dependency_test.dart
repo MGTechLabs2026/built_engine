@@ -31,6 +31,7 @@ const _physiqueBarrel = 'physique_plugin.dart';
 const _autoCombatBarrel = 'auto_combat_plugin.dart';
 const _itemBarrel = 'item_plugin.dart';
 const _techniqueBarrel = 'technique_plugin.dart';
+const _buildInterpretationBarrel = 'build_interpretation.dart';
 const _pluginBarrels = [
   _combatBarrel,
   _martialArtsBarrel,
@@ -39,6 +40,7 @@ const _pluginBarrels = [
   _autoCombatBarrel,
   _itemBarrel,
   _techniqueBarrel,
+  _buildInterpretationBarrel,
 ];
 
 /// Asserts no `.dart` file under [directoryPath] imports the plugin

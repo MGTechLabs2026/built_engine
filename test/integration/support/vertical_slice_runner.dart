@@ -109,13 +109,32 @@ EntityId _spawnEnemy(
   return enemy;
 }
 
-/// The game-layer bridge from an opaque `BuildComponentRef` to a concrete
-/// `CombatAction` — the translation `ActiveBuild` deliberately never does
-/// itself (Combat must never inspect the Tome, and the Tome must never
-/// contain combat logic). Only `'technique'`-typed refs become attacks in
-/// this slice; `'item'`-typed refs (Gloves, this run) still occupy a Tome
-/// slot and still appear in the resolved `ActiveBuild`, they just aren't
-/// wielded as a separate attack of their own here.
+/// TEMPORARY COMPATIBILITY LAYER — explicitly marked, per the Build ->
+/// Action Interpretation milestone's own instructions.
+///
+/// The real, generic Build -> Action translation now lives in
+/// `package:build_engine/build_interpretation.dart`
+/// (`TechniqueActionInterpreter`/`ItemActionInterpreter`/
+/// `CompositeBuildActionInterpreter`), proven end-to-end against the real
+/// `TechniquePlugin`/`ItemPlugin` content by
+/// `test/integration/build_interpretation_end_to_end_test.dart`.
+///
+/// This file keeps its own tiny, local `_damageTable`/`_actionFor` instead
+/// of switching to the real interpreter because this slice's content was
+/// deliberately built as its own self-contained, non-canonical roster
+/// (see the top-of-file doc comment: "this slice's own tiny content set —
+/// not MartialArts' own... since this proof needs its own minimal
+/// names") — `basic_guard` here is scripted as an attack (8 damage) to
+/// keep this file's own combat-math/win-loss assertions stable, whereas
+/// the real `TechniquePlugin`'s `basic_guard` content is tagged
+/// `'guard'` and the real interpreter resolves it to a defensive
+/// `SelfEffectAction` instead. Swapping this file to the real interpreter
+/// would require re-deriving this run's damage/health constants and
+/// reward/evolution ids against the real plugins' content — a larger,
+/// riskier rewrite of an already-passing regression proof, out of scope
+/// for this pass. The real interpreter is the one and only implementation
+/// used anywhere else in the engine; this remains the sole, explicitly-
+/// marked exception.
 CombatAction? _actionFor(BuildComponentRef ref, EntityId actor, List<EntityId> targets) {
   if (ref.referenceType != 'technique') return null;
   final stats = _damageTable[ref.contentId]!;
