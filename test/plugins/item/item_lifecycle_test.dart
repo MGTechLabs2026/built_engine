@@ -415,6 +415,83 @@ void main() {
       expect(placement.slot, equals(const SlotId('weapon'))); // slot preserved
     });
 
+    test('two currently-placed combined instances do not crash, and only '
+        'the survivor\'s own slot is updated', () {
+      loadSimpleKnife(context);
+      final owner = context.entities.create();
+      final a = ownItem(owner, 'simple_knife', context);
+      final b = ownItem(owner, 'simple_knife', context);
+      context.resources.set(owner, ItemResources.upgradePoints, 10);
+      context.tome.defineTome(
+        TomeDefinition.namedSlots(id: 'basic_tome', slotIds: ['weapon', 'offhand']),
+      );
+      context.tome.createTome(owner, 'basic_tome');
+      context.tome.insert(
+        owner,
+        const SlotId('weapon'),
+        BuildComponentRef(
+          referenceType: itemReferenceType, contentId: 'simple_knife', instanceEntityId: a),
+      );
+      context.tome.insert(
+        owner,
+        const SlotId('offhand'),
+        BuildComponentRef(
+          referenceType: itemReferenceType, contentId: 'simple_knife', instanceEntityId: b),
+      );
+      final seed = seedForOutcome(CombineOutcome.classUpgrade, tier: 1, inputCount: 2);
+      final seededContext = PluginContext(
+        entities: context.entities, components: context.components, events: context.events,
+        rng: RngService(seed), rules: context.rules, queries: context.queries,
+        modifiers: context.modifiers, content: context.content, resources: context.resources,
+        mastery: context.mastery, progression: context.progression, discovery: context.discovery,
+        tome: context.tome,
+      );
+
+      late EntityId survivor;
+      expect(() => survivor = combineItems(owner, [a, b], seededContext), returnsNormally);
+
+      final survivorPlacement = context.tome
+          .inspect(owner)
+          .where((p) => p.buildComponentRef.instanceEntityId == survivor)
+          .single;
+      expect(survivorPlacement.buildComponentRef.contentId, equals('simple_knife'));
+      expect(context.components.get<ItemInstance>(survivor)!.itemClass, equals(2));
+    });
+
+    test('an unrelated placed instance of the same definitionId is left untouched', () {
+      loadSimpleKnife(context);
+      final owner = context.entities.create();
+      final a = ownItem(owner, 'simple_knife', context);
+      final b = ownItem(owner, 'simple_knife', context);
+      final unrelated = ownItem(owner, 'simple_knife', context); // not part of this combine call
+      context.resources.set(owner, ItemResources.upgradePoints, 10);
+      context.tome.defineTome(
+        TomeDefinition.namedSlots(id: 'basic_tome', slotIds: ['weapon', 'offhand']),
+      );
+      context.tome.createTome(owner, 'basic_tome');
+      context.tome.insert(
+        owner,
+        const SlotId('offhand'),
+        BuildComponentRef(
+          referenceType: itemReferenceType, contentId: 'simple_knife', instanceEntityId: unrelated),
+      );
+      final seed = seedForOutcome(CombineOutcome.classUpgrade, tier: 1, inputCount: 2);
+      final seededContext = PluginContext(
+        entities: context.entities, components: context.components, events: context.events,
+        rng: RngService(seed), rules: context.rules, queries: context.queries,
+        modifiers: context.modifiers, content: context.content, resources: context.resources,
+        mastery: context.mastery, progression: context.progression, discovery: context.discovery,
+        tome: context.tome,
+      );
+
+      combineItems(owner, [a, b], seededContext);
+
+      final placement = context.tome.inspect(owner).single;
+      expect(placement.slot, equals(const SlotId('offhand')));
+      expect(placement.buildComponentRef.contentId, equals('simple_knife'));
+      expect(placement.buildComponentRef.instanceEntityId, equals(unrelated));
+    });
+
     test('combining an unplaced item leaves the Tome untouched', () {
       loadSimpleKnife(context);
       final owner = context.entities.create();

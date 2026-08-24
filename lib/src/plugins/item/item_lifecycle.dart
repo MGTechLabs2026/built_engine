@@ -258,10 +258,27 @@ EntityId combineItems(
   return survivor;
 }
 
-/// Updates [owner]'s Tome placement for [oldId] (if any) to point at
-/// [newId]/[survivorInstance] instead — a no-op if the survivor wasn't
-/// placed. Mirrors `game_run.dart`'s `replaceWithEvolved` exactly: find
-/// the placement by matching `contentId`, then `TomeService.replace`.
+/// Updates [owner]'s Tome placement for [survivorInstance] (if any) to
+/// point at [newId] instead — a no-op if the survivor wasn't placed.
+/// Adapted from `game_run.dart`'s `replaceWithEvolved` pattern, but
+/// matches by [instanceEntityId] rather than `contentId`: Combine's own
+/// precondition is owning 2+ copies of the *same* `definitionId`, so
+/// matching by `contentId` alone (as `replaceWithEvolved` does for
+/// techniques, which have no per-copy instances) risks either hitting
+/// `.single`'s `StateError` when more than one of the combined copies is
+/// currently placed, or silently reassigning some unrelated third
+/// placement of the same `definitionId` that was never part of this
+/// combine. Matching on [survivorInstance]'s own entity id is unique
+/// under normal single-placement usage and scopes the update to exactly
+/// the survivor's own slot, if any. Uses `.first` rather than `.single`
+/// so a pathological multi-placement of the very same instance entity
+/// still degrades to "update the first one found" instead of crashing —
+/// this helper's whole purpose is to never throw here, since it runs
+/// after resources are already consumed and inputs already destroyed. A
+/// destroyed *non-survivor* input that was separately Tome-placed
+/// elsewhere is deliberately not handled — out of scope; that placement
+/// goes stale exactly like any other case `ItemActionInterpreter` already
+/// tolerates.
 void _reflectCombineInTome(
   EntityId owner,
   String oldId,
@@ -271,11 +288,11 @@ void _reflectCombineInTome(
 ) {
   final placement = context.tome.inspect(owner).where((p) =>
       p.buildComponentRef.referenceType == itemReferenceType &&
-      p.buildComponentRef.contentId == oldId);
+      p.buildComponentRef.instanceEntityId == survivorInstance).toList();
   if (placement.isEmpty) return;
   context.tome.replace(
     owner,
-    placement.single.slot,
+    placement.first.slot,
     BuildComponentRef(
       referenceType: itemReferenceType,
       contentId: newId,
