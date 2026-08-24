@@ -53,4 +53,41 @@ void main() {
     expect(modifiers.single.value, equals(3));
     expect(modifiers.single.operation, equals(ModifierOperation.add));
   });
+
+  test('itemDefinitionFromContent parses maxClass/gradeEvolution/classScalingPercent', () {
+    final registry = ContentRegistry();
+    registry.load({
+      'id': 'simple_knife',
+      'type': 'weapon',
+      'tags': ['item', 'weapon'],
+      'properties': {'attack': 2},
+      'maxClass': 3,
+      'classScalingPercent': 20,
+      'gradeEvolution': [
+        {'targetId': 'sharp_knife', 'tags': ['precision']},
+        {'targetId': 'heavy_knife', 'tags': ['power']},
+      ],
+    });
+
+    final simpleKnife = itemDefinitionFromContent(registry.get('simple_knife'));
+
+    expect(simpleKnife.maxClass, equals(3));
+    expect(simpleKnife.classScalingPercent, equals(20));
+    expect(
+      simpleKnife.gradeEvolutionCandidates.map((c) => c.targetId),
+      equals(['sharp_knife', 'heavy_knife']),
+    );
+    expect(simpleKnife.gradeEvolutionCandidates.first.tags, equals({'precision'}));
+  });
+
+  test('an item with no maxClass/gradeEvolution declared stays non-combinable', () {
+    final registry = ContentRegistry();
+    registry.loadAll(itemContentDefinitions);
+
+    final knife = itemDefinitionFromContent(registry.get(ItemIds.knife));
+
+    expect(knife.maxClass, isNull);
+    expect(knife.gradeEvolutionCandidates, isEmpty);
+    expect(knife.classScalingPercent, equals(15)); // default
+  });
 }

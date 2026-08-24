@@ -29,4 +29,46 @@ void main() {
 
     expect(definition.modifiersFor(const EntityId(1)), isEmpty);
   });
+
+  test('maxClass/gradeEvolutionCandidates/classScalingPercent default to '
+      'not-combinable/empty/15', () {
+    const definition = ItemDefinition(
+      id: 'knife', category: 'weapon', tags: {'item'}, properties: {'attack': 2},
+    );
+
+    expect(definition.maxClass, isNull);
+    expect(definition.gradeEvolutionCandidates, isEmpty);
+    expect(definition.classScalingPercent, equals(15));
+  });
+
+  test('scaledProperties applies +classScalingPercent% per class above 1', () {
+    const definition = ItemDefinition(
+      id: 'knife', category: 'weapon', tags: {'item'}, properties: {'attack': 10},
+    );
+
+    expect(definition.scaledProperties(1)['attack'], equals(10));
+    expect(definition.scaledProperties(3)['attack'], closeTo(13.0, 0.001)); // 10 * 1.30
+  });
+
+  test('scaledProperties respects a custom classScalingPercent', () {
+    const definition = ItemDefinition(
+      id: 'knife', category: 'weapon', tags: {'item'}, properties: {'attack': 10},
+      classScalingPercent: 25,
+    );
+
+    expect(definition.scaledProperties(3)['attack'], closeTo(15.0, 0.001)); // 10 * 1.50
+  });
+
+  test('toGradeEvolutionDefinition carries id/category/candidates through', () {
+    const definition = ItemDefinition(
+      id: 'simple_knife', category: 'weapon', tags: {'item'}, properties: {},
+      gradeEvolutionCandidates: [EvolutionCandidate(targetId: 'sharp_knife')],
+    );
+
+    final evolution = definition.toGradeEvolutionDefinition();
+
+    expect(evolution.id, equals('simple_knife'));
+    expect(evolution.tier, equals('weapon'));
+    expect(evolution.candidates.single.targetId, equals('sharp_knife'));
+  });
 }

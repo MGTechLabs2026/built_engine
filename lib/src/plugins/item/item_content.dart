@@ -117,6 +117,22 @@ ItemDefinition itemDefinitionFromContent(ContentDefinition definition) {
           minimumLevel: masteryRaw['minimum'] as int,
         );
 
+  final maxClass = definition.extra['maxClass'] as int?;
+
+  final rawGradeEvolution = (definition.extra['gradeEvolution'] as List?) ?? const [];
+  final gradeEvolutionCandidates = [
+    for (final entry in rawGradeEvolution)
+      EvolutionCandidate(
+        targetId: (entry as Map)['targetId'] as String,
+        tags: {
+          for (final tag in (entry['tags'] as List? ?? const [])) tag as String,
+        },
+      ),
+  ];
+
+  final classScalingPercent =
+      (definition.extra['classScalingPercent'] as num?) ?? 15;
+
   List<Modifier> modifiersFor(EntityId owner) => modifiersFromProperties(
         domain: 'item',
         contentId: definition.id,
@@ -132,6 +148,9 @@ ItemDefinition itemDefinitionFromContent(ContentDefinition definition) {
     requirement: requirement,
     trainingWeights: trainingWeights,
     modifiersFor: modifiersFor,
+    maxClass: maxClass,
+    gradeEvolutionCandidates: gradeEvolutionCandidates,
+    classScalingPercent: classScalingPercent,
   );
 }
 

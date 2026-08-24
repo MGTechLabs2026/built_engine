@@ -22,4 +22,14 @@ void main() {
 
     expect(components.get<ItemInstance>(itemEntity)!.definitionId, equals('gloves'));
   });
+
+  test('ItemInstance defaults itemClass to 1', () {
+    const instance = ItemInstance(definitionId: 'knife', owner: EntityId(1));
+    expect(instance.itemClass, equals(1));
+  });
+
+  test('ItemInstance can be constructed at a higher itemClass', () {
+    const instance = ItemInstance(definitionId: 'knife', owner: EntityId(1), itemClass: 3);
+    expect(instance.itemClass, equals(3));
+  });
 }

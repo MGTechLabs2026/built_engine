@@ -19,6 +19,20 @@ class ItemNotUsableException implements Exception {
   String toString() => 'Item not usable: $definitionId';
 }
 
+/// Thrown when Combine is attempted on an item that either never opted
+/// in (`ItemDefinition.maxClass == null`) or has genuinely nowhere left
+/// to go (already at its grade's `maxClass`, with no eligible grade
+/// candidate right now) — the true-terminal case
+/// (`docs/superpowers/specs/2026-08-24-item-combine-design.md`).
+class CombineNotAvailableException implements Exception {
+  const CombineNotAvailableException(this.definitionId);
+
+  final String definitionId;
+
+  @override
+  String toString() => 'Combine not available for: $definitionId';
+}
+
 /// Creates a fresh entity representing one physical copy of [definitionId]
 /// owned by [owner], attaches an [ItemInstance] to it, and returns the new
 /// entity — the OWNED state. Independent of DISCOVERED: an owner can hold
