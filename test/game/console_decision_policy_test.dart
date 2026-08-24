@@ -131,6 +131,15 @@ void main() {
       expect(choice, equals('stat:attack'));
     });
 
+    test('chooseTomeAction returns the chosen candidate string', () {
+      final io = ScriptedIO(['1']);
+      final policy = ConsoleDecisionPolicy(print: io.print, readLine: io.readLine);
+
+      final choice = policy.chooseTomeAction(const ['equip:item:knife', 'done', 'unequip:slot_1:item:cloth_armor']);
+
+      expect(choice, equals('done'));
+    });
+
     test('when answers run out (stdin closed), every remaining decision falls back to the '
         'same default DefaultRunDecisionPolicy uses', () {
       final io = ScriptedIO(const []);
@@ -187,6 +196,7 @@ void main() {
       expect(loaded.slotChoices, equals(log.slotChoices));
       expect(loaded.replaceChoices, equals(log.replaceChoices));
       expect(loaded.upgradeSpendChoices, equals(log.upgradeSpendChoices));
+      expect(loaded.tomeActionChoices, equals(log.tomeActionChoices));
     });
   });
 }

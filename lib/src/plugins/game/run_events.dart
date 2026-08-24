@@ -129,14 +129,19 @@ class ActiveBuildResolved {
 /// One Tome slot's status — whether it's unlocked yet, and what (if
 /// anything) currently occupies it. `occupant` is `null` for an empty
 /// unlocked slot; a locked slot is always also empty.
-typedef SlotStatus = ({SlotId slot, bool unlocked, BuildComponentRef? occupant});
+/// One currently-*unlocked* Tome slot's occupancy — `occupant` is `null`
+/// for an empty slot. Locked slots aren't represented at all (the Tome's
+/// total slot ceiling is a large fixed number, not worth enumerating —
+/// see [RunStatus.totalSlotCapacity]).
+typedef SlotStatus = ({SlotId slot, BuildComponentRef? occupant});
 
-/// A full status snapshot — health, banked upgrade points, every Tome
-/// slot's occupancy, and the player's full inventory (owned items and
-/// known techniques, including ones not currently placed). Published
-/// once per cycle (right after [CycleStarted]) so a human/LLM playing
-/// interactively has everything needed to make the next decision without
-/// having to reconstruct it from earlier events.
+/// A full status snapshot — health, banked upgrade points, every
+/// currently-unlocked Tome slot's occupancy, and the player's full
+/// inventory (owned items and known techniques, including ones not
+/// currently placed). Published once per cycle (right after
+/// [CycleStarted]) so a human/LLM playing interactively has everything
+/// needed to make the next decision without having to reconstruct it
+/// from earlier events.
 class RunStatus {
   const RunStatus({
     required this.health,
@@ -144,6 +149,7 @@ class RunStatus {
     required this.initiative,
     required this.upgradePoints,
     required this.slots,
+    required this.totalSlotCapacity,
     required this.ownedItemIds,
     required this.knownTechniqueIds,
   });
@@ -152,7 +158,14 @@ class RunStatus {
   final num maxHealth;
   final num initiative;
   final num upgradePoints;
+
+  /// Only the currently-unlocked slots, in order.
   final List<SlotStatus> slots;
+
+  /// The Tome's total slot ceiling (`RunTomeSlots.all.length`) — for
+  /// context on how much room `slots.length` represents against, without
+  /// enumerating locked slots individually.
+  final int totalSlotCapacity;
   final List<String> ownedItemIds;
   final List<String> knownTechniqueIds;
 }

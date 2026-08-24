@@ -61,12 +61,9 @@ void main(List<String> args) {
         'Upgrade points: ${e.upgradePoints}');
     final slotLines = [
       for (final s in e.slots)
-        if (s.unlocked)
-          '  ${s.slot.id}: ${s.occupant == null ? '(empty)' : '${s.occupant!.referenceType}:${s.occupant!.contentId}'}'
-        else
-          '  ${s.slot.id}: (locked)',
+        '  ${s.slot.id}: ${s.occupant == null ? '(empty)' : '${s.occupant!.referenceType}:${s.occupant!.contentId}'}',
     ];
-    stdout.writeln('Tome:\n${slotLines.join('\n')}');
+    stdout.writeln('Tome (${e.slots.length}/${e.totalSlotCapacity} slots unlocked):\n${slotLines.join('\n')}');
     stdout.writeln('Owned items: ${e.ownedItemIds.isEmpty ? '(none)' : e.ownedItemIds.join(', ')}');
     stdout.writeln(
         'Known techniques: ${e.knownTechniqueIds.isEmpty ? '(none)' : e.knownTechniqueIds.join(', ')}');

@@ -18,6 +18,7 @@ class DecisionLog {
     required this.slotChoices,
     required this.replaceChoices,
     required this.upgradeSpendChoices,
+    required this.tomeActionChoices,
   });
 
   final String martialTradition;
@@ -28,6 +29,7 @@ class DecisionLog {
   final List<SlotId> slotChoices;
   final List<bool> replaceChoices;
   final List<String> upgradeSpendChoices;
+  final List<String> tomeActionChoices;
 }
 
 /// Wraps [inner], recording every decision it makes — `game_run.dart`
@@ -47,6 +49,7 @@ class RecordingDecisionPolicy implements RunDecisionPolicy {
   final List<SlotId> _slotChoices = [];
   final List<bool> _replaceChoices = [];
   final List<String> _upgradeSpendChoices = [];
+  final List<String> _tomeActionChoices = [];
 
   @override
   String chooseMartialTradition(List<String> candidates) {
@@ -104,6 +107,13 @@ class RecordingDecisionPolicy implements RunDecisionPolicy {
     return choice;
   }
 
+  @override
+  String chooseTomeAction(List<String> candidates) {
+    final choice = inner.chooseTomeAction(candidates);
+    _tomeActionChoices.add(choice);
+    return choice;
+  }
+
   /// Snapshots every decision recorded so far into an immutable
   /// [DecisionLog].
   DecisionLog toLog() => DecisionLog(
@@ -115,6 +125,7 @@ class RecordingDecisionPolicy implements RunDecisionPolicy {
         slotChoices: List.unmodifiable(_slotChoices),
         replaceChoices: List.unmodifiable(_replaceChoices),
         upgradeSpendChoices: List.unmodifiable(_upgradeSpendChoices),
+        tomeActionChoices: List.unmodifiable(_tomeActionChoices),
       );
 }
 
@@ -134,6 +145,7 @@ class ReplayDecisionPolicy implements RunDecisionPolicy {
   var _slotIndex = 0;
   var _replaceIndex = 0;
   var _upgradeSpendIndex = 0;
+  var _tomeActionIndex = 0;
 
   @override
   String chooseMartialTradition(List<String> candidates) => log.martialTradition;
@@ -161,6 +173,9 @@ class ReplayDecisionPolicy implements RunDecisionPolicy {
 
   @override
   String chooseUpgradeSpend(List<String> candidates) => log.upgradeSpendChoices[_upgradeSpendIndex++];
+
+  @override
+  String chooseTomeAction(List<String> candidates) => log.tomeActionChoices[_tomeActionIndex++];
 }
 
 /// A plain, human-inspectable text encoding of a [DecisionLog] — one
@@ -177,7 +192,8 @@ String saveDecisionLog(DecisionLog log) {
     ..writeln('trainingChoices: ${log.trainingChoices.join(',')}')
     ..writeln('slotChoices: ${log.slotChoices.map((s) => s.id).join(',')}')
     ..writeln('replaceChoices: ${log.replaceChoices.join(',')}')
-    ..writeln('upgradeSpendChoices: ${log.upgradeSpendChoices.join(',')}');
+    ..writeln('upgradeSpendChoices: ${log.upgradeSpendChoices.join(',')}')
+    ..writeln('tomeActionChoices: ${log.tomeActionChoices.join(',')}');
   return buffer.toString();
 }
 
@@ -203,5 +219,6 @@ DecisionLog loadDecisionLog(String text) {
     slotChoices: [for (final v in values('slotChoices')) SlotId(v)],
     replaceChoices: [for (final v in values('replaceChoices')) v == 'true'],
     upgradeSpendChoices: values('upgradeSpendChoices'),
+    tomeActionChoices: values('tomeActionChoices'),
   );
 }

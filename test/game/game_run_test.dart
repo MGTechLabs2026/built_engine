@@ -1,6 +1,8 @@
 import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/game.dart';
+import 'package:build_engine/item_plugin.dart';
 import 'package:build_engine/martial_arts_plugin.dart';
+import 'package:build_engine/technique_plugin.dart';
 import 'package:test/test.dart';
 
 /// A policy that never replaces an occupied Tome slot — used to prove
@@ -12,16 +14,24 @@ class NeverReplacePolicy extends DefaultRunDecisionPolicy {
   bool chooseReplace(SlotId slot, BuildComponentRef current, BuildComponentRef incoming) => false;
 }
 
-/// Always takes the `itemOrTechnique` reward option when it's offered —
-/// `DefaultRunDecisionPolicy` always takes `unlockSlot` first, which
-/// never actually contests an occupied slot, so no `chooseSlot`/
-/// `chooseReplace` divergence would ever show up in [finalBuild].
+/// Always takes the `itemOrTechnique` reward option when it's offered,
+/// and always targets the *last* candidate Tome slot rather than the
+/// first empty one — with `RunTomeSlots.startingUnlockedCount` (9)
+/// comfortably fitting every ownable item/technique this run's content
+/// roster can ever grant, an empty-slot-preferring policy would never
+/// actually contest an occupied slot, so no `chooseSlot`/`chooseReplace`
+/// divergence would ever show up in [finalBuild]. Deliberately picking
+/// the last (an occupied one, once anything is placed) forces a real
+/// replace decision every time.
 class PreferItemRewardPolicy extends DefaultRunDecisionPolicy {
   @override
   int chooseReward(List<RewardKind> candidates) {
     final index = candidates.indexOf(RewardKind.itemOrTechnique);
     return index == -1 ? 0 : index;
   }
+
+  @override
+  SlotId chooseSlot(BuildComponentRef component, List<SlotId> candidateSlots) => candidateSlots.last;
 }
 
 class PreferItemRewardNeverReplacePolicy extends PreferItemRewardPolicy {
@@ -183,7 +193,7 @@ void main() {
   });
 
   group('slot unlocking', () {
-    test('unlocking a slot reward grows the set of usable Tome slots beyond the starting 2', () {
+    test('unlocking a slot reward grows the set of usable Tome slots beyond the starting count', () {
       // ScriptedRewardPolicy always takes the unlockSlot option when
       // offered, to reliably exercise the slot-unlock path.
       final result = runGame(6, policy: _AlwaysUnlockSlotPolicy());
@@ -254,6 +264,63 @@ void main() {
       );
     });
   });
+
+  group('Manage Tome: equip/unequip', () {
+    test('unequipping the starting knife frees its slot, and it can be equipped right back', () {
+      final result = runGame(6, policy: _UnequipThenReequipKnifePolicy());
+
+      // Deterministic regardless of seed: the very first Manage Tome call
+      // (right after the starting kit, before any combat/RNG) is where
+      // this policy acts.
+      expect(
+        result.decisionLog.tomeActionChoices.take(2),
+        equals(['unequip:slot_1:item:knife', 'equip:item:knife']),
+      );
+      expect(
+        result.finalBuild.any((c) => c.referenceType == itemReferenceType && c.contentId == 'knife'),
+        isTrue,
+      );
+    });
+
+    test('auto-equip never evicts existing gear to make room — it only fills empty slots '
+        '(regression: a "replace: always true" policy must not churn the Tome)', () {
+      // TrainAfterFirstCombatPolicy/PreferItemRewardPolicy learns and
+      // evolves a technique into one of the Tome's starting slots — if
+      // auto-equip ever evicted it to make room for a benched item (the
+      // original failure mode this guards, caught while the starting
+      // Tome only had 2 unlocked slots), it would silently vanish from
+      // finalBuild.
+      final result = runGame(6, policy: TrainAfterFirstCombatPolicy());
+
+      expect(result.techniquesLearned, isNotEmpty);
+      expect(
+        result.finalBuild.any((c) => c.referenceType == techniqueReferenceType),
+        isTrue,
+        reason: 'a learned technique must not be silently evicted by auto-equip',
+      );
+    });
+  });
+}
+
+/// Unequips the starting knife (slot_1) the first time it's offered, then
+/// falls back to `DefaultRunDecisionPolicy`'s "always take the first
+/// option" for everything else — including re-equipping the knife right
+/// back, since `equip:item:knife` becomes the first candidate again once
+/// its slot is empty.
+class _UnequipThenReequipKnifePolicy extends DefaultRunDecisionPolicy {
+  var _unequipped = false;
+
+  @override
+  String chooseTomeAction(List<String> candidates) {
+    if (!_unequipped) {
+      final target = candidates.where((c) => c.startsWith('unequip:slot_1:item:knife'));
+      if (target.isNotEmpty) {
+        _unequipped = true;
+        return target.single;
+      }
+    }
+    return candidates.first;
+  }
 }
 
 /// Always takes the `unlockSlot` reward option when it's offered,

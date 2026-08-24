@@ -5,7 +5,8 @@ import 'package:build_engine/build_engine.dart';
 /// chosen: [unlockSlot] unlocks the next locked Tome slot in fixed order,
 /// [itemOrTechnique] draws the next entry from the seeded reward pool,
 /// [upgradePoint] banks one spendable upgrade point. `unlockSlot` is
-/// omitted from the offered candidates once all 9 slots are unlocked.
+/// omitted from the offered candidates once every Tome slot
+/// (`RunTomeSlots.all`, a high fixed ceiling) is unlocked.
 enum RewardKind { unlockSlot, itemOrTechnique, upgradePoint }
 
 /// Every meaningful choice a player makes across a run — the endless
@@ -40,8 +41,8 @@ abstract class RunDecisionPolicy {
   String chooseCombatOrTraining(List<String> candidates);
 
   /// Picks one of [candidates] — an index into a small, fixed list of
-  /// [RewardKind]s (2 or 3 entries; `unlockSlot` omitted once all 9 Tome
-  /// slots are unlocked).
+  /// [RewardKind]s (2 or 3 entries; `unlockSlot` omitted once every Tome
+  /// slot is unlocked).
   int chooseReward(List<RewardKind> candidates);
 
   /// Picks which subject to spend a training session on, from
@@ -68,6 +69,24 @@ abstract class RunDecisionPolicy {
   /// for every known technique, 'skip']` — picking `'skip'` stops the
   /// spend loop for this visit, leaving any remaining points banked.
   String chooseUpgradeSpend(List<String> candidates);
+
+  /// Called repeatedly during Manage Tome (after upgrade-point spending),
+  /// offering to equip something benched (owned/known but not currently
+  /// in the Tome) or unequip something currently placed. [candidates] is
+  /// `[...'equip:item:&lt;id&gt;' for every usable benched item,
+  /// ...'equip:technique:&lt;id&gt;' for every benched known technique,
+  /// 'done', ...'unequip:&lt;slotId&gt;:&lt;referenceType&gt;:&lt;contentId&gt;'
+  /// for every currently-occupied slot]` — deliberately ordered with
+  /// every `equip:` option before `'done'` and every `unequip:` option
+  /// after it, so `DefaultRunDecisionPolicy`'s "always take the first
+  /// option" always means "equip whatever's benched, never gratuitously
+  /// unequip your own gear." An `equip:` choice reuses the same
+  /// `chooseSlot`/`chooseReplace` flow a reward grant already uses;
+  /// `unequip:` frees that slot without discarding ownership — the
+  /// component goes back to being benched, not lost. This method isn't
+  /// called at all if nothing is currently benched or placed (nothing
+  /// to manage).
+  String chooseTomeAction(List<String> candidates);
 }
 
 /// The simplest possible deterministic policy — always the first option,
@@ -99,4 +118,7 @@ class DefaultRunDecisionPolicy implements RunDecisionPolicy {
 
   @override
   String chooseUpgradeSpend(List<String> candidates) => candidates.first;
+
+  @override
+  String chooseTomeAction(List<String> candidates) => candidates.first;
 }

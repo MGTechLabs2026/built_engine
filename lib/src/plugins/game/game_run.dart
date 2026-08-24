@@ -18,7 +18,8 @@ import 'training_simulation.dart';
 /// The endless roguelike loop:
 ///
 ///   New Run -> name -> Random Physique -> martial tradition -> starting
-///   style -> Starting Tome (knife + cloth armor, 2 of 9 slots unlocked)
+///   style -> Starting Tome (knife + cloth armor, 9 of RunTomeSlots.maxSlots
+///   slots unlocked)
 ///   -> [combat or training] -> (combat: 3 fights, one reward choice
 ///   after each) or (training: one session) -> restore health -> Manage
 ///   Tome (spend banked upgrade points) -> loop
@@ -122,14 +123,15 @@ RunResult runGame(
   final styleId = recordingPolicy.chooseStartingStyle(stylesFor(traditionId));
   learnStyle(character, styleId, context);
 
-  // ---- Starting Tome: 9 generic slots, 2 unlocked at start --------------
+  // ---- Starting Tome: generic slots (a high ceiling, see RunTomeSlots),
+  // `RunTomeSlots.startingUnlockedCount` unlocked at start -------------
   context.tome.defineTome(
     TomeDefinition.namedSlots(id: 'run_tome', slotIds: [for (final s in RunTomeSlots.all) s.id]),
   );
   context.tome.createTome(character, 'run_tome');
 
-  final unlockedSlots = <SlotId>[RunTomeSlots.all[0], RunTomeSlots.all[1]];
-  var nextLockedSlotIndex = 2;
+  final unlockedSlots = RunTomeSlots.all.sublist(0, RunTomeSlots.startingUnlockedCount).toList();
+  var nextLockedSlotIndex = RunTomeSlots.startingUnlockedCount;
 
   final tomeHistory = <TomeSnapshot>[];
   final itemsDiscovered = <String>[];
@@ -284,11 +286,86 @@ RunResult runGame(
         'skip',
       ];
       final choice = recordingPolicy.chooseUpgradeSpend(candidates);
-      if (choice == 'skip') return;
+      if (choice == 'skip') break;
       context.resources.subtract(character, 'upgrade_points', 1);
       upgradeSpendCounter++;
       applyUpgrade(choice);
       events.publish(UpgradePointSpent(target: choice, amount: 1));
+    }
+
+    // A chosen `equip:` candidate can still end up doing nothing (the
+    // target slot is occupied and `chooseReplace` declines it) — track
+    // those so a declined attempt isn't offered again this visit. Without
+    // this, a policy that deterministically re-picks the same candidate
+    // every time (any `DefaultRunDecisionPolicy`-derived one, by
+    // construction) would loop forever re-offering-and-declining the
+    // exact same equip. A 500-iteration cap is a pure safety net on top
+    // (mirrors the run's own 200-cycle cap), never meant to be hit.
+    final rejectedThisVisit = <String>{};
+    for (var i = 0; i < 500; i++) {
+      final placements = context.tome.inspect(character);
+      final placedRefs = {
+        for (final p in placements) (p.buildComponentRef.referenceType, p.buildComponentRef.contentId),
+      };
+      // Auto-equip only ever fills an EMPTY unlocked slot on its own
+      // initiative — it never forces an eviction. With no empty slot
+      // left, no `equip:` candidate is offered at all (regardless of
+      // what's benched); freeing a slot via `unequip:` first is the only
+      // way to make room. Without this, a "replace: always true" policy
+      // (like `DefaultRunDecisionPolicy`) would keep swapping benched
+      // items into already-occupied slots, evicting whatever was there
+      // (including a hard-won evolved technique) purely because it
+      // happened to be the first candidate this iteration.
+      final hasEmptySlot = unlockedSlots.length > placements.length;
+      final benchedItemIds = [
+        if (hasEmptySlot)
+          for (final id in ownedItemIds())
+            if (!placedRefs.contains((itemReferenceType, id)) &&
+                isItemUsable(character, itemDefinition(id, context), context) &&
+                !rejectedThisVisit.contains('equip:item:$id'))
+              id,
+      ];
+      final benchedTechniqueIds = [
+        if (hasEmptySlot)
+          for (final id in knownTechniqueIds())
+            if (!placedRefs.contains((techniqueReferenceType, id)) &&
+                !rejectedThisVisit.contains('equip:technique:$id'))
+              id,
+      ];
+      // `'done'` sits between the equip/unequip options — every equip:
+      // option before it, every unequip: option after — so
+      // `DefaultRunDecisionPolicy`'s "always take the first option"
+      // always means "equip whatever's benched," never "unequip your
+      // own gear for no reason."
+      final candidates = <String>[
+        for (final id in benchedItemIds) 'equip:item:$id',
+        for (final id in benchedTechniqueIds) 'equip:technique:$id',
+        'done',
+        for (final p in placements)
+          'unequip:${p.slot.id}:${p.buildComponentRef.referenceType}:${p.buildComponentRef.contentId}',
+      ];
+      if (candidates.length == 1) break; // nothing benched or placed to manage
+      final choice = recordingPolicy.chooseTomeAction(candidates);
+      if (choice == 'done') break;
+      if (choice.startsWith('equip:item:')) {
+        final id = choice.substring('equip:item:'.length);
+        placeItem(itemDefinition(id, context), 'Manage Tome (equip)');
+        if (!context.tome.inspect(character).any(
+            (p) => p.buildComponentRef.referenceType == itemReferenceType && p.buildComponentRef.contentId == id)) {
+          rejectedThisVisit.add(choice);
+        }
+      } else if (choice.startsWith('equip:technique:')) {
+        final id = choice.substring('equip:technique:'.length);
+        placeTechnique(techniqueDefinition(id, context), 'Manage Tome (equip)');
+        if (!context.tome.inspect(character).any((p) =>
+            p.buildComponentRef.referenceType == techniqueReferenceType && p.buildComponentRef.contentId == id)) {
+          rejectedThisVisit.add(choice);
+        }
+      } else if (choice.startsWith('unequip:')) {
+        final slotId = choice.substring('unequip:'.length).split(':').first;
+        context.tome.remove(character, SlotId(slotId));
+        snapshot('Manage Tome (unequip)');
+      }
     }
   }
 
@@ -566,10 +643,11 @@ RunResult runGame(
       maxHealth: health.max,
       initiative: combatant.initiative,
       upgradePoints: context.resources.currentOf(character, 'upgrade_points'),
-      slots: [
-        for (final slot in RunTomeSlots.all)
-          (slot: slot, unlocked: unlockedSlots.contains(slot), occupant: placements[slot]),
-      ],
+      // Only the currently-unlocked slots — RunTomeSlots.all is a large
+      // fixed ceiling (see its own doc comment), not a small number worth
+      // enumerating in full every cycle.
+      slots: [for (final slot in unlockedSlots) (slot: slot, occupant: placements[slot])],
+      totalSlotCapacity: RunTomeSlots.all.length,
       ownedItemIds: ownedItemIds().toList(),
       knownTechniqueIds: knownTechniqueIds().toList(),
     ));

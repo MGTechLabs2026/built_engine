@@ -63,23 +63,22 @@ const rewardPoolItemIds = [
 ];
 const rewardPoolTechniqueIds = [TechniqueIds.basicPunch, TechniqueIds.basicSlash, TechniqueIds.basicGuard];
 
-/// The Tome's 9 generic slots — any item/technique category fits any
-/// slot (Backpack-Hero-style free placement, not the old fixed weapon/
-/// armor/technique typing). Only the first 2 are unlocked at run start
-/// (the starting kit); slots 3-9 unlock one at a time, in this fixed
-/// order, via the `RewardKind.unlockSlot` reward.
+/// The Tome's generic slots — any item/technique category fits any slot
+/// (Backpack-Hero-style free placement, not the old fixed weapon/armor/
+/// technique typing). [maxSlots] is a high ceiling (not a game-design
+/// number — an endless run can offer far more than 9 `unlockSlot`
+/// rewards over 200 cycles, and the reward should stay meaningful for
+/// most of that) rather than a tight, quickly-exhausted cap. The first
+/// [startingUnlockedCount] are unlocked at run start (the starting kit);
+/// the rest unlock one at a time, in this fixed order, via the
+/// `RewardKind.unlockSlot` reward.
 abstract final class RunTomeSlots {
-  static const all = [
-    SlotId('slot_1'),
-    SlotId('slot_2'),
-    SlotId('slot_3'),
-    SlotId('slot_4'),
-    SlotId('slot_5'),
-    SlotId('slot_6'),
-    SlotId('slot_7'),
-    SlotId('slot_8'),
-    SlotId('slot_9'),
-  ];
+  static const maxSlots = 999;
+  static const startingUnlockedCount = 9;
+
+  static final List<SlotId> all = List.unmodifiable([
+    for (var i = 1; i <= maxSlots; i++) SlotId('slot_$i'),
+  ]);
 }
 
 /// The 3 style ids belonging to [tradition] (`MartialTraditions.western`/

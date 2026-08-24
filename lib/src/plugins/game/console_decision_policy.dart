@@ -91,6 +91,12 @@ class ConsoleDecisionPolicy implements RunDecisionPolicy {
     return candidates[_promptIndex(candidates)];
   }
 
+  @override
+  String chooseTomeAction(List<String> candidates) {
+    _print('\n=== Equip or unequip something? ===');
+    return candidates[_promptIndex(candidates)];
+  }
+
   int _promptIndex(List<String> labels) {
     for (var i = 0; i < labels.length; i++) {
       _print('  [$i] ${labels[i]}');
