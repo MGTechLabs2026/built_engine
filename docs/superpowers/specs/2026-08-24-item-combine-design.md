@@ -25,7 +25,7 @@ same mechanic for its own content without Core ever learning what a
   new `class` field and `BuildComponentRef`'s new `instanceEntityId`
   field are additive and unused by those plugins.
 - No automatic stat rebalancing of existing item content beyond the new
-  `classScalingPercent`/`maxClass`/`gradeEvolutionId` fields items must
+  `classScalingPercent`/`maxClass`/`gradeEvolutionCandidates` fields items must
   now declare to participate in Combine at all. Items that don't declare
   them simply can't be combined (see Content authoring contract).
 
@@ -100,7 +100,7 @@ class CombineResolver {
     required List<CombineInput> inputs,
     required bool atMaxTierForGrade,
     required RuleContext gradeContext,
-    required EvolutionDefinition? gradeEvolution,
+    required EvolutionDefinition gradeEvolution, // empty candidates == no grade path
     required TrainingProfile gradeProfile,
     required RngService rng,
   }) {
@@ -124,11 +124,9 @@ class CombineResolver {
 
     EvolutionResult? evolutionResult;
     if (outcome == CombineOutcome.gradeUpgrade) {
-      evolutionResult = gradeEvolution == null
-          ? null
-          : const EvolutionResolver().resolve(
-              context: gradeContext, current: gradeEvolution, profile: gradeProfile);
-      if (evolutionResult == null || !evolutionResult.evolved) {
+      evolutionResult = const EvolutionResolver().resolve(
+          context: gradeContext, current: gradeEvolution, profile: gradeProfile);
+      if (!evolutionResult.evolved) {
         // no eligible grade branch right now -> falls back to a class upgrade
         outcome = CombineOutcome.classUpgrade;
       }
@@ -138,7 +136,7 @@ class CombineResolver {
       // attempt (caller guarantees this branch is only reachable when a
       // grade evolution IS available, via the upfront terminal-item check)
       evolutionResult = const EvolutionResolver().resolve(
-          context: gradeContext, current: gradeEvolution!, profile: gradeProfile);
+          context: gradeContext, current: gradeEvolution, profile: gradeProfile);
       outcome = CombineOutcome.gradeUpgrade;
     }
 
@@ -214,38 +212,57 @@ class ItemDefinition {
     this.requirement,
     this.trainingWeights = const {},
     this.modifiersFor = _noModifiers,
-    this.maxClass,                 // null = not combinable (no class ceiling declared)
-    this.gradeEvolutionId,         // null = terminal grade, no further grade to reach
-    this.classScalingPercent = 15, // % added to each property per class above 1
+    this.maxClass,                        // null = not combinable (no class ceiling declared)
+    this.gradeEvolutionCandidates = const [], // empty = terminal grade, no further grade to reach
+    this.classScalingPercent = 15,        // % added to each property per class above 1
   });
   final int? maxClass;
-  final String? gradeEvolutionId;
+  final List<EvolutionCandidate> gradeEvolutionCandidates;
   final num classScalingPercent;
   // ...existing fields unchanged
+
+  /// Builds the `EvolutionDefinition` this item's grade branches
+  /// represent, for `EvolutionResolver.resolve` to consume — exactly
+  /// mirrors `TechniqueDefinition.toEvolutionDefinition()`
+  /// (`technique_definition.dart`), which already proved this "candidates
+  /// embedded in the content definition, built into an EvolutionDefinition
+  /// on demand" pattern. No separate evolution-definition registry is
+  /// introduced; `tier` is passed through as this item's `category`
+  /// (`EvolutionDefinition.tier` is descriptive-only, never read by the
+  /// resolver).
+  EvolutionDefinition toGradeEvolutionDefinition() =>
+      EvolutionDefinition(id: id, tier: category, candidates: gradeEvolutionCandidates);
+
+  /// Pure per-class stat scaling: `base * (1 + classScalingPercent/100 *
+  /// (itemClass-1))` per property. `modifiersFor` itself is left
+  /// unscaled/unchanged (it already has zero production call sites —
+  /// `ItemActionInterpreter` reads `properties` directly, not
+  /// `modifiersFor`); this method is what `ItemActionInterpreter` calls
+  /// instead, once it knows a placement's live `itemClass` (see Section 4).
+  Map<String, num> scaledProperties(int itemClass) => {
+        for (final entry in properties.entries)
+          entry.key: entry.value * (1 + classScalingPercent / 100 * (itemClass - 1)),
+      };
 }
 ```
 
-`modifiersFor` signature changes from `List<Modifier> Function(EntityId owner)`
-to `List<Modifier> Function(EntityId owner, int itemClass)`. Its scaling
-math: `effectiveValue = baseValue * (1 + classScalingPercent/100 * (itemClass - 1))`,
-applied per numeric property, reusing the existing `modifiersFromProperties`
-helper by pre-scaling the `properties` map before calling it.
-
-**`item_content.dart`** parsing gains: `maxClass`/`gradeEvolutionId` read
-straight from `extra['maxClass']`/`extra['gradeEvolutionId']` (both
-absent by default); `classScalingPercent` from `extra['classScalingPercent']`,
-defaulting to 15.
+**`item_content.dart`** parsing gains: `maxClass` read straight from
+`extra['maxClass']` (absent by default); `gradeEvolutionCandidates`
+parsed from `extra['gradeEvolution']` using the exact same shape/loop
+`technique_content.dart` already uses for `extra['evolution']` (a list of
+`{'targetId': ..., 'tags': [...]}` maps); `classScalingPercent` from
+`extra['classScalingPercent']`, defaulting to 15.
 
 **Content authoring contract:** a grade chain (e.g. `simple_knife` →
 `sharp_knife` → `masterwork_knife`) is 2+ separate `ItemDefinition`s, each
-its own `maxClass` (the spec's example: 3 / 6 / 9), linked by one shared
-`EvolutionDefinition` per branch point — e.g. `simple_knife`'s
-`gradeEvolutionId` points at an `EvolutionDefinition` whose one
-`EvolutionCandidate` targets `sharp_knife`. A definition with multiple
-candidates (multiple next-grade items from one source item) is exactly
-the "one content type derived into multiple grade items" case — already
-fully supported by `EvolutionCandidate`'s existing list shape, no new
-Core concept required.
+its own `maxClass` (the spec's example: 3 / 6 / 9), linked by
+`simple_knife`'s `gradeEvolutionCandidates` containing an
+`EvolutionCandidate(targetId: 'sharp_knife', ...)`. A definition with
+multiple candidates (multiple next-grade items from one source item) is
+exactly the "one content type derived into multiple grade items" case —
+already fully supported by `EvolutionCandidate`'s existing list shape, no
+new Core concept required, and no registry lookup needed since the
+candidates travel with the item's own content definition.
 
 ### 3. Item plugin: `combineItems`
 
@@ -270,15 +287,12 @@ EntityId combineItems(
     throw CombineNotAvailableException(first.definitionId); // never opted in
   }
   final atMax = first.itemClass >= definition.maxClass!;
-  final gradeEvolution = definition.gradeEvolutionId == null
-      ? null
-      : context.evolutions.get(definition.gradeEvolutionId!); // new lookup, see below
+  final gradeEvolution = definition.toGradeEvolutionDefinition(); // candidates travel with the item's own content
 
   final ruleContext = context.ruleContextFor(owner);
-  final hasGradePath = gradeEvolution != null &&
-      const EvolutionResolver()
-          .resolve(context: ruleContext, current: gradeEvolution, profile: TrainingProfile(definition.trainingWeights))
-          .evolved;
+  final hasGradePath = const EvolutionResolver()
+      .resolve(context: ruleContext, current: gradeEvolution, profile: TrainingProfile(definition.trainingWeights))
+      .evolved;
   if (atMax && !hasGradePath) {
     throw CombineNotAvailableException(first.definitionId); // true terminal item
   }
@@ -331,14 +345,6 @@ itemReferenceType, contentId: newId, instanceEntityId: survivor))`.
 for it in `ItemPlugin.initialize` (unbounded max, or a sane default cap —
 implementation detail, not gameplay-critical per this spec's non-goals).
 
-`context.evolutions.get(id)` — a small new accessor on `PluginContext`
-(or reuse whatever registry already stores `EvolutionDefinition`s content
--registry-side; if none exists yet, `EvolutionDefinition`s are registered
-the same way item/technique content is, via `ContentRegistry`, and
-resolved through a small `evolutionDefinitionFromContent` parser
-mirroring `martialItemDefinitionFromContent`'s pattern — exact plumbing
-left to implementation, not a new architectural concept).
-
 ### 4. `BuildComponentRef` extension
 
 One new nullable field, additive, defaulting to `null` for every existing
@@ -358,10 +364,16 @@ class BuildComponentRef {
 `BuildComponentRef`.
 
 `item_action_interpreter.dart` (`lib/src/plugins/build_interpretation/`)
-changes: when resolving a placement's stats, if `instanceEntityId != null`,
-look up that entity's live `ItemInstance.itemClass` and pass it into
-`definition.modifiersFor(owner, itemClass)`; if `null` (shouldn't happen
-for item refs post-migration, but kept as a safe default), use class 1.
+changes: it already resolves `item = itemDefinitionFromContent(definition)`
+and reads `item.properties['attack']` directly (it has never called
+`modifiersFor`, which has zero production call sites today and is left
+unscaled/unchanged by this spec). The one-line change: read
+`item.scaledProperties(itemClass)['attack']` instead of
+`item.properties['attack']`, where `itemClass` comes from looking up
+`ref.instanceEntityId`'s live `ItemInstance.itemClass` when
+`instanceEntityId != null`, else falls back to class 1 (covers any
+placement that doesn't carry one, e.g. if content is ever placed without
+going through `addItemToTome`).
 `technique_action_interpreter.dart` is untouched — technique refs never
 set `instanceEntityId`.
 
@@ -405,8 +417,8 @@ class ItemCombineFailed {
 - A `rare` roll with no eligible grade candidate right now falls back to
   `normal` instead.
 - Terminal (Combine blocked entirely, checked before spending anything):
-  `itemClass >= maxClass` **and** no eligible `gradeEvolutionId`
-  candidate.
+  `itemClass >= maxClass` **and** no eligible `gradeEvolutionCandidates`
+  entry.
 - On `fail`: exactly 1 input survives unchanged (RNG-picked), the rest
   are destroyed. On success: exactly 1 input survives, upgraded in
   place; the rest are destroyed.
