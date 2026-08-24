@@ -247,4 +247,40 @@ void main() {
     expect(resultA.survivorIndex, inInclusiveRange(0, 2));
     expect(resultA.survivorIndex, equals(resultB.survivorIndex)); // deterministic
   });
+
+  test(
+    'at max tier, if EvolutionResolver fails to evolve (defensive), '
+    'falls back to classUpgrade with null chosenGradeTargetId',
+    () {
+      final seed =
+          _seedForOutcome(CombineOutcome.classUpgrade, tier: 1, inputCount: 2);
+      // A gradeEvolution with one candidate that has an unmet condition
+      const gradeEvolution = EvolutionDefinition(
+        id: 'simple_knife',
+        tier: 'weapon',
+        candidates: [
+          EvolutionCandidate(
+            targetId: 'sharp_knife',
+            conditions: [MasteryAtLeast('some:subject', 99)],
+          ),
+        ],
+      );
+
+      final result = resolver.resolve(
+        inputs: const [
+          CombineInput(matchKey: 'simple_knife', tier: 1),
+          CombineInput(matchKey: 'simple_knife', tier: 1),
+        ],
+        atMaxTierForGrade: true,
+        gradeContext: _contextFor(trainee, seed: seed), // No mastery set
+        gradeEvolution: gradeEvolution,
+        gradeProfile: const TrainingProfile({}),
+        rng: RngService(seed),
+      );
+
+      // Fails to evolve -> fallback to classUpgrade, not gradeUpgrade
+      expect(result.outcome, equals(CombineOutcome.classUpgrade));
+      expect(result.chosenGradeTargetId, isNull);
+    },
+  );
 }

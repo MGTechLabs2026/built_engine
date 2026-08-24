@@ -15,13 +15,13 @@ import 'combine_result.dart';
 /// roll once against [CombineOdds] into fail/classUpgrade/gradeUpgrade.
 /// Grade branching is delegated entirely to the existing
 /// [EvolutionResolver] — this class knows nothing about what a "grade"
-/// or an "item" is, only that a `gradeUpgrade` roll may or may not have
-/// somewhere to go (an [gradeEvolution] with no eligible candidates means
-/// it never does, and the roll falls back to `classUpgrade`). Pure
-/// function of its inputs plus [rng] — no stored state — mirroring
-/// [EvolutionResolver]'s own shape exactly. Resource cost and the
-/// upfront "is this even attemptable" terminal check are the caller's
-/// job (see `combineItems` in the Item plugin), not this class's.
+/// is, only that a `gradeUpgrade` roll may or may not have somewhere to go
+/// (an [gradeEvolution] with no eligible candidates means it never does, and
+/// the roll falls back to `classUpgrade`). Pure function of its inputs plus
+/// [rng] — no stored state — mirroring [EvolutionResolver]'s own shape
+/// exactly. Resource cost and the upfront "is this even attemptable"
+/// terminal check are the caller's job (e.g. a content plugin's combine
+/// entry point), not this class's.
 class CombineResolver {
   const CombineResolver();
 
@@ -67,16 +67,19 @@ class CombineResolver {
     }
     if (outcome == CombineOutcome.classUpgrade && atMaxTierForGrade) {
       // Nothing left to gain within this grade -> escalate to a grade
-      // attempt. The caller (`combineItems`) guarantees this branch is
-      // only reachable when a grade path IS eligible right now (its own
-      // upfront terminal-item check already proved it), so this resolve
-      // call is guaranteed to evolve.
+      // attempt. The caller guarantees this branch is only reachable when a
+      // grade path IS eligible right now, so this resolve call should evolve.
+      // If it doesn't (defensive against protocol violation), fall back to
+      // classUpgrade to maintain invariant: gradeUpgrade only if
+      // chosenGradeTargetId is non-null.
       evolutionResult = const EvolutionResolver().resolve(
         context: gradeContext,
         current: gradeEvolution,
         profile: gradeProfile,
       );
-      outcome = CombineOutcome.gradeUpgrade;
+      if (evolutionResult.evolved) {
+        outcome = CombineOutcome.gradeUpgrade;
+      }
     }
 
     return CombineResult(
