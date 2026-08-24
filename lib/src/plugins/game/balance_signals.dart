@@ -1,9 +1,8 @@
 import 'run_result.dart';
 
-/// Aggregate measurements across several [RunResult]s — the milestone's
-/// own "Balance Signals" section. Purely descriptive: nothing here tunes
-/// any number, it only measures what the current content already
-/// produces ("We are measuring," per the milestone).
+/// Aggregate measurements across several [RunResult]s. Purely
+/// descriptive: nothing here tunes any number, it only measures what the
+/// current content already produces ("We are measuring").
 class BalanceSignals {
   const BalanceSignals({
     required this.runCount,
@@ -14,7 +13,9 @@ class BalanceSignals {
     required this.averageTrainingAttempts,
     required this.buildDiversity,
     required this.averageCombatDuration,
-    required this.bossWinRate,
+    required this.eliteWinRate,
+    required this.averageCyclesCompleted,
+    required this.survivalRate,
   });
 
   factory BalanceSignals.fromRuns(List<RunResult> runs) {
@@ -28,7 +29,9 @@ class BalanceSignals {
         averageTrainingAttempts: 0,
         buildDiversity: 0,
         averageCombatDuration: 0,
-        bossWinRate: 0,
+        eliteWinRate: 0,
+        averageCyclesCompleted: 0,
+        survivalRate: 0,
       );
     }
 
@@ -49,9 +52,14 @@ class BalanceSignals {
       for (final run in runs)
         run.finalBuild.map((c) => '${c.referenceType}:${c.contentId}').toList().join(','),
     };
-    final bossWins = runs
-        .where((r) => r.encounters.any((e) => e.name == 'Boss' && e.won))
-        .length;
+
+    // "Fight 3" of every cycle is the elite/boss-tier fight — every 3rd
+    // encounter in each run's flat `encounters` list, in order fought.
+    final eliteFights = [
+      for (final run in runs)
+        for (var i = 2; i < run.encounters.length; i += 3) run.encounters[i],
+    ];
+    final eliteWins = eliteFights.where((e) => e.won).length;
 
     return BalanceSignals(
       runCount: runs.length,
@@ -66,7 +74,10 @@ class BalanceSignals {
       buildDiversity: distinctBuilds.length / runs.length,
       averageCombatDuration:
           totalCombatTurns.isEmpty ? 0 : totalCombatTurns.reduce((a, b) => a + b) / totalCombatTurns.length,
-      bossWinRate: bossWins / runs.length,
+      eliteWinRate: eliteFights.isEmpty ? 0 : eliteWins / eliteFights.length,
+      averageCyclesCompleted:
+          runs.map((r) => r.cyclesCompleted).reduce((a, b) => a + b) / runs.length,
+      survivalRate: runs.where((r) => r.won).length / runs.length,
     );
   }
 
@@ -82,5 +93,15 @@ class BalanceSignals {
   /// same one.
   final double buildDiversity;
   final double averageCombatDuration;
-  final double bossWinRate;
+
+  /// Win rate of every cycle's 3rd ("elite/boss-tier") fight, across
+  /// every cycle across every run.
+  final double eliteWinRate;
+
+  /// Mean `cyclesCompleted` across runs — the "how far did you get"
+  /// balance signal for an endless run.
+  final double averageCyclesCompleted;
+
+  /// Fraction of runs that survived to the 200-cycle safety cap.
+  final double survivalRate;
 }

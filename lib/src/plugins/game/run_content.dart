@@ -1,12 +1,14 @@
 import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/item_plugin.dart';
+import 'package:build_engine/martial_arts_plugin.dart';
 import 'package:build_engine/technique_plugin.dart';
 
 import 'enemy.dart';
 
-/// The 5 named enemies the milestone asks for — kept intentionally this
-/// small ("keep content small"); the same 5 stat blocks are reused across
-/// the run's 8 combats rather than inventing per-encounter variants.
+/// The 5 named enemies the run draws from, split into two difficulty
+/// pools — [RunEnemies.weakPool] for the first two fights of a cycle,
+/// [RunEnemies.eliteBossPool] for the third. [scaledEnemy] scales
+/// whichever base is drawn to the current cycle number.
 abstract final class RunEnemies {
   static const trainingDummy =
       Enemy(id: 'training_dummy', health: 20, damage: 2, damageStat: 'dummy_attack', initiative: 1);
@@ -17,81 +19,73 @@ abstract final class RunEnemies {
   static const eliteWarrior =
       Enemy(id: 'elite_warrior', health: 44, damage: 6, damageStat: 'elite_attack', initiative: 9);
   static const boss = Enemy(id: 'boss', health: 55, damage: 7, damageStat: 'boss_attack', initiative: 9);
+
+  /// Base enemies for a cycle's first two ("weak") fights.
+  static const weakPool = [trainingDummy, bandit, martialAdept];
+
+  /// Base enemies for a cycle's third ("elite/boss") fight.
+  static const eliteBossPool = [eliteWarrior, boss];
 }
 
-enum RunStepType { combat, training }
-
-/// One node of the linear run graph — a plain game-layer concept, not a
-/// map (per the milestone's own "do not implement maps yet").
-class RunStep {
-  const RunStep({
-    required this.name,
-    required this.type,
-    this.enemy,
-    this.isElite = false,
-    this.isBoss = false,
-  });
-
-  final String name;
-  final RunStepType type;
-  final Enemy? enemy;
-  final bool isElite;
-  final bool isBoss;
+/// Scales [base]'s health/damage to [cycleNumber] (1-indexed) — a flat
+/// 12% growth per completed cycle, applied to both fights-1&2 and
+/// fight-3 bases alike, so the run gets harder indefinitely rather than
+/// plateauing at a fixed 5-enemy roster. Deliberately simple ("do not
+/// tune the numbers yet, we are measuring") — [id]/[damageStat]/
+/// [initiative] pass through unscaled.
+Enemy scaledEnemy(Enemy base, int cycleNumber) {
+  final factor = 1 + 0.12 * (cycleNumber - 1);
+  return Enemy(
+    id: base.id,
+    health: (base.health * factor).round(),
+    damage: (base.damage * factor).round(),
+    damageStat: base.damageStat,
+    initiative: base.initiative,
+  );
 }
 
-/// The exact 11-step sequence the milestone suggests: 8 combats (5
-/// regular + 2 Elite + 1 Boss) and 3 Training opportunities interspersed.
-const runSequence = <RunStep>[
-  RunStep(name: 'Encounter 1', type: RunStepType.combat, enemy: RunEnemies.trainingDummy),
-  RunStep(name: 'Encounter 2', type: RunStepType.combat, enemy: RunEnemies.bandit),
-  RunStep(name: 'Training Opportunity 1', type: RunStepType.training),
-  RunStep(name: 'Encounter 3', type: RunStepType.combat, enemy: RunEnemies.martialAdept),
-  RunStep(name: 'Elite 1', type: RunStepType.combat, enemy: RunEnemies.eliteWarrior, isElite: true),
-  RunStep(name: 'Training Opportunity 2', type: RunStepType.training),
-  RunStep(name: 'Encounter 4', type: RunStepType.combat, enemy: RunEnemies.bandit),
-  RunStep(name: 'Encounter 5', type: RunStepType.combat, enemy: RunEnemies.martialAdept),
-  RunStep(name: 'Training Opportunity 3', type: RunStepType.training),
-  RunStep(name: 'Elite 2', type: RunStepType.combat, enemy: RunEnemies.eliteWarrior, isElite: true),
-  RunStep(name: 'Boss', type: RunStepType.combat, enemy: RunEnemies.boss, isBoss: true),
-];
-
-/// Granted for free at run start (already discovered/learned, straight
-/// into the Tome) — every other item/technique is earned as a reward.
+/// Granted for free at run start (already discovered, straight into the
+/// Tome) — every other item/technique is earned as a reward. No starting
+/// technique this time; the first one is always earned.
 abstract final class RunStartingKit {
-  static const itemId = ItemIds.gloves;
-  static const techniqueId = TechniqueIds.basicPunch;
+  static const itemIds = [ItemIds.knife, ItemIds.clothArmor];
 }
 
 /// Every item/technique the run can reward, beyond the starting kit —
 /// the real `ItemPlugin`/`TechniquePlugin` content ids, not a
-/// game-invented roster.
+/// game-invented roster. `knife`/`clothArmor` are excluded (starting
+/// kit); `basicPunch` is included (no longer a free starting grant).
 const rewardPoolItemIds = [
-  ItemIds.knife,
   ItemIds.ironSword,
+  ItemIds.gloves,
   ItemIds.trainingStaff,
-  ItemIds.clothArmor,
   ItemIds.trainingShoes,
 ];
-const rewardPoolTechniqueIds = [TechniqueIds.basicSlash, TechniqueIds.basicGuard];
+const rewardPoolTechniqueIds = [TechniqueIds.basicPunch, TechniqueIds.basicSlash, TechniqueIds.basicGuard];
 
-/// The Tome's fixed slot layout for this run — 3 item slots (one per
-/// `ItemCategories`) + 2 technique slots (room for the starting technique
-/// plus one earned/evolved one). A simple, fixed layout; "do not
-/// implement maps yet" applies to the run graph, not the Tome shape.
+/// The Tome's 9 generic slots — any item/technique category fits any
+/// slot (Backpack-Hero-style free placement, not the old fixed weapon/
+/// armor/technique typing). Only the first 2 are unlocked at run start
+/// (the starting kit); slots 3-9 unlock one at a time, in this fixed
+/// order, via the `RewardKind.unlockSlot` reward.
 abstract final class RunTomeSlots {
-  static const weapon = SlotId('weapon');
-  static const armor = SlotId('armor');
-  static const footwear = SlotId('footwear');
-  static const technique1 = SlotId('technique_1');
-  static const technique2 = SlotId('technique_2');
-  static const all = [weapon, armor, footwear, technique1, technique2];
+  static const all = [
+    SlotId('slot_1'),
+    SlotId('slot_2'),
+    SlotId('slot_3'),
+    SlotId('slot_4'),
+    SlotId('slot_5'),
+    SlotId('slot_6'),
+    SlotId('slot_7'),
+    SlotId('slot_8'),
+    SlotId('slot_9'),
+  ];
 }
 
-/// The Tome slot(s) valid for [category] (an `ItemDefinition.category`
-/// value) — a pure game-layer mapping, not engine logic.
-List<SlotId> itemSlotsFor(String category) => switch (category) {
-      ItemCategories.weapon => const [RunTomeSlots.weapon],
-      ItemCategories.armor => const [RunTomeSlots.armor],
-      ItemCategories.footwear => const [RunTomeSlots.footwear],
-      _ => const [RunTomeSlots.weapon],
+/// The 3 style ids belonging to [tradition] (`MartialTraditions.western`/
+/// `.eastern`) — the second step of the run's two-step style choice.
+List<String> stylesFor(String tradition) => switch (tradition) {
+      MartialTraditions.western => const [MartialStyles.boxing, MartialStyles.wrestling, MartialStyles.fencing],
+      MartialTraditions.eastern => const [MartialStyles.shaolin, MartialStyles.taiChi, MartialStyles.wingChun],
+      _ => const [MartialStyles.boxing, MartialStyles.wrestling, MartialStyles.fencing],
     };

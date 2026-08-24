@@ -78,8 +78,32 @@ void main() {
 
     test('style id constants have the expected values', () {
       expect(MartialStyles.boxing, equals('boxing'));
+      expect(MartialStyles.wrestling, equals('wrestling'));
+      expect(MartialStyles.fencing, equals('fencing'));
       expect(MartialStyles.shaolin, equals('shaolin'));
       expect(MartialStyles.taiChi, equals('taiChi'));
+      expect(MartialStyles.wingChun, equals('wingChun'));
+    });
+
+    test('grants the western tradition tag for wrestling and fencing too', () {
+      final context = _newContext();
+      final wrestler = context.entities.create();
+      final fencer = context.entities.create();
+
+      learnStyle(wrestler, MartialStyles.wrestling, context);
+      learnStyle(fencer, MartialStyles.fencing, context);
+
+      expect(context.components.get<TagSet>(wrestler)!.tags, contains('western'));
+      expect(context.components.get<TagSet>(fencer)!.tags, contains('western'));
+    });
+
+    test('grants the eastern tradition tag for wingChun too', () {
+      final context = _newContext();
+      final practitioner = context.entities.create();
+
+      learnStyle(practitioner, MartialStyles.wingChun, context);
+
+      expect(context.components.get<TagSet>(practitioner)!.tags, contains('eastern'));
     });
 
     test('grants the western tradition tag for boxing, eastern for '
@@ -112,10 +136,10 @@ void main() {
       final context = _newContext();
       final entity = context.entities.create();
 
-      expect(() => learnStyle(entity, 'wrestling', context), returnsNormally);
+      expect(() => learnStyle(entity, 'krav_maga', context), returnsNormally);
 
       final tags = context.components.get<TagSet>(entity)!.tags;
-      expect(tags, containsAll(['martial', 'style:wrestling']));
+      expect(tags, containsAll(['martial', 'style:krav_maga']));
       expect(tags, isNot(contains('western')));
       expect(tags, isNot(contains('eastern')));
     });

@@ -11,7 +11,7 @@
 //
 // Mirrors `tool/vertical_slice_report.dart`'s structure for the older
 // vertical-slice proof — that tool is retained unchanged; this is its
-// counterpart for the newer `runGame` player loop.
+// counterpart for the newer `runGame` endless-loop player loop.
 
 import 'dart:io';
 
@@ -31,6 +31,8 @@ void main(List<String> args) {
 
   final signals = BalanceSignals.fromRuns(results);
   final distinctPhysiques = results.map((r) => r.physiqueId).toSet();
+  final distinctTraditions = results.map((r) => r.martialTradition).toSet();
+  final distinctStyles = results.map((r) => r.styleId).toSet();
   final distinctRewards = {for (final r in results) ...r.rewardsGranted};
   final distinctEvolutions = {for (final r in results) ...r.techniquesEvolved};
   final wins = results.where((r) => r.won).length;
@@ -40,24 +42,26 @@ void main(List<String> args) {
     ..writeln('Seeds: ${seeds.join(', ')}')
     ..writeln()
     ..writeln(
-      '${'seed'.padRight(6)}${'physique'.padRight(10)}${'style'.padRight(10)}'
-      '${'result'.padRight(8)}${'encounters'.padRight(12)}evolved',
+      '${'seed'.padRight(6)}${'physique'.padRight(10)}${'tradition'.padRight(10)}${'style'.padRight(10)}'
+      '${'result'.padRight(8)}${'cycles'.padRight(8)}evolved',
     );
   for (var i = 0; i < seeds.length; i++) {
     final r = results[i];
     summary.writeln(
-      '${'${seeds[i]}'.padRight(6)}${r.physiqueId.padRight(10)}${r.styleId.padRight(10)}'
-      '${(r.won ? 'WIN' : 'LOSS').padRight(8)}${'${r.encounters.length}'.padRight(12)}'
-      '${r.techniquesEvolved.join(',')}',
+      '${'${seeds[i]}'.padRight(6)}${r.physiqueId.padRight(10)}${r.martialTradition.padRight(10)}'
+      '${r.styleId.padRight(10)}${(r.won ? 'WIN' : 'LOSS').padRight(8)}'
+      '${'${r.cyclesCompleted}'.padRight(8)}${r.techniquesEvolved.join(',')}',
     );
   }
   summary
     ..writeln()
     ..writeln('Diversity:')
     ..writeln('  physique diversity:  ${distinctPhysiques.length} distinct (${distinctPhysiques.join(', ')})')
+    ..writeln('  tradition diversity: ${distinctTraditions.length} distinct (${distinctTraditions.join(', ')})')
+    ..writeln('  style diversity:     ${distinctStyles.length} distinct (${distinctStyles.join(', ')})')
     ..writeln('  reward diversity:    ${distinctRewards.length} distinct')
     ..writeln('  evolution diversity: ${distinctEvolutions.length} distinct (${distinctEvolutions.join(', ')})')
-    ..writeln('  win/loss:            $wins won / ${seeds.length - wins} lost')
+    ..writeln('  win/loss:            $wins survived / ${seeds.length - wins} died')
     ..writeln()
     ..writeln('Balance signals (measured, not tuned):')
     ..writeln('  avg time to first reward:              ${signals.averageTimeToFirstReward}')
@@ -67,7 +71,9 @@ void main(List<String> args) {
     ..writeln('  avg training attempts:                  ${signals.averageTrainingAttempts.toStringAsFixed(2)}')
     ..writeln('  build diversity:                        ${signals.buildDiversity.toStringAsFixed(2)}')
     ..writeln('  avg combat duration (turns/encounter):  ${signals.averageCombatDuration.toStringAsFixed(2)}')
-    ..writeln('  boss win rate:                          ${signals.bossWinRate.toStringAsFixed(2)}');
+    ..writeln('  elite/boss-tier fight win rate:         ${signals.eliteWinRate.toStringAsFixed(2)}')
+    ..writeln('  avg cycles completed:                   ${signals.averageCyclesCompleted.toStringAsFixed(2)}')
+    ..writeln('  survival rate (reached the cap):        ${signals.survivalRate.toStringAsFixed(2)}');
 
   File('${outputDir.path}/game_run_summary.txt').writeAsStringSync(summary.toString());
 

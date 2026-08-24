@@ -2,15 +2,22 @@ import 'package:build_engine/build_engine.dart';
 
 import 'martial_vocabulary.dart';
 
-/// The three martial styles this plugin's vertical slice implements. Not
-/// components — a style is a marker tag (`style:<id>`) granted by
-/// [learnStyle]. `martial` is granted alongside it so any future content
-/// plugin can query "is this a martial-arts practitioner" without knowing
-/// which specific style.
+/// The six martial styles this plugin implements — three western, three
+/// eastern (`_traditionTagFor`), one archetype apiece (offense/defense/
+/// speed) purely as a naming rationale, not a mechanical tag system:
+/// boxing=offense, wrestling=defense, fencing=speed (western); shaolin=
+/// offense, taiChi=defense, wingChun=speed (eastern). Not components — a
+/// style is a marker tag (`style:<id>`) granted by [learnStyle]. `martial`
+/// is granted alongside it so any future content plugin can query "is
+/// this a martial-arts practitioner" without knowing which specific
+/// style.
 abstract final class MartialStyles {
   static const boxing = 'boxing';
+  static const wrestling = 'wrestling';
+  static const fencing = 'fencing';
   static const shaolin = 'shaolin';
   static const taiChi = 'taiChi';
+  static const wingChun = 'wingChun';
 }
 
 /// Grants [entity] the `martial`, `style:$styleId`, and broad-tradition
@@ -52,12 +59,14 @@ void learnStyle(EntityId entity, String styleId, PluginContext context) {
 }
 
 /// The broad martial tradition [styleId] belongs to, or `null` for a
-/// style id outside this plugin's three known styles — an entity may
+/// style id outside this plugin's six known styles — an entity may
 /// still learn an unrecognized style (this plugin's vertical slice
 /// doesn't gate that), it simply gets no tradition tag, so nothing
 /// downstream (e.g. Physique's synergy modifiers) reacts to it.
 String? _traditionTagFor(String styleId) => switch (styleId) {
-      MartialStyles.boxing => MartialTraditions.western,
-      MartialStyles.shaolin || MartialStyles.taiChi => MartialTraditions.eastern,
+      MartialStyles.boxing || MartialStyles.wrestling || MartialStyles.fencing =>
+        MartialTraditions.western,
+      MartialStyles.shaolin || MartialStyles.taiChi || MartialStyles.wingChun =>
+        MartialTraditions.eastern,
       _ => null,
     };

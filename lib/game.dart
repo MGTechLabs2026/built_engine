@@ -11,6 +11,7 @@
 library;
 
 export 'src/plugins/game/balance_signals.dart';
+export 'src/plugins/game/console_decision_policy.dart';
 export 'src/plugins/game/decision_log.dart';
 export 'src/plugins/game/enemy.dart';
 export 'src/plugins/game/game_run.dart';

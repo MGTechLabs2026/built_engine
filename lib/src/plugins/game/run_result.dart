@@ -31,7 +31,7 @@ class EncounterOutcome {
   final int turnsUsed;
 }
 
-/// One Training Opportunity's raw outcome — enough to compute "training
+/// One training session's raw outcome — enough to compute "training
 /// attempts" and "training performance" without re-deriving them from
 /// the Tome history.
 class TrainingRecord {
@@ -52,16 +52,18 @@ class TrainingRecord {
   final num gain;
 }
 
-/// Everything the milestone asks `runGame` to record, in one immutable
-/// snapshot — the complete history of one run, sufficient on its own to
-/// build both the Playtest Report and (across several of these) the
-/// multi-seed Balance Signals.
+/// Everything `runGame` records, in one immutable snapshot — the
+/// complete history of one run, sufficient on its own to build both the
+/// Playtest Report and (across several of these) the multi-seed Balance
+/// Signals.
 class RunResult {
   const RunResult({
     required this.seed,
+    required this.characterName,
     required this.runDuration,
     required this.decisionLog,
     required this.physiqueId,
+    required this.martialTradition,
     required this.styleId,
     required this.tomeHistory,
     required this.itemsDiscovered,
@@ -74,12 +76,17 @@ class RunResult {
     required this.trainingRecords,
     required this.finalBuild,
     required this.won,
+    required this.cyclesCompleted,
     this.firstRewardStep,
     this.firstItemMasteryStep,
     this.firstTechniqueEvolutionStep,
   });
 
   final int seed;
+
+  /// Cosmetic only — has no effect on gameplay or determinism, purely
+  /// for identifying whose run this was in a report.
+  final String characterName;
 
   /// Wall-clock time `runGame` itself took to compute the whole run — an
   /// engineering measurement (how expensive is one simulated run), not a
@@ -92,6 +99,7 @@ class RunResult {
   final DecisionLog decisionLog;
 
   final String physiqueId;
+  final String martialTradition;
   final String styleId;
   final List<TomeSnapshot> tomeHistory;
   final List<String> itemsDiscovered;
@@ -106,15 +114,31 @@ class RunResult {
   final List<String> itemsUnlocked;
   final List<String> techniquesLearned;
   final List<String> techniquesEvolved;
+
+  /// Every fight this run, across every completed cycle — up to 3 per
+  /// cycle, in order fought.
   final List<EncounterOutcome> encounters;
+
+  /// One entry per reward actually granted, e.g. `'slot:slot_3'`,
+  /// `'upgrade_point'`, `'item:iron_sword'`, `'technique:basic_slash'`.
   final List<String> rewardsGranted;
   final List<TrainingRecord> trainingRecords;
   final List<BuildComponentRef> finalBuild;
+
+  /// `true` if the run survived to the 200-cycle safety cap; `false` if
+  /// the player died first. This is an endless-until-death run — the cap
+  /// exists purely so the headless simulation can't loop forever, not as
+  /// a game-design "win."
   final bool won;
 
-  /// The 0-based `runSequence` step index of the first reward/item-
-  /// mastery/technique-evolution this run produced — `null` if it never
-  /// happened. The "time to first X" balance signals.
+  /// How many full combat-or-training cycles were completed before the
+  /// run ended (death, or the safety cap) — the natural "how far did you
+  /// get" score for an endless run.
+  final int cyclesCompleted;
+
+  /// The 0-based cycle index of the first reward/item-mastery/technique-
+  /// evolution this run produced — `null` if it never happened. The
+  /// "time to first X" balance signals.
   final int? firstRewardStep;
   final int? firstItemMasteryStep;
   final int? firstTechniqueEvolutionStep;

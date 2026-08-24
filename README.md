@@ -79,6 +79,32 @@ where noted):
   spells, the reference example for writing a third-party plugin.
 - **Physique** *(Core only)* — character body types with cross-plugin
   synergy via shared tags, with zero import coupling to MartialArts.
+- **Item** *(Core only)* — the real item lifecycle (unknown →
+  discovered → locked → usable → placed in a Tome), built entirely on
+  Discovery/Mastery/Tome, with zero item-specific vocabulary in Core.
+- **Technique** *(Core only)* — the real technique lifecycle (discover
+  → learning → learned → evolve), built on Discovery/Progression/the
+  Evolution System, independent of Item and MartialArts.
+
+On top of those, two composition layers combine multiple plugins
+without modifying any of them:
+
+- **Build Interpretation** *(depends on Technique, Item, Combat)* — the
+  bridging layer between a resolved Tome (`ActiveBuild`) and Combat
+  (`CombatAction`), the same "separate layer" positioning `AutoCombat`
+  already established for Combat itself.
+- **Game** *(depends on Physique, MartialArts, Item, Technique,
+  Training, Tome, Build Interpretation, AutoCombat, Combat)* — the
+  first real headless game run: `runGame(seed, {policy, eventBus})`
+  composes every plugin above into one deterministic ~10–15 minute run
+  (encounters, elites, a boss, reward/training/Tome decisions). Also
+  provides the tooling for the first human playtest: 10 new telemetry
+  events on the existing `EventBus` (observable live via the optional
+  `eventBus` parameter), a `DecisionLog` +
+  `RecordingDecisionPolicy`/`ReplayDecisionPolicy` pair so a seed and
+  its recorded decisions reproduce the exact same run, a per-run
+  `formatPlaytestReport`, and cross-seed `BalanceSignals`. See
+  `tool/game_run_report.dart` for a runnable multi-seed report.
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for how every implemented
 service and plugin fits together and why, [`PLUGIN_SYSTEM.md`](PLUGIN_SYSTEM.md)
@@ -112,6 +138,10 @@ lib/
   martial_arts_plugin.dart  # MartialArts plugin barrel
   elemental_plugin.dart     # Elemental plugin barrel
   physique_plugin.dart      # Physique plugin barrel
+  item_plugin.dart          # Item plugin barrel
+  technique_plugin.dart     # Technique plugin barrel
+  build_interpretation.dart # Build Interpretation layer barrel
+  game.dart                 # Game composition layer barrel
   src/
     entity/       # EntityId, EntityRegistry
     component/     # ComponentStore
@@ -136,13 +166,23 @@ lib/
     evolution/     # Evolution System
     reward/        # Reward/Loot system
     plugins/
-      combat/        # Combat plugin
-      auto_combat/   # AutoCombat plugin
-      martial_arts/  # MartialArts plugin (-> combat)
-      elemental/     # Elemental plugin (Core only)
-      physique/      # Physique plugin (Core only)
+      combat/                # Combat plugin
+      auto_combat/           # AutoCombat plugin
+      martial_arts/          # MartialArts plugin (-> combat)
+      elemental/             # Elemental plugin (Core only)
+      physique/              # Physique plugin (Core only)
+      item/                  # Item plugin (Core only)
+      technique/             # Technique plugin (Core only)
+      build_interpretation/  # Build -> Action bridging layer
+      game/                  # Game composition layer: runGame, telemetry,
+                              # decision log, playtest report, balance signals
 test/
   ...            # unit tests, mirroring lib/'s layout
+  game/          # tests for the runGame composition layer, telemetry,
+                 # decision-log replay, multi-seed diversity, playtest report
   integration/   # cross-service/cross-plugin integration tests,
                  # including the architecture dependency-governance suite
+tool/
+  vertical_slice_report.dart # multi-seed report for the vertical-slice proof
+  game_run_report.dart       # multi-seed playtest report for runGame
 ```

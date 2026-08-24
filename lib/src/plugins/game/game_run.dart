@@ -15,13 +15,17 @@ import 'run_events.dart';
 import 'run_result.dart';
 import 'training_simulation.dart';
 
-/// The player loop the milestone asks for, executed headlessly and
-/// deterministically from (seed, policy):
+/// The endless roguelike loop:
 ///
-///   New Run -> Random Physique -> Starting martial style -> Starting
-///   Tome -> Combat -> Reward -> Discovery -> Training -> Mastery/
-///   Learning -> Evolution -> Tome rebuild -> Combat -> ... -> Elite ->
-///   Boss -> Run result
+///   New Run -> name -> Random Physique -> martial tradition -> starting
+///   style -> Starting Tome (knife + cloth armor, 2 of 9 slots unlocked)
+///   -> [combat or training] -> (combat: 3 fights, one reward choice
+///   after each) or (training: one session) -> restore health -> Manage
+///   Tome (spend banked upgrade points) -> loop
+///
+/// Repeats until the player dies (`won: false`) or a 200-cycle safety
+/// cap is reached alive (`won: true`) — the cap is a pure engineering
+/// safety net for the headless simulation, not a game-design "win."
 ///
 /// Built entirely by composing the plugins that already implement every
 /// stage — nothing here is new engine machinery:
@@ -31,23 +35,28 @@ import 'training_simulation.dart';
 ///     gating)
 ///   - `TomeService` (`context.tome`) for the Tome itself
 ///   - `CompositeBuildActionInterpreter` (Build Interpretation) to turn
-///     `ActiveBuild` into `CombatAction`s — the real replacement for the
-///     old vertical-slice `_actionFor`/`_damageTable` bridge
+///     `ActiveBuild` into `CombatAction`s
 ///   - `AutoCombatController` + `CombatPolicy.scored()` for automatic
 ///     combat — the player never picks an attack directly
 ///   - `TrainingSession` + `TimingExercise` +
 ///     `techniqueTrainingExerciseFor`/`itemTrainingExerciseFor` for
 ///     training
 ///   - `EvolutionResolver` (via `evolveTechnique`) for evolution
+///   - `context.resources` (the generic Resource Engine) for banked
+///     upgrade points
+///   - `context.modifiers` (the generic Modifier Engine) for permanent
+///     upgrade-point stat bumps, stacking on top of whatever
+///     `ItemActionInterpreter`/`TechniqueActionInterpreter` already add
 ///
 /// [seed] is the sole source of randomness (enemy AI has none; training
-/// attempt quality and the reward pool's order are the two places `rng`
-/// is actually drawn from). [policy] is the sole source of player
-/// agency — reward choice, training target, Tome slot, and replace-or-not
-/// all flow through it, so two calls with the same seed but different
-/// policies produce different builds, per the milestone's "player
-/// decisions determine build evolution." Every decision [policy] actually
-/// makes is recorded into `RunResult.decisionLog` — replay it via
+/// attempt quality, the reward pool's shuffle order, and which pool
+/// entry each fight draws are the places `rng` is actually drawn from).
+/// [characterName] is cosmetic only — it has no effect on gameplay or
+/// determinism, purely for identifying whose run this was in a report.
+/// [policy] is the sole source of player agency; two calls with the same
+/// seed but different policies produce different runs, per "player
+/// decisions determine build evolution." Every decision [policy] makes
+/// is recorded into `RunResult.decisionLog` — replay it via
 /// `runGame(seed, policy: ReplayDecisionPolicy(previousResult.decisionLog))`
 /// to reproduce the exact same run.
 ///
@@ -55,15 +64,10 @@ import 'training_simulation.dart';
 /// subscribe to whichever event types you care about *before* calling
 /// `runGame`, and pass it in — every telemetry event publishes to that
 /// same bus as the run executes, not only after it returns. Omitted, a
-/// private `EventBus` is used internally (nothing to subscribe to from
-/// outside, but no behavior changes).
-///
-/// Publishes the telemetry events documented in `run_events.dart` through
-/// `context.events` — the same `EventBus` every other system already
-/// uses — throughout the run, for a developer to subscribe to and watch
-/// live, in addition to the full `RunResult` returned at the end.
+/// private `EventBus` is used internally.
 RunResult runGame(
   int seed, {
+  String characterName = 'Player',
   RunDecisionPolicy policy = const DefaultRunDecisionPolicy(),
   EventBus? eventBus,
 }) {
@@ -93,7 +97,7 @@ RunResult runGame(
     shared: shared,
   );
 
-  events.publish(RunStarted(seed));
+  events.publish(RunStarted(seed: seed, characterName: characterName));
 
   final combatPlugin = CombatPlugin()..initialize(context);
   // MartialArtsPlugin.dependencies => ['combat'] must already be initialized.
@@ -110,19 +114,22 @@ RunResult runGame(
   context.components.add(character, const HealthComponent(current: 100, max: 100));
 
   // ---- Random Physique -------------------------------------------------
-  // Publishes the existing PhysiqueAssigned event — no duplicate needed.
   final physiqueId = initializePhysique(character, context);
 
-  // ---- Starting martial style (player decision) -------------------------
-  final styleId = recordingPolicy
-      .chooseStartingStyle(const [MartialStyles.boxing, MartialStyles.shaolin, MartialStyles.taiChi]);
+  // ---- Martial tradition + starting style (player decisions) -----------
+  final traditionId = recordingPolicy
+      .chooseMartialTradition(const [MartialTraditions.western, MartialTraditions.eastern]);
+  final styleId = recordingPolicy.chooseStartingStyle(stylesFor(traditionId));
   learnStyle(character, styleId, context);
 
-  // ---- Starting Tome -----------------------------------------------------
+  // ---- Starting Tome: 9 generic slots, 2 unlocked at start --------------
   context.tome.defineTome(
     TomeDefinition.namedSlots(id: 'run_tome', slotIds: [for (final s in RunTomeSlots.all) s.id]),
   );
   context.tome.createTome(character, 'run_tome');
+
+  final unlockedSlots = <SlotId>[RunTomeSlots.all[0], RunTomeSlots.all[1]];
+  var nextLockedSlotIndex = 2;
 
   final tomeHistory = <TomeSnapshot>[];
   final itemsDiscovered = <String>[];
@@ -133,7 +140,8 @@ RunResult runGame(
   final rewardsGranted = <String>[];
   final trainingRecords = <TrainingRecord>[];
   final encounters = <EncounterOutcome>[];
-  var stepIndex = 0;
+  var cycleIndex = 0;
+  var upgradeSpendCounter = 0;
   int? firstRewardStep;
   int? firstItemMasteryStep;
   int? firstTechniqueEvolutionStep;
@@ -144,19 +152,19 @@ RunResult runGame(
     events.publish(TomeChanged(stepName: stepName, components: snapshotComponents));
   }
 
-  List<SlotId> orderedSlots(List<SlotId> slots) {
+  List<SlotId> orderedUnlockedSlots() {
     final occupied = context.tome.inspect(character).map((p) => p.slot).toSet();
     return [
-      for (final s in slots)
+      for (final s in unlockedSlots)
         if (!occupied.contains(s)) s,
-      for (final s in slots)
+      for (final s in unlockedSlots)
         if (occupied.contains(s)) s,
     ];
   }
 
   void placeItem(ItemDefinition item, String stepName) {
     final ref = BuildComponentRef(referenceType: itemReferenceType, contentId: item.id);
-    final slot = recordingPolicy.chooseSlot(ref, orderedSlots(itemSlotsFor(item.category)));
+    final slot = recordingPolicy.chooseSlot(ref, orderedUnlockedSlots());
     final existing = context.tome.inspect(character).where((p) => p.slot == slot);
     if (existing.isNotEmpty) {
       if (!recordingPolicy.chooseReplace(slot, existing.single.buildComponentRef, ref)) return;
@@ -169,8 +177,7 @@ RunResult runGame(
 
   void placeTechnique(TechniqueDefinition technique, String stepName) {
     final ref = BuildComponentRef(referenceType: techniqueReferenceType, contentId: technique.id);
-    final slot = recordingPolicy
-        .chooseSlot(ref, orderedSlots(const [RunTomeSlots.technique1, RunTomeSlots.technique2]));
+    final slot = recordingPolicy.chooseSlot(ref, orderedUnlockedSlots());
     final existing = context.tome.inspect(character).where((p) => p.slot == slot);
     if (existing.isNotEmpty) {
       if (!recordingPolicy.chooseReplace(slot, existing.single.buildComponentRef, ref)) return;
@@ -180,15 +187,10 @@ RunResult runGame(
     snapshot(stepName);
   }
 
-  /// Evolution is the unlock mechanism for an evolved branch — it has no
-  /// registered learning threshold of its own (only the 3 base techniques
-  /// do), so it enters the Tome directly at whichever slot its base
-  /// technique already occupied, exactly the pattern the original
-  /// vertical slice already established for evolved content.
+  /// Evolution is the unlock mechanism for an evolved branch — it enters
+  /// the Tome directly at whichever slot its base technique already
+  /// occupied.
   void replaceWithEvolved(String baseId, String evolvedId, String stepName) {
-    // BuildComponentRef has no custom == (see ARCHITECTURE.md — Tome
-    // placements are plain value data, not identity-compared), so the
-    // match must compare fields directly rather than `==`.
     final placement = context.tome.inspect(character).where((p) =>
         p.buildComponentRef.referenceType == techniqueReferenceType &&
         p.buildComponentRef.contentId == baseId).toList();
@@ -201,18 +203,106 @@ RunResult runGame(
     snapshot(stepName);
   }
 
-  // ---- Starting kit: granted free, already discovered/learned -----------
-  final startingItem = itemDefinition(RunStartingKit.itemId, context);
-  ownItem(character, startingItem.id, context);
-  discoverItem(character, startingItem, context);
-  itemsDiscovered.add(startingItem.id);
-  placeItem(startingItem, 'Starting Tome (item)');
+  void restoreHealth() {
+    const Heal(9999).apply(context.ruleContextFor(character));
+  }
 
-  final startingTechnique = techniqueDefinition(RunStartingKit.techniqueId, context);
-  discoverTechnique(character, startingTechnique, context);
-  attemptToLearnTechnique(character, startingTechnique, 10, context);
-  techniquesLearned.add(startingTechnique.id);
-  placeTechnique(startingTechnique, 'Starting Tome (technique)');
+  void applyUpgrade(String choice) {
+    if (choice == 'stat:health') {
+      final health = context.components.get<HealthComponent>(character)!;
+      context.components
+          .add(character, HealthComponent(current: health.current + 15, max: health.max + 15));
+      return;
+    }
+    if (choice == 'stat:speed') {
+      final combatant = context.components.get<CombatantComponent>(character)!;
+      context.components
+          .add(character, CombatantComponent(team: combatant.team, initiative: combatant.initiative + 2));
+      return;
+    }
+    if (choice == 'stat:attack') {
+      for (final tag in WeaponStatTags.values) {
+        context.modifiers.add(Modifier(
+          source: ModifierSource('upgrade:stat:attack:${character.value}:$upgradeSpendCounter:$tag'),
+          target: character,
+          stat: tag,
+          operation: ModifierOperation.add,
+          value: 2,
+        ));
+      }
+      return;
+    }
+    if (choice.startsWith('item:')) {
+      final id = choice.substring('item:'.length);
+      final item = itemDefinition(id, context);
+      final stat = WeaponStatTags.matchOrFallback(item.tags, 'item:$id');
+      context.modifiers.add(Modifier(
+        source: ModifierSource('upgrade:item:$id:${character.value}:$upgradeSpendCounter'),
+        target: character,
+        stat: stat,
+        operation: ModifierOperation.add,
+        value: 2,
+      ));
+      return;
+    }
+    if (choice.startsWith('technique:')) {
+      final id = choice.substring('technique:'.length);
+      final technique = techniqueDefinition(id, context);
+      final stat = WeaponStatTags.matchOrFallback(technique.tags, techniqueSubject(id));
+      context.modifiers.add(Modifier(
+        source: ModifierSource('upgrade:technique:$id:${character.value}:$upgradeSpendCounter'),
+        target: character,
+        stat: stat,
+        operation: ModifierOperation.add,
+        value: 2,
+      ));
+    }
+  }
+
+  void manageTome() {
+    while (context.resources.currentOf(character, 'upgrade_points') > 0) {
+      final ownedItemIds = <String>{};
+      for (final entity in context.components.entitiesWith<ItemInstance>()) {
+        final instance = context.components.get<ItemInstance>(entity)!;
+        if (instance.owner == character) ownedItemIds.add(instance.definitionId);
+      }
+      final knownTechniqueIds = <String>{
+        for (final id in rewardPoolTechniqueIds)
+          if (isTechniqueLearned(character, techniqueDefinition(id, context), context)) id,
+      };
+      final candidates = <String>[
+        'stat:health',
+        'stat:attack',
+        'stat:speed',
+        for (final id in ownedItemIds) 'item:$id',
+        for (final id in knownTechniqueIds) 'technique:$id',
+        'skip',
+      ];
+      final choice = recordingPolicy.chooseUpgradeSpend(candidates);
+      if (choice == 'skip') return;
+      context.resources.subtract(character, 'upgrade_points', 1);
+      upgradeSpendCounter++;
+      applyUpgrade(choice);
+      events.publish(UpgradePointSpent(target: choice, amount: 1));
+    }
+  }
+
+  // ---- Starting kit: granted free, already discovered ---------------
+  for (final itemId in RunStartingKit.itemIds) {
+    final item = itemDefinition(itemId, context);
+    ownItem(character, item.id, context);
+    discoverItem(character, item, context);
+    itemsDiscovered.add(item.id);
+    if (item.requirement != null) {
+      // Instantly satisfy whatever mastery threshold this item's own
+      // content requires — a real reward-path grant of the same item
+      // still requires real training; only the starting-kit grant is
+      // treated as already-mastered gear.
+      context.mastery.increase(character, itemSubject(item.id), 999);
+    }
+    placeItem(item, 'Starting Tome ($itemId)');
+  }
+  manageTome();
 
   // ---- Reward pool: every id beyond the starting kit, seed-shuffled -----
   final rewardPool = seededShuffle(
@@ -229,9 +319,11 @@ RunResult runGame(
     events.publish(RunEnded(won: won, encounterCount: encounters.length));
     return RunResult(
       seed: seed,
+      characterName: characterName,
       runDuration: stopwatch.elapsed,
       decisionLog: recordingPolicy.toLog(),
       physiqueId: physiqueId,
+      martialTradition: traditionId,
       styleId: styleId,
       tomeHistory: tomeHistory,
       itemsDiscovered: itemsDiscovered,
@@ -244,37 +336,55 @@ RunResult runGame(
       trainingRecords: trainingRecords,
       finalBuild: context.tome.resolve(character).components,
       won: won,
+      cyclesCompleted: cycleIndex,
       firstRewardStep: firstRewardStep,
       firstItemMasteryStep: firstItemMasteryStep,
       firstTechniqueEvolutionStep: firstTechniqueEvolutionStep,
     );
   }
 
-  void grantReward(String stepName) {
-    if (rewardIndex >= rewardPool.length) return;
-    final offerCount = (rewardPool.length - rewardIndex).clamp(0, 2);
-    final offered = rewardPool.sublist(rewardIndex, rewardIndex + offerCount);
-    rewardIndex += offerCount;
-    final refs = [for (final o in offered) BuildComponentRef(referenceType: o.referenceType, contentId: o.contentId)];
-    events.publish(RewardOffered(refs));
-    final chosen = offered[recordingPolicy.chooseReward(refs)];
-    events.publish(RewardSelected(
-      BuildComponentRef(referenceType: chosen.referenceType, contentId: chosen.contentId),
-    ));
-    firstRewardStep ??= stepIndex;
+  List<RewardKind> rewardCandidates() => [
+        if (nextLockedSlotIndex < RunTomeSlots.all.length) RewardKind.unlockSlot,
+        if (rewardIndex < rewardPool.length) RewardKind.itemOrTechnique,
+        RewardKind.upgradePoint,
+      ];
 
-    if (chosen.referenceType == itemReferenceType) {
-      final item = itemDefinition(chosen.contentId, context);
-      ownItem(character, item.id, context);
-      discoverItem(character, item, context);
-      itemsDiscovered.add(item.id);
-      rewardsGranted.add('item:${item.id}');
-      if (isItemUsable(character, item, context)) placeItem(item, '$stepName reward');
-    } else {
-      final technique = techniqueDefinition(chosen.contentId, context);
-      discoverTechnique(character, technique, context);
-      rewardsGranted.add('technique:${technique.id}');
+  String resolveReward(RewardKind kind, String stepName) {
+    switch (kind) {
+      case RewardKind.unlockSlot:
+        final slot = RunTomeSlots.all[nextLockedSlotIndex];
+        unlockedSlots.add(slot);
+        nextLockedSlotIndex++;
+        events.publish(SlotUnlocked(slot));
+        return 'slot:${slot.id}';
+      case RewardKind.itemOrTechnique:
+        final entry = rewardPool[rewardIndex];
+        rewardIndex++;
+        if (entry.referenceType == itemReferenceType) {
+          final item = itemDefinition(entry.contentId, context);
+          ownItem(character, item.id, context);
+          discoverItem(character, item, context);
+          itemsDiscovered.add(item.id);
+          if (isItemUsable(character, item, context)) placeItem(item, '$stepName reward');
+          return 'item:${item.id}';
+        } else {
+          final technique = techniqueDefinition(entry.contentId, context);
+          discoverTechnique(character, technique, context);
+          return 'technique:${technique.id}';
+        }
+      case RewardKind.upgradePoint:
+        context.resources.add(character, 'upgrade_points', 1);
+        return 'upgrade_point';
     }
+  }
+
+  void grantReward(String stepName) {
+    final candidates = rewardCandidates();
+    events.publish(RewardOffered(candidates));
+    final chosenKind = candidates[recordingPolicy.chooseReward(candidates)];
+    events.publish(RewardSelected(chosenKind));
+    firstRewardStep ??= cycleIndex;
+    rewardsGranted.add(resolveReward(chosenKind, stepName));
   }
 
   List<String> trainingCandidates() {
@@ -287,7 +397,7 @@ RunResult runGame(
       for (final id in ownedItemIds)
         if (!isItemUsable(character, itemDefinition(id, context), context)) itemSubject(id),
     ];
-    for (final id in [RunStartingKit.techniqueId, ...rewardPoolTechniqueIds]) {
+    for (final id in rewardPoolTechniqueIds) {
       final technique = techniqueDefinition(id, context);
       if (isTechniqueDiscovered(character, technique, context) &&
           !isTechniqueLearned(character, technique, context)) {
@@ -297,12 +407,7 @@ RunResult runGame(
     return candidates;
   }
 
-  void runTraining(String stepName) {
-    // A Training Opportunity doubles as a rest point — reuses the
-    // existing generic `Heal` effect, nothing new. Capped at max by
-    // `Heal`'s own clamp, so this never overheals.
-    const Heal(35).apply(context.ruleContextFor(character));
-
+  void runTraining() {
     final candidates = trainingCandidates();
     if (candidates.isEmpty) return;
     final target = recordingPolicy.chooseTrainingTarget(candidates);
@@ -333,8 +438,8 @@ RunResult runGame(
       final nowUsable = isItemUsable(character, item, context);
       if (!wasUsable && nowUsable) {
         itemsMastered.add(itemId);
-        firstItemMasteryStep ??= stepIndex;
-        placeItem(item, '$stepName (item mastered)');
+        firstItemMasteryStep ??= cycleIndex;
+        placeItem(item, 'Training (item mastered)');
       }
     } else {
       final techniqueId = target.substring('technique:'.length);
@@ -359,20 +464,32 @@ RunResult runGame(
       final learning = attemptToLearnTechnique(character, technique, gain, context);
       if (learning.learned) {
         techniquesLearned.add(techniqueId);
-        placeTechnique(technique, '$stepName (technique learned)');
+        placeTechnique(technique, 'Training (technique learned)');
 
         if (technique.evolutionCandidates.isNotEmpty) {
           final evolution = evolveTechnique(character, technique, result.profile, context);
           if (evolution.evolved) {
             final evolvedId = evolution.chosenCandidate!.targetId;
             techniquesEvolved.add(evolvedId);
-            firstTechniqueEvolutionStep ??= stepIndex;
+            firstTechniqueEvolutionStep ??= cycleIndex;
             events.publish(TechniqueEvolved(fromId: techniqueId, toId: evolvedId));
-            replaceWithEvolved(techniqueId, evolvedId, '$stepName (evolved)');
+            replaceWithEvolved(techniqueId, evolvedId, 'Training (evolved)');
           }
         }
       }
     }
+  }
+
+  String fallbackStrikeStat(ActiveBuild build) {
+    for (final ref in build.components) {
+      if (ref.referenceType != itemReferenceType) continue;
+      final definition = context.content.find(ref.contentId);
+      if (definition == null) continue;
+      final item = itemDefinitionFromContent(definition);
+      if (!item.properties.containsKey('attack')) continue;
+      return WeaponStatTags.matchOrFallback(item.tags, 'item:${item.id}');
+    }
+    return 'fist';
   }
 
   EntityId spawnEnemy(Enemy enemy) {
@@ -383,29 +500,39 @@ RunResult runGame(
     return entity;
   }
 
-  bool runCombat(RunStep step) {
-    final enemy = step.enemy!;
-    events.publish(EncounterStarted(name: step.name, enemyId: enemy.id));
+  bool runFight(String name, Enemy enemy) {
+    events.publish(EncounterStarted(name: name, enemyId: enemy.id));
     final enemyEntity = spawnEnemy(enemy);
     final build = context.tome.resolve(character);
     events.publish(ActiveBuildResolved(build.components));
     final playerActions =
         interpreter.interpret(build: build, actor: character, targets: [enemyEntity], context: context);
+    // With no technique active in the Tome (the run's own starting state,
+    // and any cycle where training hasn't produced one yet), `interpreter`
+    // returns no player action at all — `AutoCombatController.step`
+    // treats "no legal action for the current actor" as a hard stop, so
+    // the battle would stall at full health rather than resolve. A
+    // minimal always-available strike keeps the player able to act; it
+    // reads whichever weapon-stat tag the active weapon item (if any)
+    // already contributes a Modifier to — the same `_statFor` computation
+    // `ItemActionInterpreter` itself uses — so an equipped knife still
+    // helps even with no technique to swing it; falling back to bare-
+    // handed `'fist'` only if no weapon is active either.
+    final effectivePlayerActions = playerActions.isEmpty
+        ? [AttackAction(actor: character, targets: [enemyEntity], baseDamage: 4, damageStat: fallbackStrikeStat(build))]
+        : playerActions;
     final battle = combatPlugin.system.startBattle([character, enemyEntity]);
     final controller = AutoCombatController(
       context: context,
       combatSystem: combatPlugin.system,
       battle: battle,
       availableActions: [
-        ...playerActions,
+        ...effectivePlayerActions,
         AttackAction(actor: enemyEntity, targets: [character], baseDamage: enemy.damage, damageStat: enemy.damageStat),
       ],
       policy: CombatPolicy.scored(),
     );
 
-    // ActionStarted already fires per action (Combat's own event) — this
-    // only counts them for the "combat duration" balance signal, scoped
-    // to this one battle.
     var turnsUsed = 0;
     final subscription = events.subscribe<ActionCompleted>((e) {
       if (e.battle == battle) turnsUsed++;
@@ -416,30 +543,50 @@ RunResult runGame(
     final playerHealth = context.components.get<HealthComponent>(character)!.current;
     final won = playerHealth > 0 && !controller.isActive;
     encounters.add(EncounterOutcome(
-      name: step.name,
+      name: name,
       enemyId: enemy.id,
       won: won,
       playerHealthAfter: playerHealth,
       turnsUsed: turnsUsed,
     ));
-    events.publish(EncounterResolved(
-      name: step.name,
-      enemyId: enemy.id,
-      won: won,
-      playerHealthAfter: playerHealth,
-    ));
-    if (won) grantReward(step.name);
+    events.publish(EncounterResolved(name: name, enemyId: enemy.id, won: won, playerHealthAfter: playerHealth));
     return won;
   }
 
-  // ---- Run the linear graph ----------------------------------------------
-  for (; stepIndex < runSequence.length; stepIndex++) {
-    final step = runSequence[stepIndex];
-    if (step.type == RunStepType.combat) {
-      if (!runCombat(step)) return buildResult(won: false);
-    } else {
-      runTraining(step.name);
+  // ---- The endless loop --------------------------------------------------
+  const cycleCap = 200;
+  for (cycleIndex = 0; cycleIndex < cycleCap; cycleIndex++) {
+    final cycleNumber = cycleIndex + 1;
+    events.publish(CycleStarted(cycleNumber));
+
+    final choice = recordingPolicy.chooseCombatOrTraining(const ['combat', 'training']);
+    if (choice == 'training') {
+      runTraining();
+      restoreHealth();
+      manageTome();
+      continue;
     }
+
+    final weakBase1 = RunEnemies.weakPool[rng.nextInt(RunEnemies.weakPool.length)];
+    if (!runFight('Cycle $cycleNumber Fight 1', scaledEnemy(weakBase1, cycleNumber))) {
+      return buildResult(won: false);
+    }
+    grantReward('Cycle $cycleNumber Fight 1');
+
+    final weakBase2 = RunEnemies.weakPool[rng.nextInt(RunEnemies.weakPool.length)];
+    if (!runFight('Cycle $cycleNumber Fight 2', scaledEnemy(weakBase2, cycleNumber))) {
+      return buildResult(won: false);
+    }
+    grantReward('Cycle $cycleNumber Fight 2');
+
+    final eliteBase = RunEnemies.eliteBossPool[rng.nextInt(RunEnemies.eliteBossPool.length)];
+    if (!runFight('Cycle $cycleNumber Fight 3', scaledEnemy(eliteBase, cycleNumber))) {
+      return buildResult(won: false);
+    }
+    grantReward('Cycle $cycleNumber Fight 3');
+
+    restoreHealth();
+    manageTome();
   }
 
   return buildResult(won: true);

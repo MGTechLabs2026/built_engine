@@ -1,23 +1,28 @@
 import 'package:build_engine/build_engine.dart';
 
+import 'run_decision_policy.dart';
+
 /// Every game event published through `context.events` — the same
-/// `EventBus` instance the rest of the engine already uses (per the
-/// milestone's "use existing EventBus where possible. Do not introduce a
-/// parallel event architecture"). Only 10 of the 19 requested telemetry
-/// points needed a genuinely new event type; the other 9 already have a
-/// generic Core/Combat event that fires naturally as `game_run.dart`
-/// calls into the existing plugins — no duplicate event is published for
-/// those, a telemetry consumer just subscribes to the existing type:
+/// `EventBus` instance the rest of the engine already uses ("use
+/// existing EventBus where possible, do not introduce a parallel event
+/// architecture"). Several telemetry points already have a generic
+/// Core/Combat/Discovery/Mastery/Progression event that fires naturally
+/// as `game_run.dart` calls into the existing plugins — no duplicate
+/// event is published for those, a telemetry consumer just subscribes to
+/// the existing type:
 ///
 /// | Telemetry point | Event | Source |
 /// |---|---|---|
 /// | Run started | [RunStarted] | new (this file) |
 /// | Physique selected | `PhysiqueAssigned` | existing (Physique plugin) |
-/// | Starting Tome | [TomeChanged] | new — first entry, same event as every later rebuild |
+/// | Starting Tome / Tome changed | [TomeChanged] | new — every rebuild, starting kit included |
+/// | Cycle started | [CycleStarted] | new |
 /// | Encounter started | [EncounterStarted] | new |
 /// | Encounter result | [EncounterResolved] | new |
 /// | Reward offered | [RewardOffered] | new |
 /// | Reward selected | [RewardSelected] | new |
+/// | Slot unlocked | [SlotUnlocked] | new |
+/// | Upgrade point spent | [UpgradePointSpent] | new |
 /// | Item discovered | `SubjectDiscovered` (subject `item:<id>`) | existing (Discovery) |
 /// | Item mastery changed | `MasteryChanged` (subject `item:<id>`) | existing (Mastery) |
 /// | Technique discovered | `SubjectDiscovered` (subject `technique:<id>`) | existing (Discovery) |
@@ -25,21 +30,26 @@ import 'package:build_engine/build_engine.dart';
 /// | Training started | [TrainingStarted] | new |
 /// | Training result | [TrainingResultRecorded] | new |
 /// | Technique evolved | [TechniqueEvolved] | new |
-/// | Tome changed | [TomeChanged] | new |
 /// | Build resolved | [ActiveBuildResolved] | new |
 /// | Combat action selected | `ActionStarted` | existing (Combat) |
 /// | Combat result | `BattleWon`/`BattleLost` | existing (Combat) |
 /// | Run ended | [RunEnded] | new |
 
 class RunStarted {
-  const RunStarted(this.seed);
+  const RunStarted({required this.seed, required this.characterName});
   final int seed;
+  final String characterName;
 }
 
 class RunEnded {
   const RunEnded({required this.won, required this.encounterCount});
   final bool won;
   final int encounterCount;
+}
+
+class CycleStarted {
+  const CycleStarted(this.cycleNumber);
+  final int cycleNumber;
 }
 
 class EncounterStarted {
@@ -63,12 +73,26 @@ class EncounterResolved {
 
 class RewardOffered {
   const RewardOffered(this.candidates);
-  final List<BuildComponentRef> candidates;
+  final List<RewardKind> candidates;
 }
 
 class RewardSelected {
   const RewardSelected(this.chosen);
-  final BuildComponentRef chosen;
+  final RewardKind chosen;
+}
+
+class SlotUnlocked {
+  const SlotUnlocked(this.slot);
+  final SlotId slot;
+}
+
+class UpgradePointSpent {
+  const UpgradePointSpent({required this.target, required this.amount});
+
+  /// The chosen `chooseUpgradeSpend` candidate string, e.g.
+  /// `'stat:attack'`/`'item:knife'`/`'technique:basic_slash'`.
+  final String target;
+  final num amount;
 }
 
 class TrainingStarted {
@@ -89,8 +113,7 @@ class TechniqueEvolved {
   final String toId;
 }
 
-/// Fires for every Tome rebuild, the starting Tome included (its
-/// [stepName] is `'Starting Tome (item)'`/`'Starting Tome (technique)'`).
+/// Fires for every Tome rebuild, the starting Tome included.
 class TomeChanged {
   const TomeChanged({required this.stepName, required this.components});
   final String stepName;
