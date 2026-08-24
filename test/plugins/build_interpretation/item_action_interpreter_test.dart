@@ -88,4 +88,44 @@ void main() {
 
     expect(context.modifiers.activeModifiersFor(actor, 'blade', context.components), isEmpty);
   });
+
+  test('a placed item with a class-3 instance scales its attack modifier', () {
+    final context = _newContext();
+    context.content.loadAll(itemContentDefinitions);
+    final actor = context.entities.create();
+    final instanceEntity = context.entities.create();
+    context.components.add(
+      instanceEntity,
+      ItemInstance(definitionId: ItemIds.ironSword, owner: actor, itemClass: 3),
+    );
+    final build = ActiveBuild(owner: actor, components: [
+      BuildComponentRef(
+        referenceType: itemReferenceType,
+        contentId: ItemIds.ironSword,
+        instanceEntityId: instanceEntity,
+      ),
+    ]);
+
+    interpreter.interpret(build: build, actor: actor, targets: const [], context: context);
+
+    final active =
+        context.modifiers.activeModifiersFor(actor, 'blade', context.components).toList();
+    expect(active, hasLength(1));
+    expect(active.single.value, closeTo(3.9, 0.001)); // 3 attack * (1 + 0.15*2)
+  });
+
+  test('a placed item with no instanceEntityId falls back to class 1 (unscaled)', () {
+    final context = _newContext();
+    context.content.loadAll(itemContentDefinitions);
+    final actor = context.entities.create();
+    final build = ActiveBuild(owner: actor, components: const [
+      BuildComponentRef(referenceType: itemReferenceType, contentId: ItemIds.ironSword),
+    ]);
+
+    interpreter.interpret(build: build, actor: actor, targets: const [], context: context);
+
+    final active =
+        context.modifiers.activeModifiersFor(actor, 'blade', context.components).toList();
+    expect(active.single.value, equals(3)); // unscaled
+  });
 }

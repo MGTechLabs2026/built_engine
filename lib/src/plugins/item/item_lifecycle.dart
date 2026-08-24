@@ -117,20 +117,29 @@ bool isItemActive(EntityId owner, String definitionId, PluginContext context) {
 /// unusable item; on success, publishes [ItemAddedToTome] and returns
 /// normally exactly like `TomeService.insert` would (including
 /// propagating its own `InvalidPlacementException`/`StateError` for a
-/// bad slot/missing Tome).
+/// bad slot/missing Tome). [instanceEntityId], when supplied, is the
+/// specific owned [ItemInstance] this placement represents — carried
+/// through to `BuildComponentRef.instanceEntityId` so `ItemActionInterpreter`
+/// can read its live `itemClass` for stat scaling; omitted, placement
+/// still works exactly as before (no per-copy state to resolve).
 void addItemToTome(
   EntityId owner,
   SlotId slot,
   ItemDefinition item,
-  PluginContext context,
-) {
+  PluginContext context, {
+  EntityId? instanceEntityId,
+}) {
   if (!isItemUsable(owner, item, context)) {
     throw ItemNotUsableException(item.id);
   }
   context.tome.insert(
     owner,
     slot,
-    BuildComponentRef(referenceType: itemReferenceType, contentId: item.id),
+    BuildComponentRef(
+      referenceType: itemReferenceType,
+      contentId: item.id,
+      instanceEntityId: instanceEntityId,
+    ),
   );
   context.events.publish(ItemAddedToTome(owner, item.id, slot));
 }

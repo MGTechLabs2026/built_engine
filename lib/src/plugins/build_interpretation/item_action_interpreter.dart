@@ -41,7 +41,10 @@ class ItemActionInterpreter implements BuildActionInterpreter {
       final definition = context.content.find(ref.contentId);
       if (definition == null) continue; // unknown/invalid item -> no modifier, not a crash
       final item = itemDefinitionFromContent(definition);
-      final attack = item.properties['attack'];
+      final itemClass = ref.instanceEntityId == null
+          ? 1
+          : context.components.get<ItemInstance>(ref.instanceEntityId!)?.itemClass ?? 1;
+      final attack = item.scaledProperties(itemClass)['attack'];
       if (attack == null) continue;
 
       final source = ModifierSource('build:${item.id}:${actor.value}');

@@ -170,4 +170,38 @@ void main() {
 
     expect(isItemUsable(owner, knife, context), isTrue);
   });
+
+  test('addItemToTome without an instance defaults instanceEntityId to null', () {
+    final owner = context.entities.create();
+    final ironSword = itemDefinition(ItemIds.ironSword, context);
+    discoverItem(owner, ironSword, context);
+    context.mastery.increase(owner, 'item:iron_sword', 25);
+    context.tome.defineTome(
+      TomeDefinition.namedSlots(id: 'basic_tome', slotIds: ['weapon']),
+    );
+    context.tome.createTome(owner, 'basic_tome');
+
+    addItemToTome(owner, const SlotId('weapon'), ironSword, context);
+
+    final placement = context.tome.inspect(owner).single;
+    expect(placement.buildComponentRef.instanceEntityId, isNull);
+  });
+
+  test('addItemToTome can carry a specific owned instance\'s id', () {
+    final owner = context.entities.create();
+    final ironSword = itemDefinition(ItemIds.ironSword, context);
+    discoverItem(owner, ironSword, context);
+    context.mastery.increase(owner, 'item:iron_sword', 25);
+    context.tome.defineTome(
+      TomeDefinition.namedSlots(id: 'basic_tome', slotIds: ['weapon']),
+    );
+    context.tome.createTome(owner, 'basic_tome');
+    final instanceEntity = ownItem(owner, ItemIds.ironSword, context);
+
+    addItemToTome(owner, const SlotId('weapon'), ironSword, context,
+        instanceEntityId: instanceEntity);
+
+    final placement = context.tome.inspect(owner).single;
+    expect(placement.buildComponentRef.instanceEntityId, equals(instanceEntity));
+  });
 }
