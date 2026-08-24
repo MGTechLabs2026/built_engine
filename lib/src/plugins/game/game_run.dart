@@ -7,9 +7,11 @@ import 'package:build_engine/martial_arts_plugin.dart';
 import 'package:build_engine/physique_plugin.dart';
 import 'package:build_engine/technique_plugin.dart';
 
+import 'decision_log.dart';
 import 'enemy.dart';
 import 'run_content.dart';
 import 'run_decision_policy.dart';
+import 'run_events.dart';
 import 'run_result.dart';
 import 'training_simulation.dart';
 
@@ -44,9 +46,31 @@ import 'training_simulation.dart';
 /// agency — reward choice, training target, Tome slot, and replace-or-not
 /// all flow through it, so two calls with the same seed but different
 /// policies produce different builds, per the milestone's "player
-/// decisions determine build evolution."
-RunResult runGame(int seed, {RunDecisionPolicy policy = const DefaultRunDecisionPolicy()}) {
-  final events = EventBus();
+/// decisions determine build evolution." Every decision [policy] actually
+/// makes is recorded into `RunResult.decisionLog` — replay it via
+/// `runGame(seed, policy: ReplayDecisionPolicy(previousResult.decisionLog))`
+/// to reproduce the exact same run.
+///
+/// Pass [eventBus] to observe the run live: construct an `EventBus`,
+/// subscribe to whichever event types you care about *before* calling
+/// `runGame`, and pass it in — every telemetry event publishes to that
+/// same bus as the run executes, not only after it returns. Omitted, a
+/// private `EventBus` is used internally (nothing to subscribe to from
+/// outside, but no behavior changes).
+///
+/// Publishes the telemetry events documented in `run_events.dart` through
+/// `context.events` — the same `EventBus` every other system already
+/// uses — throughout the run, for a developer to subscribe to and watch
+/// live, in addition to the full `RunResult` returned at the end.
+RunResult runGame(
+  int seed, {
+  RunDecisionPolicy policy = const DefaultRunDecisionPolicy(),
+  EventBus? eventBus,
+}) {
+  final stopwatch = Stopwatch()..start();
+  final recordingPolicy = RecordingDecisionPolicy(policy);
+
+  final events = eventBus ?? EventBus();
   final entities = EntityRegistry(events);
   final components = ComponentStore();
   final rng = RngService(seed);
@@ -69,6 +93,8 @@ RunResult runGame(int seed, {RunDecisionPolicy policy = const DefaultRunDecision
     shared: shared,
   );
 
+  events.publish(RunStarted(seed));
+
   final combatPlugin = CombatPlugin()..initialize(context);
   // MartialArtsPlugin.dependencies => ['combat'] must already be initialized.
   MartialArtsPlugin().initialize(context);
@@ -84,10 +110,11 @@ RunResult runGame(int seed, {RunDecisionPolicy policy = const DefaultRunDecision
   context.components.add(character, const HealthComponent(current: 100, max: 100));
 
   // ---- Random Physique -------------------------------------------------
+  // Publishes the existing PhysiqueAssigned event — no duplicate needed.
   final physiqueId = initializePhysique(character, context);
 
   // ---- Starting martial style (player decision) -------------------------
-  final styleId = policy
+  final styleId = recordingPolicy
       .chooseStartingStyle(const [MartialStyles.boxing, MartialStyles.shaolin, MartialStyles.taiChi]);
   learnStyle(character, styleId, context);
 
@@ -100,13 +127,21 @@ RunResult runGame(int seed, {RunDecisionPolicy policy = const DefaultRunDecision
   final tomeHistory = <TomeSnapshot>[];
   final itemsDiscovered = <String>[];
   final itemsMastered = <String>[];
+  final itemsUnlocked = <String>[];
   final techniquesLearned = <String>[];
   final techniquesEvolved = <String>[];
   final rewardsGranted = <String>[];
+  final trainingRecords = <TrainingRecord>[];
   final encounters = <EncounterOutcome>[];
+  var stepIndex = 0;
+  int? firstRewardStep;
+  int? firstItemMasteryStep;
+  int? firstTechniqueEvolutionStep;
 
   void snapshot(String stepName) {
-    tomeHistory.add(TomeSnapshot(afterStep: stepName, components: context.tome.resolve(character).components));
+    final snapshotComponents = context.tome.resolve(character).components;
+    tomeHistory.add(TomeSnapshot(afterStep: stepName, components: snapshotComponents));
+    events.publish(TomeChanged(stepName: stepName, components: snapshotComponents));
   }
 
   List<SlotId> orderedSlots(List<SlotId> slots) {
@@ -121,23 +156,24 @@ RunResult runGame(int seed, {RunDecisionPolicy policy = const DefaultRunDecision
 
   void placeItem(ItemDefinition item, String stepName) {
     final ref = BuildComponentRef(referenceType: itemReferenceType, contentId: item.id);
-    final slot = policy.chooseSlot(ref, orderedSlots(itemSlotsFor(item.category)));
+    final slot = recordingPolicy.chooseSlot(ref, orderedSlots(itemSlotsFor(item.category)));
     final existing = context.tome.inspect(character).where((p) => p.slot == slot);
     if (existing.isNotEmpty) {
-      if (!policy.chooseReplace(slot, existing.single.buildComponentRef, ref)) return;
+      if (!recordingPolicy.chooseReplace(slot, existing.single.buildComponentRef, ref)) return;
       context.tome.remove(character, slot);
     }
     addItemToTome(character, slot, item, context);
+    if (!itemsUnlocked.contains(item.id)) itemsUnlocked.add(item.id);
     snapshot(stepName);
   }
 
   void placeTechnique(TechniqueDefinition technique, String stepName) {
     final ref = BuildComponentRef(referenceType: techniqueReferenceType, contentId: technique.id);
-    final slot =
-        policy.chooseSlot(ref, orderedSlots(const [RunTomeSlots.technique1, RunTomeSlots.technique2]));
+    final slot = recordingPolicy
+        .chooseSlot(ref, orderedSlots(const [RunTomeSlots.technique1, RunTomeSlots.technique2]));
     final existing = context.tome.inspect(character).where((p) => p.slot == slot);
     if (existing.isNotEmpty) {
-      if (!policy.chooseReplace(slot, existing.single.buildComponentRef, ref)) return;
+      if (!recordingPolicy.chooseReplace(slot, existing.single.buildComponentRef, ref)) return;
       context.tome.remove(character, slot);
     }
     addTechniqueToTome(character, slot, technique, context);
@@ -188,20 +224,31 @@ RunResult runGame(int seed, {RunDecisionPolicy policy = const DefaultRunDecision
   );
   var rewardIndex = 0;
 
-  RunResult buildResult({required bool won}) => RunResult(
-        seed: seed,
-        physiqueId: physiqueId,
-        styleId: styleId,
-        tomeHistory: tomeHistory,
-        itemsDiscovered: itemsDiscovered,
-        itemsMastered: itemsMastered,
-        techniquesLearned: techniquesLearned,
-        techniquesEvolved: techniquesEvolved,
-        encounters: encounters,
-        rewardsGranted: rewardsGranted,
-        finalBuild: context.tome.resolve(character).components,
-        won: won,
-      );
+  RunResult buildResult({required bool won}) {
+    stopwatch.stop();
+    events.publish(RunEnded(won: won, encounterCount: encounters.length));
+    return RunResult(
+      seed: seed,
+      runDuration: stopwatch.elapsed,
+      decisionLog: recordingPolicy.toLog(),
+      physiqueId: physiqueId,
+      styleId: styleId,
+      tomeHistory: tomeHistory,
+      itemsDiscovered: itemsDiscovered,
+      itemsMastered: itemsMastered,
+      itemsUnlocked: itemsUnlocked,
+      techniquesLearned: techniquesLearned,
+      techniquesEvolved: techniquesEvolved,
+      encounters: encounters,
+      rewardsGranted: rewardsGranted,
+      trainingRecords: trainingRecords,
+      finalBuild: context.tome.resolve(character).components,
+      won: won,
+      firstRewardStep: firstRewardStep,
+      firstItemMasteryStep: firstItemMasteryStep,
+      firstTechniqueEvolutionStep: firstTechniqueEvolutionStep,
+    );
+  }
 
   void grantReward(String stepName) {
     if (rewardIndex >= rewardPool.length) return;
@@ -209,7 +256,12 @@ RunResult runGame(int seed, {RunDecisionPolicy policy = const DefaultRunDecision
     final offered = rewardPool.sublist(rewardIndex, rewardIndex + offerCount);
     rewardIndex += offerCount;
     final refs = [for (final o in offered) BuildComponentRef(referenceType: o.referenceType, contentId: o.contentId)];
-    final chosen = offered[policy.chooseReward(refs)];
+    events.publish(RewardOffered(refs));
+    final chosen = offered[recordingPolicy.chooseReward(refs)];
+    events.publish(RewardSelected(
+      BuildComponentRef(referenceType: chosen.referenceType, contentId: chosen.contentId),
+    ));
+    firstRewardStep ??= stepIndex;
 
     if (chosen.referenceType == itemReferenceType) {
       final item = itemDefinition(chosen.contentId, context);
@@ -253,7 +305,8 @@ RunResult runGame(int seed, {RunDecisionPolicy policy = const DefaultRunDecision
 
     final candidates = trainingCandidates();
     if (candidates.isEmpty) return;
-    final target = policy.chooseTrainingTarget(candidates);
+    final target = recordingPolicy.chooseTrainingTarget(candidates);
+    events.publish(TrainingStarted(target));
     final attempts = generateTrainingAttempts(rng);
 
     if (target.startsWith('item:')) {
@@ -266,10 +319,21 @@ RunResult runGame(int seed, {RunDecisionPolicy policy = const DefaultRunDecision
         session.submitAttempt(attempt);
       }
       final result = session.complete();
-      context.mastery.increase(character, itemSubject(itemId), trainingGain(result.profile));
+      final gain = trainingGain(result.profile);
+      events.publish(TrainingResultRecorded(subject: target, profile: result.profile, gain: gain));
+      trainingRecords.add(TrainingRecord(
+        subject: target,
+        attemptCount: attempts.length,
+        averageQuality: result.profile.dimensions.isEmpty
+            ? 0
+            : TrainingStatistics.average(result.profile.dimensions.values.toList()),
+        gain: gain,
+      ));
+      context.mastery.increase(character, itemSubject(itemId), gain);
       final nowUsable = isItemUsable(character, item, context);
       if (!wasUsable && nowUsable) {
         itemsMastered.add(itemId);
+        firstItemMasteryStep ??= stepIndex;
         placeItem(item, '$stepName (item mastered)');
       }
     } else {
@@ -282,7 +346,17 @@ RunResult runGame(int seed, {RunDecisionPolicy policy = const DefaultRunDecision
         session.submitAttempt(attempt);
       }
       final result = session.complete();
-      final learning = attemptToLearnTechnique(character, technique, trainingGain(result.profile), context);
+      final gain = trainingGain(result.profile);
+      events.publish(TrainingResultRecorded(subject: target, profile: result.profile, gain: gain));
+      trainingRecords.add(TrainingRecord(
+        subject: target,
+        attemptCount: attempts.length,
+        averageQuality: result.profile.dimensions.isEmpty
+            ? 0
+            : TrainingStatistics.average(result.profile.dimensions.values.toList()),
+        gain: gain,
+      ));
+      final learning = attemptToLearnTechnique(character, technique, gain, context);
       if (learning.learned) {
         techniquesLearned.add(techniqueId);
         placeTechnique(technique, '$stepName (technique learned)');
@@ -292,6 +366,8 @@ RunResult runGame(int seed, {RunDecisionPolicy policy = const DefaultRunDecision
           if (evolution.evolved) {
             final evolvedId = evolution.chosenCandidate!.targetId;
             techniquesEvolved.add(evolvedId);
+            firstTechniqueEvolutionStep ??= stepIndex;
+            events.publish(TechniqueEvolved(fromId: techniqueId, toId: evolvedId));
             replaceWithEvolved(techniqueId, evolvedId, '$stepName (evolved)');
           }
         }
@@ -309,8 +385,10 @@ RunResult runGame(int seed, {RunDecisionPolicy policy = const DefaultRunDecision
 
   bool runCombat(RunStep step) {
     final enemy = step.enemy!;
+    events.publish(EncounterStarted(name: step.name, enemyId: enemy.id));
     final enemyEntity = spawnEnemy(enemy);
     final build = context.tome.resolve(character);
+    events.publish(ActiveBuildResolved(build.components));
     final playerActions =
         interpreter.interpret(build: build, actor: character, targets: [enemyEntity], context: context);
     final battle = combatPlugin.system.startBattle([character, enemyEntity]);
@@ -324,11 +402,27 @@ RunResult runGame(int seed, {RunDecisionPolicy policy = const DefaultRunDecision
       ],
       policy: CombatPolicy.scored(),
     );
+
+    // ActionStarted already fires per action (Combat's own event) — this
+    // only counts them for the "combat duration" balance signal, scoped
+    // to this one battle.
+    var turnsUsed = 0;
+    final subscription = events.subscribe<ActionCompleted>((e) {
+      if (e.battle == battle) turnsUsed++;
+    });
     controller.runUntilBattleEnds();
+    subscription.cancel();
 
     final playerHealth = context.components.get<HealthComponent>(character)!.current;
     final won = playerHealth > 0 && !controller.isActive;
     encounters.add(EncounterOutcome(
+      name: step.name,
+      enemyId: enemy.id,
+      won: won,
+      playerHealthAfter: playerHealth,
+      turnsUsed: turnsUsed,
+    ));
+    events.publish(EncounterResolved(
       name: step.name,
       enemyId: enemy.id,
       won: won,
@@ -339,7 +433,8 @@ RunResult runGame(int seed, {RunDecisionPolicy policy = const DefaultRunDecision
   }
 
   // ---- Run the linear graph ----------------------------------------------
-  for (final step in runSequence) {
+  for (; stepIndex < runSequence.length; stepIndex++) {
+    final step = runSequence[stepIndex];
     if (step.type == RunStepType.combat) {
       if (!runCombat(step)) return buildResult(won: false);
     } else {
