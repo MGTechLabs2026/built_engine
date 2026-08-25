@@ -3,7 +3,7 @@ import 'package:build_engine/build_engine.dart';
 import 'martial_vocabulary.dart';
 
 /// The six martial styles this plugin implements — three western, three
-/// eastern (`_traditionTagFor`), one archetype apiece (offense/defense/
+/// eastern (`martialTraditionOf`), one archetype apiece (offense/defense/
 /// speed) purely as a naming rationale, not a mechanical tag system:
 /// boxing=offense, wrestling=defense, fencing=speed (western); shaolin=
 /// offense, taiChi=defense, wingChun=speed (eastern). Not components — a
@@ -42,7 +42,7 @@ void learnStyle(EntityId entity, String styleId, PluginContext context) {
   final ctx = context.ruleContextFor(entity);
   const AddTag('martial').apply(ctx);
   AddTag('style:$styleId').apply(ctx);
-  final traditionTag = _traditionTagFor(styleId);
+  final traditionTag = martialTraditionOf(styleId);
   if (traditionTag != null) {
     AddTag(traditionTag).apply(ctx);
   }
@@ -62,8 +62,11 @@ void learnStyle(EntityId entity, String styleId, PluginContext context) {
 /// style id outside this plugin's six known styles — an entity may
 /// still learn an unrecognized style (this plugin's vertical slice
 /// doesn't gate that), it simply gets no tradition tag, so nothing
-/// downstream (e.g. Physique's synergy modifiers) reacts to it.
-String? _traditionTagFor(String styleId) => switch (styleId) {
+/// downstream (e.g. Physique's synergy modifiers) reacts to it. Public
+/// so a game composition layer (e.g. a client's character-creation
+/// screen) can determine a style's tradition before the player commits
+/// to it, not only after [learnStyle] has already applied the tag.
+String? martialTraditionOf(String styleId) => switch (styleId) {
       MartialStyles.boxing || MartialStyles.wrestling || MartialStyles.fencing =>
         MartialTraditions.western,
       MartialStyles.shaolin || MartialStyles.taiChi || MartialStyles.wingChun =>
@@ -72,13 +75,13 @@ String? _traditionTagFor(String styleId) => switch (styleId) {
     };
 
 /// The style ids belonging to [tradition] (`MartialTraditions.western`/
-/// `.eastern`) — the public inverse of [_traditionTagFor], for callers
+/// `.eastern`) — the public inverse of [martialTraditionOf], for callers
 /// outside this plugin (e.g. a game composition layer offering "pick
 /// your starting style" once a tradition is chosen) that need to go
 /// from tradition to its styles rather than the other way around, so
 /// they never have to re-derive this plugin's own style/tradition
 /// mapping independently. An unrecognized [tradition] returns an empty
-/// list, matching [_traditionTagFor]'s own "no assumption" behavior for
+/// list, matching [martialTraditionOf]'s own "no assumption" behavior for
 /// an unrecognized style.
 List<String> stylesForTradition(String tradition) => switch (tradition) {
       MartialTraditions.western => const [MartialStyles.boxing, MartialStyles.wrestling, MartialStyles.fencing],

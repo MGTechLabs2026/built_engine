@@ -144,4 +144,22 @@ void main() {
       expect(tags, isNot(contains('eastern')));
     });
   });
+
+  group('martialTraditionOf', () {
+    test('maps the three western styles to MartialTraditions.western', () {
+      expect(martialTraditionOf(MartialStyles.boxing), MartialTraditions.western);
+      expect(martialTraditionOf(MartialStyles.wrestling), MartialTraditions.western);
+      expect(martialTraditionOf(MartialStyles.fencing), MartialTraditions.western);
+    });
+
+    test('maps the three eastern styles to MartialTraditions.eastern', () {
+      expect(martialTraditionOf(MartialStyles.shaolin), MartialTraditions.eastern);
+      expect(martialTraditionOf(MartialStyles.taiChi), MartialTraditions.eastern);
+      expect(martialTraditionOf(MartialStyles.wingChun), MartialTraditions.eastern);
+    });
+
+    test('returns null for an unrecognized style id', () {
+      expect(martialTraditionOf('capoeira'), isNull);
+    });
+  });
 }
