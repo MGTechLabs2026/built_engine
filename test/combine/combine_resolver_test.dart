@@ -32,8 +32,8 @@ int _seedForOutcome(
     final outcome = roll < odds.failPercent
         ? CombineOutcome.fail
         : roll < odds.failPercent + odds.normalPercent
-            ? CombineOutcome.classUpgrade
-            : CombineOutcome.gradeUpgrade;
+            ? CombineOutcome.tierUpgrade
+            : CombineOutcome.branchUpgrade;
     if (outcome == target) return seed;
   }
   throw StateError('no seed up to $maxSeed produced $target');
@@ -51,10 +51,10 @@ void main() {
           CombineInput(matchKey: 'knife', tier: 1),
           CombineInput(matchKey: 'sword', tier: 1),
         ],
-        atMaxTierForGrade: false,
-        gradeContext: _contextFor(trainee),
-        gradeEvolution: noGradePath,
-        gradeProfile: const TrainingProfile({}),
+        atMaxTierForBranch: false,
+        branchContext: _contextFor(trainee),
+        branchDefinition: noGradePath,
+        branchProfile: const TrainingProfile({}),
         rng: RngService(1),
       ),
       throwsA(isA<CombineMismatchException>()),
@@ -68,10 +68,10 @@ void main() {
           CombineInput(matchKey: 'knife', tier: 1),
           CombineInput(matchKey: 'knife', tier: 2),
         ],
-        atMaxTierForGrade: false,
-        gradeContext: _contextFor(trainee),
-        gradeEvolution: noGradePath,
-        gradeProfile: const TrainingProfile({}),
+        atMaxTierForBranch: false,
+        branchContext: _contextFor(trainee),
+        branchDefinition: noGradePath,
+        branchProfile: const TrainingProfile({}),
         rng: RngService(1),
       ),
       throwsA(isA<CombineMismatchException>()),
@@ -82,10 +82,10 @@ void main() {
     expect(
       () => resolver.resolve(
         inputs: const [CombineInput(matchKey: 'knife', tier: 1)],
-        atMaxTierForGrade: false,
-        gradeContext: _contextFor(trainee),
-        gradeEvolution: noGradePath,
-        gradeProfile: const TrainingProfile({}),
+        atMaxTierForBranch: false,
+        branchContext: _contextFor(trainee),
+        branchDefinition: noGradePath,
+        branchProfile: const TrainingProfile({}),
         rng: RngService(1),
       ),
       throwsArgumentError,
@@ -100,38 +100,38 @@ void main() {
         CombineInput(matchKey: 'knife', tier: 1),
         CombineInput(matchKey: 'knife', tier: 1),
       ],
-      atMaxTierForGrade: false,
-      gradeContext: _contextFor(trainee, seed: seed),
-      gradeEvolution: noGradePath,
-      gradeProfile: const TrainingProfile({}),
+      atMaxTierForBranch: false,
+      branchContext: _contextFor(trainee, seed: seed),
+      branchDefinition: noGradePath,
+      branchProfile: const TrainingProfile({}),
       rng: RngService(seed),
     );
 
     expect(result.outcome, equals(CombineOutcome.fail));
-    expect(result.chosenGradeTargetId, isNull);
+    expect(result.chosenBranchTargetId, isNull);
   });
 
-  test('a normal-bucket roll produces CombineOutcome.classUpgrade when not at max tier', () {
-    final seed = _seedForOutcome(CombineOutcome.classUpgrade, tier: 1, inputCount: 2);
+  test('a normal-bucket roll produces CombineOutcome.tierUpgrade when not at max tier', () {
+    final seed = _seedForOutcome(CombineOutcome.tierUpgrade, tier: 1, inputCount: 2);
 
     final result = resolver.resolve(
       inputs: const [
         CombineInput(matchKey: 'knife', tier: 1),
         CombineInput(matchKey: 'knife', tier: 1),
       ],
-      atMaxTierForGrade: false,
-      gradeContext: _contextFor(trainee, seed: seed),
-      gradeEvolution: noGradePath,
-      gradeProfile: const TrainingProfile({}),
+      atMaxTierForBranch: false,
+      branchContext: _contextFor(trainee, seed: seed),
+      branchDefinition: noGradePath,
+      branchProfile: const TrainingProfile({}),
       rng: RngService(seed),
     );
 
-    expect(result.outcome, equals(CombineOutcome.classUpgrade));
+    expect(result.outcome, equals(CombineOutcome.tierUpgrade));
   });
 
   test('a grade-bucket roll resolves the target via EvolutionResolver', () {
-    final seed = _seedForOutcome(CombineOutcome.gradeUpgrade, tier: 1, inputCount: 2);
-    const gradeEvolution = EvolutionDefinition(
+    final seed = _seedForOutcome(CombineOutcome.branchUpgrade, tier: 1, inputCount: 2);
+    const branchDefinition = EvolutionDefinition(
       id: 'simple_knife',
       tier: 'weapon',
       candidates: [EvolutionCandidate(targetId: 'sharp_knife')],
@@ -142,39 +142,39 @@ void main() {
         CombineInput(matchKey: 'simple_knife', tier: 1),
         CombineInput(matchKey: 'simple_knife', tier: 1),
       ],
-      atMaxTierForGrade: false,
-      gradeContext: _contextFor(trainee, seed: seed),
-      gradeEvolution: gradeEvolution,
-      gradeProfile: const TrainingProfile({}),
+      atMaxTierForBranch: false,
+      branchContext: _contextFor(trainee, seed: seed),
+      branchDefinition: branchDefinition,
+      branchProfile: const TrainingProfile({}),
       rng: RngService(seed),
     );
 
-    expect(result.outcome, equals(CombineOutcome.gradeUpgrade));
-    expect(result.chosenGradeTargetId, equals('sharp_knife'));
+    expect(result.outcome, equals(CombineOutcome.branchUpgrade));
+    expect(result.chosenBranchTargetId, equals('sharp_knife'));
   });
 
-  test('a grade-bucket roll with no eligible candidate falls back to classUpgrade', () {
-    final seed = _seedForOutcome(CombineOutcome.gradeUpgrade, tier: 1, inputCount: 2);
+  test('a grade-bucket roll with no eligible candidate falls back to tierUpgrade', () {
+    final seed = _seedForOutcome(CombineOutcome.branchUpgrade, tier: 1, inputCount: 2);
 
     final result = resolver.resolve(
       inputs: const [
         CombineInput(matchKey: 'simple_knife', tier: 1),
         CombineInput(matchKey: 'simple_knife', tier: 1),
       ],
-      atMaxTierForGrade: false,
-      gradeContext: _contextFor(trainee, seed: seed),
-      gradeEvolution: noGradePath, // no candidates at all
-      gradeProfile: const TrainingProfile({}),
+      atMaxTierForBranch: false,
+      branchContext: _contextFor(trainee, seed: seed),
+      branchDefinition: noGradePath, // no candidates at all
+      branchProfile: const TrainingProfile({}),
       rng: RngService(seed),
     );
 
-    expect(result.outcome, equals(CombineOutcome.classUpgrade));
-    expect(result.chosenGradeTargetId, isNull);
+    expect(result.outcome, equals(CombineOutcome.tierUpgrade));
+    expect(result.chosenBranchTargetId, isNull);
   });
 
-  test('at max tier, a normal-bucket roll escalates to gradeUpgrade', () {
-    final seed = _seedForOutcome(CombineOutcome.classUpgrade, tier: 1, inputCount: 2);
-    const gradeEvolution = EvolutionDefinition(
+  test('at max tier, a normal-bucket roll escalates to branchUpgrade', () {
+    final seed = _seedForOutcome(CombineOutcome.tierUpgrade, tier: 1, inputCount: 2);
+    const branchDefinition = EvolutionDefinition(
       id: 'simple_knife',
       tier: 'weapon',
       candidates: [EvolutionCandidate(targetId: 'sharp_knife')],
@@ -185,20 +185,20 @@ void main() {
         CombineInput(matchKey: 'simple_knife', tier: 1),
         CombineInput(matchKey: 'simple_knife', tier: 1),
       ],
-      atMaxTierForGrade: true,
-      gradeContext: _contextFor(trainee, seed: seed),
-      gradeEvolution: gradeEvolution,
-      gradeProfile: const TrainingProfile({}),
+      atMaxTierForBranch: true,
+      branchContext: _contextFor(trainee, seed: seed),
+      branchDefinition: branchDefinition,
+      branchProfile: const TrainingProfile({}),
       rng: RngService(seed),
     );
 
-    expect(result.outcome, equals(CombineOutcome.gradeUpgrade));
-    expect(result.chosenGradeTargetId, equals('sharp_knife'));
+    expect(result.outcome, equals(CombineOutcome.branchUpgrade));
+    expect(result.chosenBranchTargetId, equals('sharp_knife'));
   });
 
   test('a fail-bucket roll at max tier is still a fail (escalation only applies to normal)', () {
     final seed = _seedForOutcome(CombineOutcome.fail, tier: 1, inputCount: 2);
-    const gradeEvolution = EvolutionDefinition(
+    const branchDefinition = EvolutionDefinition(
       id: 'simple_knife',
       tier: 'weapon',
       candidates: [EvolutionCandidate(targetId: 'sharp_knife')],
@@ -209,10 +209,10 @@ void main() {
         CombineInput(matchKey: 'simple_knife', tier: 1),
         CombineInput(matchKey: 'simple_knife', tier: 1),
       ],
-      atMaxTierForGrade: true,
-      gradeContext: _contextFor(trainee, seed: seed),
-      gradeEvolution: gradeEvolution,
-      gradeProfile: const TrainingProfile({}),
+      atMaxTierForBranch: true,
+      branchContext: _contextFor(trainee, seed: seed),
+      branchDefinition: branchDefinition,
+      branchProfile: const TrainingProfile({}),
       rng: RngService(seed),
     );
 
@@ -229,18 +229,18 @@ void main() {
 
     final resultA = resolver.resolve(
       inputs: inputs,
-      atMaxTierForGrade: false,
-      gradeContext: _contextFor(trainee, seed: seed),
-      gradeEvolution: noGradePath,
-      gradeProfile: const TrainingProfile({}),
+      atMaxTierForBranch: false,
+      branchContext: _contextFor(trainee, seed: seed),
+      branchDefinition: noGradePath,
+      branchProfile: const TrainingProfile({}),
       rng: RngService(seed),
     );
     final resultB = resolver.resolve(
       inputs: inputs,
-      atMaxTierForGrade: false,
-      gradeContext: _contextFor(trainee, seed: seed),
-      gradeEvolution: noGradePath,
-      gradeProfile: const TrainingProfile({}),
+      atMaxTierForBranch: false,
+      branchContext: _contextFor(trainee, seed: seed),
+      branchDefinition: noGradePath,
+      branchProfile: const TrainingProfile({}),
       rng: RngService(seed),
     );
 
@@ -250,12 +250,12 @@ void main() {
 
   test(
     'at max tier, if EvolutionResolver fails to evolve (defensive), '
-    'falls back to classUpgrade with null chosenGradeTargetId',
+    'falls back to tierUpgrade with null chosenBranchTargetId',
     () {
       final seed =
-          _seedForOutcome(CombineOutcome.classUpgrade, tier: 1, inputCount: 2);
-      // A gradeEvolution with one candidate that has an unmet condition
-      const gradeEvolution = EvolutionDefinition(
+          _seedForOutcome(CombineOutcome.tierUpgrade, tier: 1, inputCount: 2);
+      // A branchDefinition with one candidate that has an unmet condition
+      const branchDefinition = EvolutionDefinition(
         id: 'simple_knife',
         tier: 'weapon',
         candidates: [
@@ -271,16 +271,16 @@ void main() {
           CombineInput(matchKey: 'simple_knife', tier: 1),
           CombineInput(matchKey: 'simple_knife', tier: 1),
         ],
-        atMaxTierForGrade: true,
-        gradeContext: _contextFor(trainee, seed: seed), // No mastery set
-        gradeEvolution: gradeEvolution,
-        gradeProfile: const TrainingProfile({}),
+        atMaxTierForBranch: true,
+        branchContext: _contextFor(trainee, seed: seed), // No mastery set
+        branchDefinition: branchDefinition,
+        branchProfile: const TrainingProfile({}),
         rng: RngService(seed),
       );
 
-      // Fails to evolve -> fallback to classUpgrade, not gradeUpgrade
-      expect(result.outcome, equals(CombineOutcome.classUpgrade));
-      expect(result.chosenGradeTargetId, isNull);
+      // Fails to evolve -> fallback to tierUpgrade, not branchUpgrade
+      expect(result.outcome, equals(CombineOutcome.tierUpgrade));
+      expect(result.chosenBranchTargetId, isNull);
     },
   );
 }

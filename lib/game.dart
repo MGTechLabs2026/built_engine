@@ -11,13 +11,18 @@
 library;
 
 export 'src/plugins/game/balance_signals.dart';
+export 'src/plugins/game/combat_stage.dart';
 export 'src/plugins/game/console_decision_policy.dart';
 export 'src/plugins/game/decision_log.dart';
 export 'src/plugins/game/enemy.dart';
+export 'src/plugins/game/enemy_content.dart';
 export 'src/plugins/game/game_run.dart';
 export 'src/plugins/game/playtest_report.dart';
+export 'src/plugins/game/reward_stage.dart';
 export 'src/plugins/game/run_content.dart';
 export 'src/plugins/game/run_decision_policy.dart';
 export 'src/plugins/game/run_events.dart';
 export 'src/plugins/game/run_result.dart';
+export 'src/plugins/game/tome_manager.dart';
 export 'src/plugins/game/training_simulation.dart';
+export 'src/plugins/game/training_stage.dart';

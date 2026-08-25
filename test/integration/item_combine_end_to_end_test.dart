@@ -37,8 +37,8 @@ int _seedForOutcome(
     final outcome = roll < odds.failPercent
         ? CombineOutcome.fail
         : roll < odds.failPercent + odds.normalPercent
-            ? CombineOutcome.classUpgrade
-            : CombineOutcome.gradeUpgrade;
+            ? CombineOutcome.tierUpgrade
+            : CombineOutcome.branchUpgrade;
     if (outcome == target) return seed;
   }
   throw StateError('no seed up to $maxSeed produced $target');
@@ -56,7 +56,7 @@ void loadDagger(PluginContext ctx) {
 
 void main() {
   test('combining a Tome-placed item scales its live combat stat via ActiveBuild', () {
-    final seed = _seedForOutcome(CombineOutcome.classUpgrade, tier: 1, inputCount: 2);
+    final seed = _seedForOutcome(CombineOutcome.tierUpgrade, tier: 1, inputCount: 2);
     final context = _newContext(seed);
     ItemPlugin().initialize(context);
     loadDagger(context);
@@ -85,7 +85,7 @@ void main() {
 
   test('a multi-candidate grade branch picks among targets according to trainingWeights', () {
     // The bug this replaced: the old version computed `gradeSeed` from
-    // `_seedForOutcome(CombineOutcome.gradeUpgrade, tier: 1, inputCount: 2)`
+    // `_seedForOutcome(CombineOutcome.branchUpgrade, tier: 1, inputCount: 2)`
     // — a pure function of constant arguments — so it evaluated to the
     // exact same seed on every loop iteration. Every trial then drew the
     // identical RNG sequence and produced the identical target every time,
@@ -96,13 +96,13 @@ void main() {
     // Fixed approach: genuinely vary the raw seed used for the actual
     // `combineItems` call. `CombineResolver.resolve`'s very first RNG draw
     // (`rng.nextDouble() * 100`, in `combine_resolver.dart`) decides the
-    // fail/classUpgrade/gradeUpgrade bucket, and nothing before it in
+    // fail/tierUpgrade/branchUpgrade bucket, and nothing before it in
     // `combineItems` touches `context.rng` -- so a fresh `RngService(seed)`
     // used standalone to check which bucket a seed lands in reproduces
     // exactly the same first draw a `PluginContext` built from
     // `RngService(seed)` will make inside the real call. Seeds that don't
-    // land in the gradeUpgrade bucket are skipped (not counted) rather than
-    // exercising fail/classUpgrade, since only a gradeUpgrade roll actually
+    // land in the branchUpgrade bucket are skipped (not counted) rather than
+    // exercising fail/tierUpgrade, since only a branchUpgrade roll actually
     // reaches the weighted grade-candidate pick this test is about.
     var sharpWins = 0;
     var counted = 0;
@@ -115,12 +115,12 @@ void main() {
     while (counted < trials) {
       rawSeed++;
       if (rawSeed > 20000) {
-        fail('could not find $trials seeds landing in the gradeUpgrade bucket '
+        fail('could not find $trials seeds landing in the branchUpgrade bucket '
             'within $rawSeed raw seeds');
       }
       final roll = RngService(rawSeed).nextDouble() * 100;
-      final landsInGradeUpgrade = roll >= odds.failPercent + odds.normalPercent;
-      if (!landsInGradeUpgrade) continue; // fail/classUpgrade for this seed -- not a real trial
+      final landsInBranchUpgrade = roll >= odds.failPercent + odds.normalPercent;
+      if (!landsInBranchUpgrade) continue; // fail/tierUpgrade for this seed -- not a real trial
 
       counted++;
       final context = _newContext(rawSeed);
@@ -149,7 +149,7 @@ void main() {
     }
 
     // precision-weighted profile heavily favors sharp_knife; a clear
-    // majority among the counted (genuinely gradeUpgrade-bucket) trials
+    // majority among the counted (genuinely branchUpgrade-bucket) trials
     // proves real influence, mirroring technique_evolution_test.dart's
     // statistical assertion style. Hand-verified: dropping the 'training'
     // weight from the content above collapses sharpWins to roughly

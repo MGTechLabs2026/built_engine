@@ -1,66 +1,137 @@
 # Build Engine — Architecture Audit
 
-**Date:** 2026-08-24
-**Commit audited:** `7d271a6` (main) — 162 `.dart` files under `lib/`, ~8,806
-lines. Covers everything present since the prior audit (`227bf69`) plus
-five new subsystems added after it: the **Item** plugin, the **Technique**
-plugin, the **Training** exercises (Timing/Precision/Reaction/Power/Combo +
-`WeightedTrainingExercise`), the **Build Interpretation** layer
-(`BuildActionInterpreter`/`TechniqueActionInterpreter`/
-`ItemActionInterpreter`/`SelfEffectAction`), and the **AutoCombat scoring
-policy** (`ActionScorer`/`DefaultActionScorer`/`ScoredActionSelector`).
+**Date:** 2026-08-25
+**Commit audited:** `042aa7e` (main) — 185 `.dart` files under `lib/`,
+11,602 lines. Covers everything present since the prior audit (`7d271a6`)
+plus the **Item Combine** feature (`lib/src/combine/`, the Item plugin's
+class/grade/scaling data model, `BuildComponentRef.instanceEntityId`,
+`combineItems`, 24 new grade-chain item definitions) and the **game**
+composition layer (`lib/src/plugins/game/`, `runGame`/`RunResult`/
+`DecisionLog`/etc.) — the latter was never covered by any prior audit at
+all despite being ~1,780 lines across 11 files, the single largest
+untouched surface this pass found.
 **This is a from-scratch audit**, not a diff — every category was
-re-verified against the current code.
-**Method:** full read of `CLAUDE.md`; a complete file inventory and line-
-count survey of `lib/`; per-plugin import-graph extraction (barrel-level)
-to check the dependency DAG; targeted greps for domain vocabulary in Core,
-`dart:math`/`Random` usage outside `RngService`, mutable `static` fields,
-`id ==`-shaped combination checks, cross-plugin private-path imports, and
-duplicated algorithm/pattern logic; re-reading every component-shaped
-class added since the prior audit.
+re-verified against the current code, not assumed carried-forward.
+**Method:** full read of `CLAUDE.md`; full read of the prior audit as
+context (to avoid re-flagging already-fixed findings); a file inventory
+and line-count survey of `lib/`; per-directory import-graph extraction
+(both Core-dir-level for category 1, and plugin-barrel-level for
+categories 2-5/13) to check for plugin knowledge leaking into Core and to
+verify the dependency DAG; targeted greps for `dart:math`/`Random(`
+outside `rng_service.dart`, mutable `static`/top-level state,
+`plugins/`-path imports inside Core directories, cross-plugin
+`package:build_engine/src/plugins/` private-path imports, `id ==`-shaped
+combination checks, and `toJson`/`fromJson`/serialization code; a full
+read of every file in `lib/src/components/`, `lib/src/combine/`, and
+`lib/src/plugins/game/`.
 **No changes have been made.** Per this audit's own instructions, this is
 a report only — refactoring requires separate approval.
-**Baseline at time of audit:** `dart analyze` clean, 906 tests passing.
+**Baseline at time of audit:** `dart analyze` clean, 1,105 tests passing.
 
-**Update (2026-08-24, same day): approved via "fix all."** Both category-7
-and category-12 findings, and Additional Observation A, were fixed — see
-each section below and the Resolution Log for specifics. `dart analyze`
-clean and all tests passing after every fix (906 → 908; the 2 new tests
-directly demonstrate Additional Observation A's fix). Additional
-Observation B was left alone (unchanged, still informational, not a
-finding, per its own text).
+## Fix pass (2026-08-25, same day) — all 6 findings + the addendum addressed
 
-## Summary
+Per the user's "fix all," every finding below (and Additional Observation
+A above) was fixed immediately after this audit, verified with
+`dart analyze lib test` (clean) and `dart test` (1,105 tests passing
+throughout — the count is unchanged since this pass only moved/renamed
+code, added zero net new tests). Kept as a fixed record of what each
+finding said and how it was resolved, rather than deleted, matching this
+file's own convention for prior-audit findings above.
 
-Of the 15 categories requested, **13 have no violations**. **2 have real
-findings** (both **new**, introduced by the five subsystems added since
-the prior audit — nothing carried over from before regressed). One
-previously-known, previously-deferred design risk (Additional Observation
-A, below) now has concrete evidence it has bitten real development twice,
-and is upgraded from informational to a recommendation.
+- **Category 7 — `RunEnemies`'s 5 enemies were hand-written `const`
+  objects.** Fixed: moved into `lib/src/plugins/game/enemy_content.dart`
+  as `enemyContentDefinitions` (`ContentRegistry`-loaded, mirroring
+  `itemContentDefinitions`), with `enemyDefinitionFromContent`/
+  `enemyDefinition` parsers. `RunEnemies` now holds plain id strings, not
+  `Enemy` objects. Loaded via `context.content.loadAll(enemyContentDefinitions)`
+  directly in `runGame` (no dedicated "Enemy plugin" — enemies exist only
+  for this composition layer). `game_run.dart`'s three enemy-selection
+  sites and `test/game/game_run_test.dart`'s `scaledEnemy` test updated
+  accordingly.
+- **Category 7 — `run_content.dart`'s `stylesFor` duplicated MartialArts'
+  own tradition↔style mapping, inverted.** Fixed: added a public
+  `stylesForTradition(String tradition)` to
+  `lib/src/plugins/martial_arts/martial_styles.dart` (the natural,
+  non-private counterpart to the existing `_traditionTagFor`), and
+  deleted `run_content.dart`'s `stylesFor` entirely — `game_run.dart`
+  now calls `stylesForTradition` directly. One source of truth.
+- **Category 7 (Minor) — `RunStartingKit`/reward-pool id lists.** No
+  action taken. Re-confirmed the audit's own conclusion: for a single
+  fixed run definition, a plain Dart list of real, already-content-loaded
+  ids is a defensible, low-risk choice; migrating it to its own content
+  type would be premature abstraction (`CLAUDE.md`'s YAGNI guidance)
+  with no concrete need driving it yet.
+- **Category 11 — `runGame` was a 627-line, 19-closure god-function.**
+  Fixed: extracted into four small, independently-constructable classes
+  — `TomeManager` (placement/upgrade-spend, `tome_manager.dart`),
+  `RewardStage` (the reward pool, `reward_stage.dart`), `TrainingStage`
+  (training resolution, `training_stage.dart`), `CombatStage` (fights,
+  `combat_stage.dart`) — each taking its dependencies explicitly via
+  constructor rather than closing over `runGame`'s shared mutable scope.
+  `runGame` is now the composition root that wires the four together and
+  drives the cycle loop, calling `rng`/`recordingPolicy` in the exact
+  same order as before, so a given seed still reproduces the exact same
+  run — verified via `test/game/game_run_test.dart`'s two
+  `'deterministic given seed + decisions'` tests and
+  `test/game/decision_log_replay_test.dart`'s full replay suite, all
+  passing unchanged.
+- **Category 11 (Minor) — `item_lifecycle.dart` covered two
+  responsibilities in one file.** Fixed: `combineItems`/
+  `_reflectCombineInTome`/`CombineNotAvailableException` moved to a new
+  sibling `lib/src/plugins/item/item_combine.dart`, mirroring
+  `lib/src/combine/`'s own one-concern-per-file split.
+  `test/plugins/item/item_lifecycle_test.dart`'s `combineItems` test
+  group moved to a new sibling `test/plugins/item/item_combine_test.dart`
+  to match.
+- **Category 14 — `lib/src/combine/`'s public API still carried
+  Item-flavored vocabulary.** Fixed: renamed `CombineOutcome.classUpgrade`
+  → `.tierUpgrade`, `.gradeUpgrade` → `.branchUpgrade`;
+  `CombineResolver.resolve`'s `atMaxTierForGrade`/`gradeContext`/
+  `gradeEvolution`/`gradeProfile` → `atMaxTierForBranch`/`branchContext`/
+  `branchDefinition`/`branchProfile`; `CombineResult.chosenGradeTargetId`
+  → `chosenBranchTargetId`. Every call site updated (`item_combine.dart`,
+  `item_events.dart`'s doc comments, `test/combine/combine_resolver_test.dart`,
+  `test/plugins/item/item_combine_test.dart`,
+  `test/integration/item_combine_end_to_end_test.dart`). Deliberately
+  did NOT rename `ItemDefinition.gradeEvolutionCandidates`/
+  `.toGradeEvolutionDefinition()`/`.classScalingPercent` — those are the
+  Item plugin's own legitimate domain vocabulary, not Core's; only
+  `lib/src/combine/`'s own public API was in scope.
+- **Addendum A — `game_run.dart` hardcoded `'upgrade_points'` as a raw
+  string in 4 places.** Fixed: all 4 replaced with
+  `ItemResources.upgradePoints`; `TomeManager`/`RewardStage` (which
+  inherited this code during the god-function extraction) also use the
+  constant, not the literal.
 
-**Update (2026-08-24, same day): approved via "fix all."** Both category-7
-and category-12 findings, and Additional Observation A, are now **fixed**
-— see each section's Status note and the Resolution Log. `dart analyze`
-clean and all tests passing (906 → 908) after every fix.
+---
 
-| # | Category | Result |
-|---|---|---|
-| 1 | Core importing game-specific modules | ✅ No violations |
-| 2 | Combat importing MartialArts | ✅ No violations |
-| 3 | Combat importing Magic | ✅ N/A — no Magic plugin exists |
-| 4 | Plugins accessing private implementation of other plugins | ✅ No violations |
-| 5 | Circular dependencies | ✅ No violations |
-| 6 | Hardcoded item combinations | ✅ No violations |
-| 7 | Hardcoded content | ⚠️ 1 finding (Low) → ✅ Fixed |
-| 8 | Global mutable state | ✅ No violations |
-| 9 | Gameplay randomness bypassing RNGService | ✅ No violations |
-| 10 | Components containing excessive gameplay logic | ✅ No violations |
-| 11 | God classes | ✅ No new findings — one Low finding carried over unchanged, no action recommended |
-| 12 | Duplicate engine functionality inside plugins | ⚠️ 2 findings (1 Medium, 1 Low) → ✅ Fixed |
-| 13 | Direct cross-plugin calls that should use events/interfaces | ✅ No violations |
-| 14 | Domain-specific concepts leaking into Core | ✅ No violations |
-| 15 | Serialization depending on runtime implementation classes | ✅ No violations (coverage gap widens — see category 15) |
+## Previously-resolved findings (not re-flagged)
+
+Everything the prior audit (`7d271a6`, same-day "fix all" update) found
+was fixed and re-verified as still-fixed during this pass:
+
+- Category 7 — technique/item training-weight maps migrated into
+  `technique_content.dart`/`item_content.dart`'s own `'training'` field.
+  Confirmed unchanged and still content-driven; this session's own
+  `item_content.dart` additions follow the exact same pattern.
+- Category 12 (Medium) — the five-times-duplicated `modifiersFor`
+  properties→Modifier loop, extracted to
+  `lib/src/modifier/{modifier_operation_parsing,modifiers_from_raw_list,
+  modifiers_from_properties}.dart`. Confirmed still shared; this
+  session's Item Combine work reuses `modifiersFromProperties` rather
+  than reinventing it.
+- Category 12 (Low) — `_weaponStatTags` duplication in Build
+  Interpretation, extracted to `weapon_stat_tags.dart`. Confirmed still
+  shared; `game_run.dart` itself also calls `WeaponStatTags.matchOrFallback`
+  rather than re-deriving the mapping (see category 12 below for the one
+  place this pass found it *wasn't* reused).
+- Additional Observation A — the `PluginContext`/`RuleEngine`
+  shared-instance footgun, fixed via `CoreServices`. Confirmed every new
+  bootstrap this session (all six Item Combine SDD tasks' test files,
+  `game_run.dart`'s own `runGame`) correctly passes `shared: CoreServices(...)`.
+- Category 11's `CombatSystem` Low finding and Additional Observation B
+  (`reward/` importing `tome/`) — both unchanged, still exactly as
+  before, no new action triggered.
 
 ---
 
@@ -68,57 +139,61 @@ clean and all tests passing (906 → 908) after every fix.
 
 **Result: No violations found.**
 
-Every file under the 21 current Core directories (`lib/src/{character,
-component, components, content, discovery, entity, event, evolution,
-mastery, modifier, plugin, progression, query, resource, reward, rng, rule,
-spatial, tome, training}/`) was grepped for every plugin barrel filename
-(`combat_plugin.dart`, `martial_arts_plugin.dart`, `elemental_plugin.dart`,
-`physique_plugin.dart`, `auto_combat_plugin.dart`, `item_plugin.dart`,
-`technique_plugin.dart`, `build_interpretation.dart`) — zero hits. A second
-grep for domain vocabulary (`sword|fireball|qi|boxing|shaolin|martial|
-cultivat|potion|dragon|mana|physique|sturdy|punch|jab|elemental|
-iron_sword|brass_knuckles|basic_punch|basic_slash|basic_guard|knife|
-gloves`) across the same directories returns only doc-comment prose:
-worked examples (`"item:iron_sword"`, `"technique:jab"`, `"Basic Punch"`),
-and explicit anti-pattern citations (`no SwordMastery`, `not martial-arts
-terminology`) — never executable code. `lib/src/training/` (the newest
-Core addition, five exercise implementations) was specifically checked:
-every "martial"/"magic"/"alchemy" mention in its doc comments is a
-negation or a generic cross-domain example (`"a martial parry window, a
-magic incantation window, an alchemy stir-timing window"`), never a
-dependency.
+Every one of the 19 current Core directories
+(`lib/src/{character,component,components,content,discovery,entity,event,
+evolution,mastery,modifier,plugin,progression,query,resource,reward,rng,
+rule,spatial,tome,training,combine}/`) was grepped for any `plugins/`
+path reference — zero hits, including the newest addition,
+`lib/src/combine/` (the Item Combine feature's Core module). Its own
+prose was independently re-checked word-by-word: the only vocabulary
+hits are the generic English word "item" in phrases like "the items
+being combined" (describing an abstract Combine input, not a plugin
+type) and a doc-comment path reference to the design spec file — neither
+is a code dependency. This is notable because `lib/src/combine/` shipped
+with exactly this defect early in its own development (doc comments
+naming `ItemInstance`/`combineItems`/"the Item plugin") and was
+explicitly fixed during code review before merge — re-verified here as
+still fixed, not regressed.
 
 ## 2. Combat importing MartialArts
 
 **Result: No violations found.**
 
-`lib/src/plugins/combat/` (4 files, including the newly-added `priority`
-getter on `CombatAction` — see category 12/other-notes) imports only
-`package:build_engine/build_engine.dart` and its own sibling files.
-Grepped for `martial_arts`/`MartialArts`/`magic_plugin`/`MagicPlugin` —
-zero hits.
+`lib/src/plugins/combat/` imports only `package:build_engine/build_engine.dart`
+and its own sibling files. Grepped for `martial_arts`/`MartialArts` — zero
+hits.
 
 ## 3. Combat importing Magic
 
-**Result: N/A — no Magic plugin exists in this repository.**
+**Result: N/A — no Magic plugin exists in this repository.** (Elemental
+is this repo's closest analog; see category 2's sibling check — Combat
+does not import it either.)
 
 ## 4. Plugins accessing private implementation of other plugins
 
 **Result: No violations found.**
 
-Grepped every plugin directory (`combat`, `martial_arts`, `elemental`,
-`physique`, `auto_combat`, `item`, `technique`, `build_interpretation`)
-for a `lib/src/plugins/<other>/` relative import path — zero hits
-anywhere, including the three plugins added since the prior audit. Every
+Grepped every plugin directory for a `package:build_engine/src/plugins/<other>/`
+import path — zero hits anywhere, including `lib/src/plugins/game/`
+(the newest and widest-composing plugin-adjacent layer). Every
 cross-plugin reference goes through a public barrel:
 
-- `lib/src/plugins/martial_arts/*.dart` → `combat_plugin.dart` only.
-- `lib/src/plugins/auto_combat/*.dart` → `combat_plugin.dart` only.
-- `lib/src/plugins/build_interpretation/*.dart` → `combat_plugin.dart`,
-  `item_plugin.dart`, `technique_plugin.dart` — all barrels, confirmed by
-  the same grep.
-- `lib/src/plugins/{combat, elemental, physique, item, technique}/` — no
-  plugin barrel imports at all.
+- `lib/src/plugins/game/*.dart` → `auto_combat_plugin.dart`,
+  `build_engine.dart`, `build_interpretation.dart`, `combat_plugin.dart`,
+  `item_plugin.dart`, `martial_arts_plugin.dart`, `physique_plugin.dart`,
+  `technique_plugin.dart` — all public barrels.
+- `lib/src/plugins/build_interpretation/*.dart` → `item_plugin.dart`,
+  `technique_plugin.dart` — barrels only.
+- `lib/src/plugins/martial_arts/martial_conditions.dart` → `combat_plugin.dart`
+  — barrel only.
+- `lib/src/plugins/{combat,elemental,physique,item,technique,combine}/` —
+  no plugin-barrel imports at all.
+
+(Test files under `test/plugins/<name>/` importing that *same* plugin's
+own `src/` files — e.g. `test/plugins/item/item_lifecycle_test.dart`
+importing `package:build_engine/src/plugins/item/item_lifecycle.dart` —
+are a plugin's own tests reaching its own implementation, not a
+cross-plugin violation, and were excluded from this finding.)
 
 ## 5. Circular dependencies
 
@@ -134,284 +209,334 @@ Core <- Item
 Core <- Technique
 Core + Combat <- MartialArts
 Core + Combat <- AutoCombat
-Core + Combat + Item + Technique <- BuildInterpretation
+Core + Item + Technique <- BuildInterpretation
+Core + Combat + Item + MartialArts + Physique + Technique + AutoCombat
+     + BuildInterpretation <- Game
 ```
 
-A strict DAG — `BuildInterpretation` is the new "widest" node (three
-dependencies) but nothing depends on it in turn, and nothing it depends on
-depends back on it. `PluginManager.resolveLoadOrder()` additionally
-detects any *declared* plugin-dependency cycle at runtime; unaffected by
-this session's additions since none of the five new subsystems declare
-plugin `dependencies` at all except implicitly via direct barrel imports
-in `build_interpretation` (which isn't itself a registered `GamePlugin` —
-see category 13's note).
+A strict DAG. `Game` (`lib/src/plugins/game/`, `lib/game.dart`) is the
+new widest node — it composes nearly everything — but nothing imports it
+back (confirmed: no file under `lib/` outside `lib/src/plugins/game/`
+and `lib/game.dart` itself references `plugins/game/` or `game.dart` at
+all), so it sits at the top of the graph as a pure composition root, the
+same position `BuildInterpretation` already occupied in the prior audit.
 
 ## 6. Hardcoded item combinations
 
 **Result: No violations found.**
 
-Grepped the whole `lib/src/plugins/` tree for an `id ==`-shaped
-conditional — zero hits, including the three new plugins. Every
-cross-entity interaction remains gated by a generic tag/status/mastery-
-level/discovery check. The new `TechniqueActionInterpreter`/
-`ItemActionInterpreter` (Build Interpretation) follow the same discipline:
-they branch on a technique's/item's *tags* (`'guard'`, `'fist'`, `'blade'`)
-and on the *presence* of a `properties['damage']`/`['attack']` entry —
-never on a specific content id.
+Grepped the whole `lib/src/plugins/` tree (including the new `game`
+directory) for an `id ==`-shaped conditional on content ids — zero hits.
+`game_run.dart`'s `applyUpgrade`/reward/training logic branches only on
+generic string *prefixes* (`'stat:'`, `'item:'`, `'technique:'`) applied
+uniformly to whichever id is passed in, never on a specific item or
+technique id. The Item Combine feature's own grade-branch resolution
+(`CombineResolver`, `combineItems`) is entirely tag/condition-driven via
+the reused `EvolutionResolver`, with zero `if (item.id == ...)` anywhere
+— confirmed by reading `combine_resolver.dart` and `item_lifecycle.dart`
+in full.
 
 ## 7. Hardcoded content
 
-**Finding (Low, new): per-subject Training weight maps are hand-written
-Dart `const` data, not `ContentRegistry`-loaded content.**
+**Finding (Important, new): `RunEnemies`' 5 enemies are hand-written
+Dart `const` objects, not `ContentRegistry`-loaded content — despite
+"Enemies" being explicitly named as a first-class Content plugin type in
+`CLAUDE.md`'s own Plugin Types list.**
+
+- **File:** `lib/src/plugins/game/run_content.dart:12-28`
+- **Problem:** `CLAUDE.md`'s Plugin Types section explicitly lists
+  `Enemies` alongside `MartialArts`/`Magic`/`Cultivation`/`Weapons`/
+  `Potions`/`Trinicts` as a **Content plugin** — i.e. the architecture
+  anticipates enemy stat blocks being data-driven content, exactly like
+  items/techniques/physiques already are. Instead, `RunEnemies` is a
+  hand-written `abstract final class` of five `const Enemy(...)` object
+  literals (`trainingDummy`, `bandit`, `martialAdept`, `eliteWarrior`,
+  `boss`), the same shape the item/technique/physique/spell content used
+  to be in before each was migrated to `ContentRegistry`-loaded
+  JSON-shaped maps (per this repo's own established, repeatedly-applied
+  pattern — see `itemContentDefinitions`/`techniqueContentDefinitions`/
+  `physiqueContentDefinitions`/`elementalContentDefinitions`). A designer
+  changing an enemy's stats has to edit and recompile Dart, unlike every
+  other content type in this codebase.
+- **Severity:** Important — not Critical (this is application-layer
+  "game" content, not Core, so it doesn't break Core's zero-plugin-knowledge
+  guarantee), but more than cosmetic: it's a concrete, direct violation
+  of a pattern this codebase has now applied to every other content type
+  at least twice (per the prior two audits' own resolution logs), and
+  `CLAUDE.md` names Enemies specifically as content, not configuration.
+- **Recommended fix:** Add an `Enemy`-typed `ContentDefinition` parser
+  (`enemyDefinitionFromContent`, mirroring `itemDefinitionFromContent`)
+  and move the 5 enemy definitions into a `const enemyContentDefinitions`
+  list, loaded via `ContentRegistry.loadAll` the same way
+  `itemContentDefinitions` is in `ItemPlugin.initialize`. `game_run.dart`
+  would then resolve `RunEnemies.weakPool`/`.eliteBossPool` by id lookup
+  instead of holding live `Enemy` objects.
+
+**Finding (Important, new): `run_content.dart`'s `stylesFor` hardcodes a
+tradition→styles mapping that already exists, inverted, inside the
+MartialArts plugin — the same data represented in two places with no
+shared source of truth.**
 
 - **Files:**
-  - `lib/src/plugins/technique/technique_training_weights.dart:6-10`
-  - `lib/src/plugins/item/item_training_weights.dart:6-10`
-- **Problem:** The Training Exercises milestone's own instruction was
-  "[weights] belong in content definitions" — read at the time as "not
-  hardcoded inside the Training *Engine*" (satisfied: `lib/src/training/`
-  has zero knowledge of `'basic_punch'`/`'iron_sword'`), but the weight
-  *values themselves* (`{'speed': 0.3, 'power': 0.2, ...}`) are still
-  plain Dart `Map` literals baked into the plugin's source, not entries
-  loadable/editable through `ContentRegistry` the way
-  `techniqueContentDefinitions`/`itemContentDefinitions` are (JSON-shaped
-  maps, parsed via `ContentRegistry.loadAll`). A designer changing a
-  technique's training profile has to edit and recompile Dart, unlike
-  every other numeric tuning value in these two plugins.
-- **Severity:** Low — these are two small, self-contained maps (5 lines
-  of data each), not gameplay *logic*, and every other piece of category-
-  7-relevant content in the repo (item/technique definitions themselves)
-  is already correctly `ContentRegistry`-loaded; this is a narrower,
-  clearly-scoped exception, not a systemic pattern.
-- **Recommended fix:** If these maps are expected to grow or be
-  designer-tunable independent of code review, migrate them into
-  `techniqueContentDefinitions`/`itemContentDefinitions` themselves as a
-  `'trainingWeights'` extra field (parsed the same way
-  `'properties'`/`'evolution'` already are), or into their own small
-  `ContentRegistry`-loaded `'training_configuration'`-typed entries. Not
-  urgent — no correctness impact, purely a content-authoring ergonomics
-  question.
+  - `lib/src/plugins/game/run_content.dart:86-90` (`stylesFor`)
+  - `lib/src/plugins/martial_arts/martial_styles.dart:66-72`
+    (`_traditionTagFor`, the *existing*, canonical styles→tradition
+    mapping)
+- **Problem:** `martial_styles.dart`'s `_traditionTagFor` already encodes
+  "boxing/wrestling/fencing = western, shaolin/taiChi/wingChun = eastern"
+  as the single source of truth MartialArts itself uses (via `learnStyle`).
+  `run_content.dart`'s `stylesFor` re-derives the *same* mapping,
+  inverted (tradition → list of styles), as an independent hardcoded
+  `switch`, in a completely different plugin, with nothing tying the two
+  together. If MartialArts ever adds, removes, or renames a style,
+  `run_content.dart`'s list silently goes stale — the exact "content
+  values that appear in two places that could drift" risk this
+  category's own brief asks about, and simultaneously a category-12
+  duplicate-functionality case (the same classification logic
+  reimplemented instead of queried).
+- **Severity:** Important — same reasoning as the finding above: not a
+  Core violation, but a genuine, evidenced drift risk between two real
+  modules, not a hypothetical one, and it's the second finding this pass
+  identified in the exact same 91-line file.
+- **Recommended fix:** Either (a) have MartialArts expose a public
+  `stylesForTradition(String tradition) -> List<String>` function
+  (the natural counterpart to `_traditionTagFor`, made non-private) that
+  `run_content.dart` calls instead of re-deriving the mapping, or (b) if
+  style content is ever migrated to `ContentRegistry` (it currently
+  isn't — `MartialStyles` is a bare string-constant class, not
+  content-registry data), query it by a `'tradition:<id>'` tag instead of
+  hardcoding either direction of the mapping anywhere.
 
-**Status: ✅ Fixed (2026-08-24, same day).** Migrated exactly as
-recommended: both `technique_content.dart`'s 3 base entries and
-`item_content.dart`'s `knife`/`iron_sword`/`gloves` entries now carry a
-`'training'` extra field with the same weight values the two removed Dart
-constants held; `TechniqueDefinition`/`ItemDefinition` each gained a
-`trainingWeights` field parsed from it (mirroring how `properties` is
-parsed). `techniqueTrainingExerciseFor`/`itemTrainingExerciseFor` now take
-the already-parsed `TechniqueDefinition`/`ItemDefinition` directly instead
-of looking a bare id up in a standalone map — a cleaner API aligned with
-every other Item/Technique lifecycle function, which already take the
-`Definition` object rather than a bare id. `technique_training_weights.dart`/
-`item_training_weights.dart` shrank from a 16–18-line const map + lookup
-function to a single 4-line wrapper each. `dart analyze` clean, all tests
-passing (2 call sites updated: `test/training/weighted_training_exercise_test.dart`,
-`test/integration/training_pipeline_integration_test.dart`).
+**Finding (Minor, new): `RunStartingKit`/`rewardPoolItemIds`/
+`rewardPoolTechniqueIds` are hardcoded Dart lists of existing content
+ids.**
+
+- **File:** `lib/src/plugins/game/run_content.dart:50-64`
+- **Problem:** Unlike the two findings above, these don't invent new
+  stat blocks — they curate *which already-defined* item/technique ids
+  this particular run offers, which is closer to level/scenario
+  configuration than to "content" in the `CLAUDE.md` sense (the item ids
+  referenced, e.g. `ItemIds.ironSword`, are real `ContentRegistry`-loaded
+  content; only the *selection* of which ids to include is a bare Dart
+  list).
+- **Severity:** Minor — genuinely borderline; flagged for completeness
+  per this audit's "don't just omit" instruction, not because it clearly
+  crosses the line the way the enemy roster and tradition mapping do.
+- **Recommended fix:** Low priority. If this "game" layer is ever
+  expected to support multiple distinct run configurations (different
+  starting kits, different reward pools per game mode), migrating this
+  to its own small content type (e.g. a `'run_config'` `ContentDefinition`)
+  would make sense; for a single fixed run definition, a plain Dart list
+  is a defensible, low-risk choice.
 
 ## 8. Global mutable state
 
 **Result: No violations found.**
 
-Grepped for every `static` declaration across `lib/`; every hit is a pure
-static *function* (`TechniqueDefinition._noModifiers`,
-`ItemDefinition._noModifiers`, `ContentField`'s helpers,
-`Container._slotFromJson`, `ElementalEffects._statusFor`) or already
-excluded as `static const`. No mutable `static` field, no singleton, no
-top-level mutable variable anywhere — confirmed across all five new
-subsystems (`ActionScorer`/`ScoredActionSelector`, the five training
-exercises, `ItemInstance`, `TechniqueDefinition`, `BuildActionInterpreter`
-and its implementations) as well as everything audited previously.
+Grepped for every `static` declaration across `lib/`, including the new
+`lib/src/combine/` and `lib/src/plugins/game/` directories. Every hit is
+a pure static *function* (`CombineOdds.forAttempt`,
+`ConsoleDecisionPolicy._defaultPrint`/`._defaultReadLine`,
+`ElementalEffects._statusFor`, `WeaponStatTags.matchOrFallback`,
+`TrainingStatistics.average`/`.standardDeviation`, `JsonHelpers.*`,
+`Container._slotFromJson`) or already-excluded `static const`/`static
+final` (the latter only for genuinely-immutable derived collections like
+`RunTomeSlots.all`, a `List.unmodifiable` built once from `const` inputs
+— re-verified it is never reassigned or mutated in place). No mutable
+`static` field, no singleton, no top-level mutable variable anywhere.
+The `late` instance fields found (`CombatPlugin.system`/`.sdk`, five
+other plugins' `.sdk`, `CombatSystem._killedSubscription`) are all
+per-instance plugin state set once in `initialize()`, the same
+already-audited pattern from the prior two passes — not global state.
 
 ## 9. Gameplay randomness bypassing RNGService
 
 **Result: No violations found.**
 
-Grepped all of `lib/src/` for `dart:math`/`Random(`. Real `dart:math`
-imports remain exactly `modifier_resolver.dart` (`math.min`/`math.max`,
-previously audited) plus two new, equally non-random uses added by the
-Training milestone: `precision_exercise.dart:1` and
-`training_statistics.dart:1`, both importing `dart:math` solely for
-`math.sqrt` (Euclidean distance and population standard deviation —
-deterministic arithmetic, not randomness). Every other match is a doc
-comment *negating* direct `dart:math`/`Random` use (`RandomChance`'s own
-doc comment, `physique_initialization.dart`, `weighted_pick.dart`). No
-`Random(` construction anywhere outside `rng_service.dart`. The two new
-resolvers/scorers that could plausibly need randomness —
-`ScoredActionSelector` and `DefaultActionScorer` — use none at all
-(deterministic tie-breaking by list order, per the AutoCombat milestone's
-own requirement).
+Grepped all of `lib/` for `dart:math`/`Random(`. Real `dart:math` imports
+remain exactly the three already-audited non-random uses
+(`modifier_resolver.dart`'s `math.min`/`math.max`,
+`precision_exercise.dart` and `training_statistics.dart`'s `math.sqrt`)
+— nothing new. `lib/src/plugins/game/` was specifically checked: every
+`dart:math` mention in `training_simulation.dart` is prose *negating*
+direct use ("never calls `dart:math` directly"), confirmed by the file
+having no actual `dart:math` import. `game_run.dart`'s own randomness
+(`rng.nextInt(RunEnemies.weakPool.length)` for enemy selection,
+`seededShuffle(..., rng)` for the reward pool) draws exclusively from the
+injected `RngService` instance threaded through `PluginContext`, never a
+bare `Random()`. The Item Combine feature's RNG use
+(`CombineResolver.resolve`'s `rng.nextDouble()`/`rng.nextInt()`) is the
+same injected-service pattern, already independently verified multiple
+times during that feature's own code review.
 
 ## 10. Components containing excessive gameplay logic
 
 **Result: No violations found.**
 
-Every `class ...Component`-named type in the repository was re-enumerated
-(15 total, one new since the prior audit: `ItemInstance`, which — despite
-not being literally named `...Component` — is the Item plugin's own
-ECS-attached runtime-state type and was reviewed on the same basis).
-`ItemInstance` (`lib/src/plugins/item/item_instance.dart`) is two fields
-(`definitionId`, `owner`), no methods — deliberately kept that way per its
-own doc comment, precisely to avoid duplicating `DiscoveryTracker`/
-`MasteryTracker` state. No new component-shaped class contains a
-conditional, a loop over other entities, or a call into
-`EventBus`/`RuleEngine`/any service.
+Every `class ...Component`-named type was re-enumerated: the 7 Core
+components under `lib/src/components/` (all 7-14 lines, all pure data —
+unchanged since the prior audit) plus the 6 plugin-owned components
+(`CombatantComponent`, `CombatStateComponent`, `ElementalAffinityComponent`,
+`MartialLoadoutComponent`, `PhysiqueComponent`, `CharacterComponent`) —
+none of these six were touched this session and were already cleared by
+the prior audit. The one component-shaped type that *did* change this
+session, `ItemInstance` (`lib/src/plugins/item/item_instance.dart`),
+gained one new field (`itemClass`, mutable — the only mutable field in
+the type, and the only field `combineItems` ever writes after
+construction) but zero new methods; it remains three fields, no logic,
+exactly the "two fields, no methods" shape its own doc comment commits
+to. `Enemy` (`lib/src/plugins/game/enemy.dart`, new this session) is
+also plain data — 5 fields, no methods — though note it is explicitly
+*not* an ECS component (it's a value object turned into an `AttackAction`
+by `game_run.dart`, never attached via `ComponentStore`), so it's outside
+this category's literal scope, mentioned here only for completeness.
 
 ## 11. God classes
 
-**Result: no new findings.** The one previously-identified item remains
-open, unchanged, by design:
+**Finding (Important, new): `runGame` is a single ~630-line function
+containing 19 nested closures spanning entity setup, Tome management,
+reward resolution, training resolution, and combat resolution.**
 
-- **File:** `lib/src/plugins/combat/combat_system.dart` (257 lines,
-  unchanged since the prior audit — `combat_action.dart` gained one new
-  defaulted `priority` getter this session, `combat_system.dart` itself
-  was not touched by any of the five new subsystems).
-- **Severity:** Low, carried over — same reasoning as both prior audits
-  (narrow public surface, heavily commented, every branch tested).
-- **Recommended fix:** Unchanged — no urgent action.
+- **File:** `lib/src/plugins/game/game_run.dart:69-696`
+- **Problem:** `CLAUDE.md`'s Entity Model section says "Do NOT create
+  giant classes" and names composition/small-services as the preferred
+  style; while `runGame` is a function rather than a class, it exhibits
+  the exact failure mode that guidance targets: one unit of code (627
+  lines, one top-level function body) responsible for character setup,
+  Tome placement (`placeItem`/`placeTechnique`/`replaceWithEvolved`),
+  upgrade-point spending (`applyUpgrade`/`manageTome`, ~90 lines),
+  reward resolution (`rewardCandidates`/`resolveReward`/`grantReward`),
+  training resolution (`trainingCandidates`/`runTraining`, ~85 lines),
+  and combat resolution (`fallbackStrikeStat`/`spawnEnemy`/`runFight`,
+  ~70 lines) — 19 separate nested closures, each a distinct
+  responsibility, all sharing one mutable closure scope
+  (`tomeHistory`, `itemsDiscovered`, `cycleIndex`, `rewardIndex`, etc.)
+  instead of being independently testable units. No single closure is
+  individually unreasonable in isolation, but the whole is a textbook
+  god-function: everything reaches into everything else's local state,
+  and nothing in this 627-line body can be unit-tested without invoking
+  the entire `runGame` call.
+- **Severity:** Important — not Critical (it's the game composition
+  layer, not Core, and the prior audit's own precedent treats
+  `CombatSystem`'s smaller version of this pattern as Low-not-urgent) —
+  but this is meaningfully larger and more sprawling than that precedent
+  (627 lines and 19 closures vs. `CombatSystem`'s 257 lines as a proper
+  class with real methods), and it is the single largest file in the
+  entire repository by a wide margin (next largest logic file is under
+  half its size).
+- **Recommended fix:** Extract logically-cohesive groups of these
+  closures into their own small classes/functions taking explicit
+  parameters instead of closing over `runGame`'s shared mutable scope —
+  e.g. a `TomeManager` (wrapping `placeItem`/`placeTechnique`/
+  `replaceWithEvolved`/`manageTome`), a `RewardStage`
+  (`rewardCandidates`/`resolveReward`/`grantReward`), and a
+  `TrainingStage` (`trainingCandidates`/`runTraining`), each constructed
+  with the specific state it needs (character, context, policy) rather
+  than reaching into `runGame`'s closure. This is a real, non-trivial
+  refactor — not attempted here per this audit's instructions.
 
-A full line-count survey of every file added by the five new subsystems
-(41 files, 2,029 lines total) found nothing over 176 lines
-(`technique_content.dart`, pure data — 11 content definitions — not
-logic-dense); every behavioral file (interpreters, scorers, lifecycle
-functions) is under 150 lines with a single clear responsibility.
+**Finding (Minor, new): `item_lifecycle.dart` now covers two distinct
+responsibilities — basic item lifecycle and the entire Combine
+mechanic — in one 338-line file.**
+
+- **File:** `lib/src/plugins/item/item_lifecycle.dart`
+- **Problem:** The file started as a small, single-purpose module
+  (own/discover/usable/active/`addItemToTome` — ~125 lines before this
+  session). The Item Combine feature added `combineItems` and
+  `_reflectCombineInTome` (`item_lifecycle.dart:172-338`, ~165 lines,
+  roughly half the file) plus `CombineNotAvailableException`. Both
+  responsibilities are legitimately item-plugin-owned, but they're now
+  distinct enough (basic possession/placement vs. a whole
+  probabilistic-outcome game mechanic) that they read as two modules
+  sharing one file.
+- **Severity:** Minor — 338 lines is not large by this repo's own
+  precedent (`content_registry.dart` is 293 lines, `combat_system.dart`
+  257), and every function is independently well-documented and tested;
+  this is a naming/organization observation, not a functional problem.
+- **Recommended fix:** If this file grows further, split `combineItems`/
+  `_reflectCombineInTome`/`CombineNotAvailableException` into a sibling
+  `item_combine.dart`, mirroring how `lib/src/combine/` itself is
+  already split into one-concern-per-file. Not urgent at current size.
+
+The previously-carried-over `CombatSystem` Low finding remains open,
+unchanged — no new action recommended, consistent with both prior
+audits.
 
 ## 12. Duplicate engine functionality inside plugins
 
-**Finding (Medium, new): the "turn a raw `properties` map into
-unconditional `add`-`Modifier`s" pattern is independently reimplemented
-in five different content-parsing files.**
-
-- **Files:**
-  - `lib/src/plugins/item/item_content.dart:107-117`
-    (`itemDefinitionFromContent`'s `modifiersFor`)
-  - `lib/src/plugins/technique/technique_content.dart:149-159`
-    (`techniqueDefinitionFromContent`'s `modifiersFor`)
-  - `lib/src/plugins/martial_arts/martial_item_content.dart:106-119`
-    (`martialItemDefinitionFromContent`'s `modifiersFor`)
-  - `lib/src/plugins/elemental/elemental_item_content.dart:38-...`
-    (equivalent `modifiersFor` construction)
-  - `lib/src/plugins/physique/physique_content.dart:151-162`
-    (`physiqueDefinitionFromContent`'s `modifiersFor`)
-- **Problem:** All five build a closure of the shape `List<Modifier>
-  modifiersFor(EntityId target) => [for (final entry in
-  <rawEntries>.entries) Modifier(source: ModifierSource('<prefix>:
-  ${definition.id}:${entry.key}:${target.value}'), target: target, stat:
-  entry.key, operation: <op>, value: entry.value, ...)]` — the same
-  "one entry, one unconditional (or tag-conditional) `Modifier`, sourced
-  by a `<domain>:<id>:<key>:<entityValue>` string" algorithm, five times,
-  with only the domain prefix and the presence/absence of a `condition`
-  differing. This is exactly the shape category 12 asks about — not
-  literally identical code, but the same *engine mechanism* (Modifier
-  construction from a raw properties map) reinvented five times instead
-  of shared, mirroring the prior audit's own `EvolutionResolver`/
-  `RewardResolver` weighted-pick finding.
-- **Severity:** Medium — no correctness risk today (each copy is
-  independently tested and behaves identically for its own plugin), but a
-  future change to the convention (e.g. adding `duration`/`priority` to
-  every content-derived modifier, or changing the `ModifierSource` string
-  format) would have to be applied in five places, and nothing would
-  catch a silent divergence between them — the same risk profile the
-  prior Medium finding was raised for.
-- **Recommended fix:** Extract a single generic helper — e.g.
-  `List<Modifier> modifiersFromProperties({required String domain,
-  required String contentId, required Map<String, num> properties,
-  required EntityId target, Query? condition}) -> List<Modifier>` — a
-  natural home would be `lib/src/modifier/` (Core) alongside `Modifier`
-  itself, since the algorithm has no domain-specific knowledge at all
-  (every caller already supplies its own `domain` prefix and optional
-  `condition`). Each of the five content-parsing functions would then
-  call the shared helper instead of re-deriving the same loop. New,
-  out-of-scope work per this audit's own instructions — recommended for a
-  future approved pass.
-
-**Finding (Low, new): `'fist'`/`'blade'` tag-matching-with-fallback logic
-is duplicated between the two Build Interpretation interpreters.**
-
-- **Files:**
-  - `lib/src/plugins/build_interpretation/technique_action_interpreter.dart:28,71-76`
-    (`_weaponStatTags` + `_damageStatFor`)
-  - `lib/src/plugins/build_interpretation/item_action_interpreter.dart:31,60-65`
-    (`_weaponStatTags` + `_statFor`)
-- **Problem:** Both files independently declare the identical `static
-  const _weaponStatTags = ['fist', 'blade'];` list and near-identical
-  "return the first tag from this list the definition has, else fall back
-  to a per-id stat string" logic. Both live in the *same* module
-  (`lib/src/plugins/build_interpretation/`), so — unlike finding 12a,
-  which spans five separately-owned plugins — there is no plugin-boundary
-  reason for the duplication here at all.
-- **Severity:** Low — a 2-line constant and a 5-line loop; low drift risk
-  given both files are reviewed together in practice, but genuinely
-  unnecessary given the shared module.
-- **Recommended fix:** Move `_weaponStatTags` and the matching-with-
-  fallback function into a small shared file in the same module (e.g.
-  `lib/src/plugins/build_interpretation/weapon_stat_tags.dart`), called
-  by both interpreters. Mechanical, low-risk, ~10-line change.
-
-**Status: ✅ Fixed (2026-08-24, same day).** Both category-12 findings
-fixed:
-
-- New `lib/src/modifier/modifier_operation_parsing.dart`
-  (`modifierOperationFromString`) replaces the triplicated `_operationFor`
-  in `martial_item_content.dart`/`elemental_item_content.dart`/
-  `physique_content.dart`.
-- New `lib/src/modifier/modifiers_from_raw_list.dart`
-  (`modifiersFromRawList`) replaces those same three files' identical
-  index-keyed `modifiersFor` loop (the bigger of the two duplications,
-  beyond just operation-parsing) — verified behavior-preserving: physique's
-  content always supplies `'condition'`, so the shared helper's
-  `containsKey`-guarded optional condition produces the exact same
-  `HasTagQuery` physique's old unconditional-cast version did.
-- New `lib/src/modifier/modifiers_from_properties.dart`
-  (`modifiersFromProperties`) replaces `item_content.dart`'s and
-  `technique_content.dart`'s identical properties-map-to-add-`Modifier`
-  loop — the Medium finding as originally written.
-- New `lib/src/plugins/build_interpretation/weapon_stat_tags.dart`
-  (`WeaponStatTags.values`/`.matchOrFallback`) replaces the duplicated
-  `_weaponStatTags` constant and matching loop in
-  `technique_action_interpreter.dart`/`item_action_interpreter.dart` — the
-  Low finding.
-
-All four are pure, behavior-preserving extractions (same `Modifier`s/stat
-strings produced for every existing input) — `dart analyze` clean, every
-existing MartialArts/Elemental/Physique/Item/Technique/Build-Interpretation
-test still passes unchanged.
+**Result: No new duplicate *engine mechanism* reimplementations found**
+beyond the tradition/style mapping already reported under category 7
+(cross-referenced here since it is equally a category-12 case: the same
+classification logic reimplemented rather than shared — see that
+section for the full finding). The Item Combine feature specifically
+reuses, rather than reimplements, every relevant Core mechanism:
+`EvolutionResolver` for weighted grade-branch selection (not a new
+ad-hoc weighted pick), `ResourcePool.consume`/`.canAfford` for the
+`upgrade_points` cost (not custom clamping), `modifiersFromProperties`
+for `ItemDefinition.modifiersFor` (not a new Modifier-construction loop),
+and the existing `RngService` for its one roll. `TomeService.replace` is
+reused by both `game_run.dart`'s `replaceWithEvolved` and
+`item_lifecycle.dart`'s `_reflectCombineInTome` — two independent call
+sites, but both call the same Core primitive rather than reimplementing
+Tome-slot replacement.
 
 ## 13. Direct cross-plugin calls that should use events/interfaces
 
-**Result: No violations found — two new cases explicitly considered and
+**Result: No violations found — one new case explicitly considered and
 cleared, following the same reasoning the prior audit applied to
-`AutoCombatController`.**
+`AutoCombatController`/the Build Interpretation interpreters.**
 
-- `TechniqueActionInterpreter`/`ItemActionInterpreter`
-  (`lib/src/plugins/build_interpretation/`) call
-  `techniqueDefinitionFromContent`/`itemDefinitionFromContent` and read
-  `context.content.find(...)` directly — these are each plugin's
-  documented *public* content-parsing API (the same functions
-  `TechniquePlugin`/`ItemPlugin`'s own tests call), not a reach into
-  private implementation, and Build Interpretation's entire purpose is to
-  translate that content into `CombatAction`s — exactly analogous to how
-  `AutoCombatController` legitimately calls `CombatSystem.executeAction`
-  directly rather than through an event (the prior audit's own
-  category-13 conclusion).
-- `ScoredActionSelector`/`DefaultActionScorer`
-  (`lib/src/plugins/auto_combat/`) read `context.modifiers`/
-  `context.resources`/`action.conditions` directly — all public
-  `PluginContext`-exposed Core services, not another plugin's private
-  state. No plugin is contacted directly at all; scoring only reads
-  generic Core services and the `CombatAction` interface.
+`game_run.dart` calls `itemDefinition`/`techniqueDefinition`/
+`ownItem`/`discoverItem`/`isItemUsable`/`addItemToTome`/`addTechniqueToTome`/
+`isTechniqueLearned`/`isTechniqueDiscovered`/`attemptToLearnTechnique`/
+`evolveTechnique`/`learnStyle`/`initializePhysique` directly — every one
+of these is each plugin's own documented public lifecycle API (the exact
+functions each plugin's own tests call), not a reach into private
+implementation, and `game_run.dart`'s entire purpose is to *compose*
+these plugins into one run — exactly analogous to how
+`AutoCombatController` legitimately calls `CombatSystem.executeAction`
+directly (the prior audit's own category-13 conclusion, now extended one
+layer up to the composition-root layer that calls `AutoCombatController`
+itself).
 
 ## 14. Domain-specific concepts leaking into Core
 
-**Result: No violations found.**
+**Finding (Minor, carried forward from this session's own code review —
+already known, not newly discovered by this audit): `lib/src/combine/`'s
+naming still carries Item-plugin-flavored vocabulary in its public API,
+despite containing zero plugin imports/coupling.**
 
-Same evidence as category 1. Every new opaque-reference convention this
-session (`ItemRequirement.masterySubject`, `TechniqueDefinition.tier`
-reusing the pre-existing `EvolutionTiers` constants, `CombatAction
-.priority`) is treated as an uninterpreted string/number by every piece of
-Core logic that touches it. `CombatAction.priority` (the one new field
-added to a Combat-plugin type this session) is a plain `num`, read only by
-`DefaultActionScorer` via addition — Combat itself (`combat_system.dart`)
-never reads it.
+- **File:** `lib/src/combine/combine_outcome.dart` (`CombineOutcome
+  .classUpgrade`/`.gradeUpgrade`), `combine_resolver.dart`
+  (`atMaxTierForGrade`, `gradeEvolution`, `gradeContext`, `gradeProfile`,
+  `chosenGradeTargetId` parameter/field names)
+- **Problem:** `CLAUDE.md`'s category-1 spirit ("the core must NOT know
+  what ... means") is about behavior/imports, which this module already
+  satisfies — but the *names themselves* ("class," "grade") are
+  Item-plugin concepts (an item's numeric tier and its qualitative
+  branch), not truly domain-neutral Core vocabulary the way
+  `EvolutionDefinition.tier`/`EvolutionCandidate` are. This was
+  identified and explicitly accepted (spec-sanctioned, no functional
+  coupling) during this session's own final code review for the Item
+  Combine feature, not fixed at the time — recorded here so it isn't
+  lost.
+- **Severity:** Minor — purely naming, zero functional coupling (a
+  second plugin could use `CombineResolver` today without any code
+  change, just living with names that read as item-flavored), and
+  already reviewed/accepted once.
+- **Recommended fix:** Unchanged from the original review's
+  recommendation — rename to genuinely generic terms (e.g.
+  `CombineOutcome.tierUpgrade`/`.branchUpgrade`, `atMaxTierForBranch`,
+  `branchDefinition`/`branchContext`/`branchProfile`,
+  `chosenBranchTargetId`) before a second plugin adopts this API, so the
+  rename doesn't become a breaking change later. Not urgent today.
+
+No other Core service's API design (parameter names, method names, enum
+values) was found to encode domain vocabulary — re-checked
+`ItemRequirement.masterySubject`, `TechniqueDefinition.tier` (reuses the
+pre-existing generic `EvolutionTiers` constants), `CombatAction.priority`,
+and everything in `lib/src/evolution/`/`lib/src/resource/` fresh; all
+remain plain, uninterpreted strings/numbers.
 
 ## 15. Serialization depending on runtime implementation classes
 
@@ -419,118 +544,100 @@ never reads it.
 
 Every `toJson`/`fromJson` pair in the repository is unchanged from the
 prior audit's enumeration (`Container`, `CombatStateComponent`/
-`CombatantComponent`, `MartialLoadoutComponent`, `ContentRegistry`). None
-of the five subsystems added this session (Item, Technique, Training,
-Build Interpretation, AutoCombat scoring) implements any serialization at
-all, so there is nothing new to violate this category — but the
-save/load *coverage gap* the prior two audits already noted as "outside
-what this category asks for" widens further: `ItemInstance`,
-`TechniqueDefinition`-derived state (Discovery/Progression/Mastery
-entries, already covered generically by their own trackers, not by any
-new type), and every Training/Build-Interpretation/AutoCombat-scoring
-type have no `toJson`/`fromJson` at all. Noted for completeness only, per
-the same reasoning both prior audits used — a save/load coverage gap is
-not a category-15 violation on its own.
+`CombatantComponent`, `MartialLoadoutComponent`, `ContentRegistry`/
+`ContentDefinition`). Neither the Item Combine feature nor the `game`
+composition layer adds any serialization code, so there's nothing new to
+violate this category — but the save/load coverage gap widens further,
+worth noting for completeness: `ItemInstance.itemClass`, every
+`CombineResolver`/Item-Combine-feature type, and the entire `game`
+layer's `RunResult`/`DecisionLog`/`TomeSnapshot`/telemetry-event types
+have no `toJson`/`fromJson` at all. This gap is not itself a category-15
+violation (nothing here *incorrectly* serializes a runtime object —
+there's simply no serialization yet), and notably `DecisionLog`
+(`lib/src/plugins/game/decision_log.dart:1-30`) is a positive example of
+this category's actual concern done right *without* formal
+`toJson`/`fromJson`: it's built entirely from stable data (`String`,
+`int`, `bool`, `SlotId`), holds zero live entity/component references,
+and is explicitly designed to reproduce a run exactly via replay — the
+architecture this category cares about, just not yet wired to an actual
+save format.
 
 ---
 
 ## Additional observations (outside the 15 requested categories)
 
-**A. The `PluginContext`/`RuleEngine` shared-instance footgun (prior
-audit's Additional Observation B) now has two confirmed real incidents —
-upgraded from informational to a recommendation.**
+**A. `game_run.dart` hardcodes the `'upgrade_points'` resource id as a
+raw string in 4 places instead of using `ItemResources.upgradePoints`,
+the constant this session's own Item Combine work introduced
+specifically to avoid this.**
 
-- **Files:** `lib/src/plugin/plugin_context.dart`, `lib/src/rule/
-  rule_engine.dart`, `lib/src/rule/rule_context.dart` (unchanged since the
-  prior audit — the risk is in how callers *use* these factories, not in
-  the factories themselves).
-- **Problem:** Both prior audits flagged that a `PluginContext` and a
-  `RuleEngine` constructed with their own unsupplied defaults silently end
-  up with *independent* `MasteryTracker`/`ProgressionEngine`/
-  `DiscoveryTracker` instances unless a caller explicitly passes the same
-  ones to both constructors, and judged this "no current failure, only a
-  footgun." This session, building the Technique and Item plugins'
-  earliest test bootstraps, that exact failure mode was hit twice in
-  practice (a `Rule` registered via `RuleEngine.register` silently read
-  mastery/discovery state through a *different* tracker than the one
-  `PluginContext.mastery`/`.discovery` had just been written through,
-  making a mastery-gated unlock rule appear not to fire) — caught only by
-  the tests themselves failing, not by any static check.
-- **Severity:** Low-Medium — still no violation in shipped engine code
-  (every real bootstrap in `lib/` — the vertical slice runner,
-  `build_interpretation_end_to_end_test.dart`, etc. — already follows the
-  documented shared-instance pattern correctly), but the failure mode is
-  no longer hypothetical: it has now cost real debugging time twice in
-  this project's own history, and nothing prevents a third recurrence for
-  the next plugin that combines `RuleEngine`-dispatched rules with direct
-  `PluginContext.mastery`/`.progression`/`.discovery` writes.
-- **Recommended fix (still not implemented — recommendation only):** the
-  `CoreServices` bundle type both prior audits already proposed
-  (constructed once, destructured into both `RuleEngine` and
-  `PluginContext`, making mismatched defaults structurally impossible)
-  would eliminate the footgun entirely rather than relying on every future
-  bootstrap author remembering the documented pattern. Given it has now
-  independently caused two incidents, this is worth prioritizing over the
-  category-12 findings above if only one refactor is approved.
-
-**Status: ✅ Fixed (2026-08-24, same day).** Implemented exactly the
-recommended `CoreServices` bundle — `lib/src/rule/core_services.dart`
-(placed under `lib/src/rule/`, not `lib/src/plugin/`, specifically to
-avoid introducing a `rule -> plugin -> rule` cycle, since `PluginContext`
-already depends on `RuleEngine`). Both `PluginContext` and `RuleEngine`
-gained an additive, optional `shared: CoreServices?` parameter — an
-explicit individual parameter (`mastery:`/`progression:`/etc.) still
-always takes priority, so every existing caller that doesn't pass
-`shared:` is unaffected. Migrated the 8 test bootstraps that previously
-built the shared instances by hand (`item`/`technique` plugin and
-lifecycle tests, `item`/`technique`/`build_interpretation`/`training`
-integration tests) to `shared: CoreServices(...)`, each shrinking from ~20
-lines of manual wiring to 1. Added `test/rule/core_services_test.dart`,
-which demonstrates both halves directly: *with* `shared:`, a `Rule`
-dispatched through `RuleEngine` correctly sees mastery written through
-`PluginContext.mastery`; *without* it, the same setup reproduces the
-historical divergence bug verbatim (kept as a deliberate, documented
-contrast — `shared:` is opt-in, not a breaking change). `dart analyze`
-clean; full suite 906 → 908 tests, all passing.
+- **File:** `lib/src/plugins/game/game_run.dart:279,290,458,645`
+- **Problem:** `CLAUDE.md`'s Code Quality section explicitly lists
+  "magic strings scattered throughout code" as something to avoid.
+  `ItemResources.upgradePoints` (`lib/src/plugins/item/item_vocabulary.dart`)
+  now exists as the canonical constant for this exact string, created
+  this session for exactly this purpose — but `game_run.dart` predates
+  it (from an earlier commit) and was never backfilled. Not a functional
+  bug today (the literal string matches exactly), but a real drift risk:
+  if the resource id constant ever changes, these four call sites won't
+  get a compile error, they'll silently stop working.
+- **Severity:** Minor — cosmetic/hygiene, zero current behavioral risk,
+  trivial fix.
+- **Recommended fix:** Import `item_plugin.dart` in `game_run.dart` (already
+  imported) and replace all four `'upgrade_points'` literals with
+  `ItemResources.upgradePoints`.
 
 **B. `lib/src/reward/` importing `lib/src/tome/` — unchanged, still
-informational, not a finding** (carried over from the prior audit's
-Observation C: `RewardCandidate.ref` reusing `BuildComponentRef` directly;
-still a Core-module-to-Core-module value-type dependency, still outside
-`lib/src/plugins/`, no plugin-boundary rule implicated).
+informational, not a finding** (carried over verbatim from both prior
+audits: `RewardCandidate.ref` reusing `BuildComponentRef` directly; still
+a Core-module-to-Core-module value-type dependency, no plugin-boundary
+rule implicated, nothing about it changed this session).
 
 ---
 
-## Resolution status of prior audits' findings
+## Summary
 
-All findings from both prior audits (`227bf69`'s pass and the same-day
-"fix all" update) remain fixed and were re-verified during this pass:
-`RuleContext` construction dedup, `effect.dart`/`condition.dart` god-file
-split, the `EvolutionResolver`/`RewardResolver` weighted-pick dedup, and
-the `'western'`/`'eastern'` tradition-tag constants. None regressed.
+| # | Category | Result at audit time | Status now |
+|---|---|---|---|
+| 1 | Core importing game-specific modules | ✅ No violations | ✅ still clean |
+| 2 | Combat importing MartialArts | ✅ No violations | ✅ still clean |
+| 3 | Combat importing Magic | ✅ N/A — no Magic plugin exists | ✅ N/A |
+| 4 | Plugins accessing private implementation of other plugins | ✅ No violations | ✅ still clean |
+| 5 | Circular dependencies | ✅ No violations | ✅ still clean |
+| 6 | Hardcoded item combinations | ✅ No violations | ✅ still clean |
+| 7 | Hardcoded content | ⚠️ 3 findings (2 Important, 1 Minor) | ✅ 2 Important fixed; 1 Minor — no action needed, confirmed low-risk |
+| 8 | Global mutable state | ✅ No violations | ✅ still clean |
+| 9 | Gameplay randomness bypassing RNGService | ✅ No violations | ✅ still clean |
+| 10 | Components containing excessive gameplay logic | ✅ No violations | ✅ still clean |
+| 11 | God classes | ⚠️ 2 findings (1 Important, 1 Minor) | ✅ both fixed |
+| 12 | Duplicate engine functionality inside plugins | ⚠️ Cross-referenced with category 7 | ✅ fixed alongside category 7 |
+| 13 | Direct cross-plugin calls that should use events/interfaces | ✅ No violations | ✅ still clean |
+| 14 | Domain-specific concepts leaking into Core | ⚠️ 1 finding (Minor, already known) | ✅ fixed |
+| 15 | Serialization depending on runtime implementation classes | ✅ No violations | ✅ still clean (coverage gap unchanged, not a violation) |
 
-## This audit's own findings — resolution log
+**At audit time: 6 findings — 3 Important, 3 Minor. Zero Critical.**
+**After the same-day fix pass: 5 of 6 fixed; 1 Minor (reward-pool id
+lists) deliberately left as-is, confirmed low-risk. `dart analyze lib
+test` clean, 1,105 tests passing (unchanged count — this pass moved and
+renamed code, it did not add or remove test coverage).**
 
-1. **Category 7** (training weight maps as hand-written Dart constants) —
-   migrated into `technique_content.dart`/`item_content.dart`'s own
-   `'training'` extra field, parsed into `TechniqueDefinition
-   .trainingWeights`/`ItemDefinition.trainingWeights`.
-2. **Category 12, Medium** (`modifiersFor`/`_operationFor` duplicated
-   across 5 content-parsing files) — extracted to
-   `lib/src/modifier/{modifier_operation_parsing,modifiers_from_raw_list,
-   modifiers_from_properties}.dart` (Core), all five files migrated.
-3. **Category 12, Low** (`_weaponStatTags` duplicated in Build
-   Interpretation) — extracted to `lib/src/plugins/build_interpretation/
-   weapon_stat_tags.dart`.
-4. **Additional Observation A** (`PluginContext`/`RuleEngine` shared-
-   instance footgun) — `CoreServices` (`lib/src/rule/core_services.dart`)
-   added as an additive `shared:` parameter on both factories; 8 test
-   bootstraps migrated to it; a dedicated test
-   (`test/rule/core_services_test.dart`) proves the fix.
-
-Not touched, per each finding's own text: category 11's carried-over
-`CombatSystem` Low finding (no action recommended, both this and the
-prior audit agree) and Additional Observation B (informational only).
-
-Commit not made — per standing instructions, changes are staged in the
-working tree for review.
+**Overall assessment:** The engine core and every registered plugin
+continue to honor `CLAUDE.md`'s contract cleanly — zero Core-purity
+violations, zero circular dependencies, zero cross-plugin private-access
+violations, zero unmanaged randomness, across two consecutive
+from-scratch audits now. Every finding in this pass sits in the same
+place the prior audit's did: the newest, least-reviewed surface. Last
+time that was five new plugin-adjacent subsystems; this time it's
+`lib/src/plugins/game/` (never audited before this pass) and the Item
+Combine feature (audited extensively during its own development, but
+re-checked fresh here). The two Important findings that matter most —
+`RunEnemies`'/`stylesFor`'s hardcoded content in `run_content.dart`, and
+`runGame`'s 627-line god-function — are both confined to the `game`
+composition layer, not Core or any reusable plugin, meaning they don't
+threaten the "Core Engine + MartialArtsPlugin + MagicPlugin +
+CultivationPlugin, without modifying Core Engine" success criterion
+`CLAUDE.md` states as the ultimate test — but they are real, and `game`
+has now grown large and old enough (1,783 lines, present since before
+the prior audit yet never reviewed) that it deserves the same
+audit-and-fix discipline every other subsystem in this repository has
+already received at least once.

@@ -117,7 +117,9 @@ void main() {
 
   group('difficulty scaling', () {
     test('scaledEnemy grows health/damage with cycle number and leaves id/damageStat/initiative alone', () {
-      const base = RunEnemies.bandit;
+      final registry = ContentRegistry();
+      registry.loadAll(enemyContentDefinitions);
+      final base = enemyDefinitionFromContent(registry.get(RunEnemies.bandit));
 
       final cycle1 = scaledEnemy(base, 1);
       final cycle10 = scaledEnemy(base, 10);
@@ -151,7 +153,7 @@ void main() {
       for (var i = 2; i < result.encounters.length; i += 3) {
         expect(
           result.encounters[i].enemyId,
-          anyOf(RunEnemies.eliteWarrior.id, RunEnemies.boss.id),
+          anyOf(RunEnemies.eliteWarrior, RunEnemies.boss),
         );
       }
     });

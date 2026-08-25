@@ -16,9 +16,9 @@ class ItemAddedToTome {
 }
 
 /// Published by `combineItems` when a combine attempt succeeds — either
-/// [CombineOutcome.classUpgrade] (same [toDefinitionId] as
+/// [CombineOutcome.tierUpgrade] (same [toDefinitionId] as
 /// [fromDefinitionId], [newClass] = old class + 1) or
-/// [CombineOutcome.gradeUpgrade] ([toDefinitionId] is the chosen grade
+/// [CombineOutcome.branchUpgrade] ([toDefinitionId] is the chosen grade
 /// target, [newClass] unchanged from the inputs' shared class).
 class ItemCombineSucceeded {
   const ItemCombineSucceeded(

@@ -70,3 +70,18 @@ String? _traditionTagFor(String styleId) => switch (styleId) {
         MartialTraditions.eastern,
       _ => null,
     };
+
+/// The style ids belonging to [tradition] (`MartialTraditions.western`/
+/// `.eastern`) — the public inverse of [_traditionTagFor], for callers
+/// outside this plugin (e.g. a game composition layer offering "pick
+/// your starting style" once a tradition is chosen) that need to go
+/// from tradition to its styles rather than the other way around, so
+/// they never have to re-derive this plugin's own style/tradition
+/// mapping independently. An unrecognized [tradition] returns an empty
+/// list, matching [_traditionTagFor]'s own "no assumption" behavior for
+/// an unrecognized style.
+List<String> stylesForTradition(String tradition) => switch (tradition) {
+      MartialTraditions.western => const [MartialStyles.boxing, MartialStyles.wrestling, MartialStyles.fencing],
+      MartialTraditions.eastern => const [MartialStyles.shaolin, MartialStyles.taiChi, MartialStyles.wingChun],
+      _ => const [],
+    };
