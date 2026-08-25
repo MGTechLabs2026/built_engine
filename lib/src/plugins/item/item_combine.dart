@@ -19,6 +19,48 @@ class CombineNotAvailableException implements Exception {
   String toString() => 'Combine not available for: $definitionId';
 }
 
+/// A pure, non-throwing preview of whether [combineItems] would even
+/// attempt a roll for [instanceEntities] right now — mirrors
+/// `TomeService.validate`'s "never mutates, never throws" contract.
+/// Does NOT check `ItemResources.upgradePoints` sufficiency — that's a
+/// simpler, separate concern a caller can check directly via
+/// `context.resources.currentOf`; this function only answers "are these
+/// structurally eligible to combine" (same definitionId/itemClass,
+/// same owner, and somewhere left to go).
+bool canCombine(
+  EntityId owner,
+  List<EntityId> instanceEntities,
+  PluginContext context,
+) {
+  if (instanceEntities.length < 2) return false;
+  if (instanceEntities.toSet().length != instanceEntities.length) return false;
+
+  final instances = [
+    for (final e in instanceEntities) context.components.get<ItemInstance>(e),
+  ];
+  if (instances.any((i) => i == null)) return false;
+  final resolved = instances.cast<ItemInstance>();
+
+  final first = resolved.first;
+  for (var i = 1; i < resolved.length; i++) {
+    if (resolved[i].definitionId != first.definitionId ||
+        resolved[i].itemClass != first.itemClass) {
+      return false;
+    }
+  }
+  if (resolved.any((i) => i.owner != owner)) return false;
+
+  final definition = itemDefinition(first.definitionId, context);
+  if (definition.maxClass == null) return false;
+  final atMax = first.itemClass >= definition.maxClass!;
+  final gradeEvolution = definition.toGradeEvolutionDefinition();
+  final ruleContext = context.ruleContextFor(owner);
+  final hasGradePath = gradeEvolution.candidates.any(
+    (candidate) => candidate.conditions.every((c) => c.evaluate(ruleContext)),
+  );
+  return !(atMax && !hasGradePath);
+}
+
 /// Combines [instanceEntities] — 2+ owned copies sharing the same
 /// `definitionId`/`itemClass` — into one surviving, upgraded copy. Costs
 /// `ItemResources.upgradePoints` flat per attempt (= the shared

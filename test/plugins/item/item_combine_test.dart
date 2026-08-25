@@ -536,4 +536,64 @@ void main() {
       expect(context.components.get<ItemInstance>(survivor)!.definitionId, equals('fixture_sharp_knife'));
     });
   });
+
+  group('canCombine', () {
+    test('true for two owned same-definition same-class knives below maxClass', () {
+      final owner = context.entities.create();
+      final a = ownItem(owner, ItemIds.knife, context);
+      final b = ownItem(owner, ItemIds.knife, context);
+
+      expect(canCombine(owner, [a, b], context), isTrue);
+    });
+
+    test('false when definitionId or itemClass mismatch', () {
+      final owner = context.entities.create();
+      final knife = ownItem(owner, ItemIds.knife, context);
+      final sword = ownItem(owner, ItemIds.ironSword, context);
+      final knifeHigherClass = ownItem(owner, ItemIds.knife, context);
+      context.components.add(
+        knifeHigherClass,
+        ItemInstance(definitionId: ItemIds.knife, owner: owner, itemClass: 2),
+      );
+
+      expect(canCombine(owner, [knife, sword], context), isFalse);
+      expect(canCombine(owner, [knife, knifeHigherClass], context), isFalse);
+    });
+
+    test('false when already at maxClass with no eligible grade path', () {
+      final owner = context.entities.create();
+      // masterworkSharpKnife has maxClass 9 and no gradeEvolution entries at all.
+      final a = ownItem(owner, ItemIds.masterworkSharpKnife, context);
+      final b = ownItem(owner, ItemIds.masterworkSharpKnife, context);
+      for (final e in [a, b]) {
+        context.components.add(
+          e,
+          ItemInstance(definitionId: ItemIds.masterworkSharpKnife, owner: owner, itemClass: 9),
+        );
+      }
+
+      expect(canCombine(owner, [a, b], context), isFalse);
+    });
+
+    test('false for fewer than 2 instances, and never throws', () {
+      final owner = context.entities.create();
+      final a = ownItem(owner, ItemIds.knife, context);
+
+      expect(canCombine(owner, [a], context), isFalse);
+      expect(canCombine(owner, [], context), isFalse);
+    });
+
+    test('does not mutate state or consume resources', () {
+      final owner = context.entities.create();
+      final a = ownItem(owner, ItemIds.knife, context);
+      final b = ownItem(owner, ItemIds.knife, context);
+      context.resources.set(owner, ItemResources.upgradePoints, 5);
+
+      canCombine(owner, [a, b], context);
+
+      expect(context.resources.currentOf(owner, ItemResources.upgradePoints), equals(5));
+      expect(context.components.get<ItemInstance>(a), isNotNull);
+      expect(context.components.get<ItemInstance>(b), isNotNull);
+    });
+  });
 }
