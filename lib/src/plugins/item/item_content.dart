@@ -4,15 +4,24 @@ import 'item_definition.dart';
 import 'item_requirement.dart';
 import 'item_vocabulary.dart';
 
-/// The 6 starter items this plugin implements, as data — loaded into
-/// `PluginContext.content` via `PluginSdk.registerContentBatch` in
-/// `ItemPlugin.initialize`, mirroring every other content plugin's
-/// `*ContentDefinitions` constant. Stats are deliberately simple, not
-/// balanced. `requirements.mastery.thresholds` (present only for items
-/// with `minimum > 0`) is `ItemPlugin.initialize`'s own input to
+/// The 6 combinable base items plus 8 martial-style starting-kit items
+/// this plugin implements, as data — loaded into `PluginContext.content`
+/// via `PluginSdk.registerContentBatch` in `ItemPlugin.initialize`,
+/// mirroring every other content plugin's `*ContentDefinitions`
+/// constant. Stats are deliberately simple, not balanced.
+/// `requirements.mastery.thresholds` (present only for items with
+/// `minimum > 0`) is `ItemPlugin.initialize`'s own input to
 /// `MasteryTracker.define` — it is plumbing for reaching the required
 /// level, not part of `ItemDefinition`'s own shape (which only needs the
 /// subject + minimum to check usability).
+///
+/// The 8 starting-kit items (`polearm`, `chair`, `mask`, `rapier`,
+/// `staff`, `fan`, `towel`, `cloth`) are all `minimum: 0` — immediately
+/// usable, so a style's opening pair hangs on the Tome with no training
+/// gate — and carry no `maxClass`/`gradeEvolution`, so they stay
+/// non-combinable (a starter kit never holds a duplicate to combine).
+/// Which two a style grants is a game-composition concern and lives in
+/// the client.
 ///
 /// Each of the 6 base items also carries a 3-grade Combine chain
 /// (`maxClass`/`gradeEvolution`, `docs/superpowers/specs/2026-08-24-item-combine-design.md`):
@@ -341,6 +350,88 @@ const itemContentDefinitions = <Map<String, dynamic>>[
     'tags': ['item', 'footwear', 'reaction'],
     'properties': {'speed': 3},
     'maxClass': 9,
+  },
+
+  // --- Martial-style starting kits (all immediately usable) ---
+  {
+    'id': ItemIds.polearm,
+    'type': ItemCategories.weapon,
+    'tags': ['item', 'weapon', 'polearm', 'reach'],
+    'properties': {'attack': 3},
+    'training': {'power': 0.4, 'precision': 0.3, 'control': 0.3},
+    'requirements': {
+      'mastery': {'subject': 'item:polearm', 'minimum': 0},
+    },
+  },
+  {
+    'id': ItemIds.chair,
+    'type': ItemCategories.weapon,
+    'tags': ['item', 'weapon', 'improvised'],
+    'properties': {'attack': 2},
+    'training': {'power': 0.4, 'reaction': 0.3, 'control': 0.3},
+    'requirements': {
+      'mastery': {'subject': 'item:chair', 'minimum': 0},
+    },
+  },
+  {
+    'id': ItemIds.mask,
+    'type': ItemCategories.armor,
+    'tags': ['item', 'armor', 'head'],
+    'properties': {'defense': 1},
+    'training': {'consistency': 0.4, 'reaction': 0.3, 'control': 0.3},
+    'requirements': {
+      'mastery': {'subject': 'item:mask', 'minimum': 0},
+    },
+  },
+  {
+    'id': ItemIds.rapier,
+    'type': ItemCategories.weapon,
+    'tags': ['item', 'weapon', 'blade', 'thrust'],
+    'properties': {'attack': 3},
+    'training': {'speed': 0.4, 'precision': 0.4, 'reaction': 0.2},
+    'requirements': {
+      'mastery': {'subject': 'item:rapier', 'minimum': 0},
+    },
+  },
+  {
+    'id': ItemIds.staff,
+    'type': ItemCategories.weapon,
+    'tags': ['item', 'weapon', 'staff'],
+    'properties': {'attack': 2},
+    'training': {'control': 0.4, 'precision': 0.3, 'power': 0.3},
+    'requirements': {
+      'mastery': {'subject': 'item:staff', 'minimum': 0},
+    },
+  },
+  {
+    'id': ItemIds.fan,
+    'type': ItemCategories.weapon,
+    'tags': ['item', 'weapon', 'fan'],
+    'properties': {'attack': 2},
+    'training': {'speed': 0.4, 'precision': 0.3, 'control': 0.3},
+    'requirements': {
+      'mastery': {'subject': 'item:fan', 'minimum': 0},
+    },
+  },
+  {
+    'id': ItemIds.towel,
+    'type': ItemCategories.armor,
+    'tags': ['item', 'armor', 'cloth', 'grappling'],
+    'properties': {'defense': 1},
+    'training': {'control': 0.4, 'consistency': 0.3, 'reaction': 0.3},
+    'requirements': {
+      'mastery': {'subject': 'item:towel', 'minimum': 0},
+    },
+  },
+  {
+    'id': ItemIds.cloth,
+    'type': ItemCategories.armor,
+    'tags': ['item', 'armor', 'cloth'],
+    'properties': {'defense': 1},
+    'training': {'consistency': 0.4, 'control': 0.3, 'reaction': 0.3},
+    'requirements': {
+      'mastery': {'subject': 'item:cloth', 'minimum': 0},
+    },
   },
 ];
 

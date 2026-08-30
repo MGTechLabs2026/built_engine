@@ -26,7 +26,7 @@ const martialTechniqueContentDefinitions = <Map<String, dynamic>>[
     'type': 'technique',
     'tags': ['martial', 'fist', MartialTraditions.western, 'external'],
     'conditions': [
-      {'type': 'hasTag', 'tag': 'style:${MartialStyles.boxing}'},
+      {'type': 'hasTag', 'tag': 'style:${MartialStyles.polearming}'},
     ],
     'effects': [
       {
@@ -43,7 +43,7 @@ const martialTechniqueContentDefinitions = <Map<String, dynamic>>[
     'type': 'technique',
     'tags': ['martial', 'fist', MartialTraditions.western, 'external'],
     'conditions': [
-      {'type': 'hasTag', 'tag': 'style:${MartialStyles.boxing}'},
+      {'type': 'hasTag', 'tag': 'style:${MartialStyles.polearming}'},
       {
         'type': 'resourceAbove',
         'resource': MartialResources.momentum,
@@ -65,7 +65,7 @@ const martialTechniqueContentDefinitions = <Map<String, dynamic>>[
     'type': 'technique',
     'tags': ['martial', 'fist', MartialTraditions.western],
     'conditions': [
-      {'type': 'hasTag', 'tag': 'style:${MartialStyles.boxing}'},
+      {'type': 'hasTag', 'tag': 'style:${MartialStyles.polearming}'},
     ],
     'effects': [
       {'type': 'addTag', 'tag': MartialStances.guard},
@@ -210,7 +210,7 @@ MartialTechniqueAction _technique(
       actor: actor, targets: targets);
 }
 
-// --- Boxing ---
+// --- Polearming ---
 
 MartialTechniqueAction jab({
   required EntityId actor,

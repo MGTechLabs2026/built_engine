@@ -20,6 +20,29 @@ void main() {
     }
   });
 
+  test('the 8 martial-style starting-kit items load, are immediately '
+      'usable, and stay non-combinable', () {
+    final registry = ContentRegistry();
+    registry.loadAll(itemContentDefinitions);
+
+    for (final id in [
+      ItemIds.polearm,
+      ItemIds.chair,
+      ItemIds.mask,
+      ItemIds.rapier,
+      ItemIds.staff,
+      ItemIds.fan,
+      ItemIds.towel,
+      ItemIds.cloth,
+    ]) {
+      final item = itemDefinitionFromContent(registry.get(id));
+      expect(item.requirement!.minimumLevel, equals(0),
+          reason: '$id must be usable with no training');
+      expect(item.maxClass, isNull, reason: '$id must not be combinable');
+      expect(item.gradeEvolutionCandidates, isEmpty);
+    }
+  });
+
   test('itemDefinitionFromContent parses properties and requirement', () {
     final registry = ContentRegistry();
     registry.loadAll(itemContentDefinitions);

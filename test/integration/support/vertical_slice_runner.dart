@@ -24,8 +24,8 @@ import 'package:build_engine/physique_plugin.dart';
 /// Physiques: Sturdy/Power/Burst/Endurance — the real `PhysiquePlugin`/
 /// `PhysiqueTypes` already implements exactly this set.
 ///
-/// Martial styles: Boxing/Shaolin/Tai Chi — the real `MartialArtsPlugin`/
-/// `MartialStyles`/`learnStyle` (this character learns Boxing, granting
+/// Martial styles: Polearming/Shaolin/Tai Chi — the real `MartialArtsPlugin`/
+/// `MartialStyles`/`learnStyle` (this character learns Polearming, granting
 /// the real `'western'` tradition tag `MartialTraditions.western` used
 /// below to gate an Evolution candidate).
 ///
@@ -180,8 +180,8 @@ VerticalSliceOutcome runVerticalSlice(int seed) {
   milestone('physiqueAssigned');
 
   // ---- 4. Give starting content ----------------------------------------
-  // Real MartialArts style — grants `martial`/`style:boxing`/`western`.
-  learnStyle(character, MartialStyles.boxing, context);
+  // Real MartialArts style — grants `martial`/`style:polearming`/`western`.
+  learnStyle(character, MartialStyles.polearming, context);
   // Starting kit must be at least discovered before it can occupy a Tome
   // slot — `unlock` auto-promotes through `discovered` in one call.
   context.discovery.unlock(character, 'item:gloves');

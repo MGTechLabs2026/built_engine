@@ -51,7 +51,7 @@ void main() {
     manager.start(context);
 
     final entity = context.entities.create();
-    learnStyle(entity, MartialStyles.boxing, context);
+    learnStyle(entity, MartialStyles.polearming, context);
 
     expect(
         context.components.get<TagSet>(entity)!.tags, contains('western'));
@@ -69,7 +69,7 @@ void main() {
     manager.start(context);
 
     final character = context.entities.create();
-    learnStyle(character, MartialStyles.boxing, context);
+    learnStyle(character, MartialStyles.polearming, context);
     final physiqueId = initializePhysique(character, context);
 
     expect(PhysiqueTypes.all, contains(physiqueId));
@@ -94,7 +94,7 @@ void main() {
         for (final modifier in definition.modifiersFor(westernCharacter)) {
           context.modifiers.add(modifier);
         }
-        learnStyle(westernCharacter, MartialStyles.boxing, context);
+        learnStyle(westernCharacter, MartialStyles.polearming, context);
         final westernResolved = const ModifierResolver().resolve(
           100,
           context.modifiers.activeModifiersFor(westernCharacter,
@@ -142,7 +142,7 @@ void main() {
         for (final modifier in definition.modifiersFor(westernCharacter)) {
           context.modifiers.add(modifier);
         }
-        learnStyle(westernCharacter, MartialStyles.boxing, context);
+        learnStyle(westernCharacter, MartialStyles.polearming, context);
         final westernResolved = const ModifierResolver().resolve(
           100,
           context.modifiers.activeModifiersFor(westernCharacter,

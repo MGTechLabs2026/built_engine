@@ -33,7 +33,7 @@ void main() {
       final io = ScriptedIO(['1']);
       final policy = ConsoleDecisionPolicy(print: io.print, readLine: io.readLine);
 
-      final choice = policy.chooseStartingStyle(const ['boxing', 'shaolin', 'taiChi']);
+      final choice = policy.chooseStartingStyle(const ['polearming', 'shaolin', 'taiChi']);
 
       expect(choice, equals('shaolin'));
     });
@@ -42,7 +42,7 @@ void main() {
       final io = ScriptedIO(['SHAOLIN']);
       final policy = ConsoleDecisionPolicy(print: io.print, readLine: io.readLine);
 
-      final choice = policy.chooseStartingStyle(const ['boxing', 'shaolin', 'taiChi']);
+      final choice = policy.chooseStartingStyle(const ['polearming', 'shaolin', 'taiChi']);
 
       expect(choice, equals('shaolin'));
     });
@@ -51,9 +51,9 @@ void main() {
       final io = ScriptedIO(['not a number', '99', '0']);
       final policy = ConsoleDecisionPolicy(print: io.print, readLine: io.readLine);
 
-      final choice = policy.chooseStartingStyle(const ['boxing', 'shaolin']);
+      final choice = policy.chooseStartingStyle(const ['polearming', 'shaolin']);
 
-      expect(choice, equals('boxing'));
+      expect(choice, equals('polearming'));
       expect(io.printed.any((l) => l.contains('Not a valid choice')), isTrue);
     });
 
@@ -145,7 +145,7 @@ void main() {
       final io = ScriptedIO(const []);
       final policy = ConsoleDecisionPolicy(print: io.print, readLine: io.readLine);
 
-      expect(policy.chooseStartingStyle(const ['boxing', 'shaolin']), equals('boxing'));
+      expect(policy.chooseStartingStyle(const ['polearming', 'shaolin']), equals('polearming'));
       expect(policy.chooseUpgradeSpend(const ['stat:health', 'skip']), equals('stat:health'));
       expect(
         policy.chooseReplace(

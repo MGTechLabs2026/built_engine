@@ -29,7 +29,7 @@ abstract class RunDecisionPolicy {
   String chooseMartialTradition(List<String> candidates);
 
   /// Picks the starting martial style from [candidates] — the chosen
-  /// tradition's 3 styles (e.g. `[boxing, wrestling, fencing]` for
+  /// tradition's 3 styles (e.g. `[polearming, wrestling, fencing]` for
   /// western).
   String chooseStartingStyle(List<String> candidates);
 

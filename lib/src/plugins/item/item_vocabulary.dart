@@ -10,6 +10,22 @@ abstract final class ItemIds {
   static const clothArmor = 'cloth_armor';
   static const trainingShoes = 'training_shoes';
 
+  // Martial-style starting-kit items — each style grants a two-item kit
+  // (a game-composition-layer concern; the pairing lives in the client).
+  // All are immediately usable (`minimum: 0`, like `knife`) so they hang
+  // on the Tome with no training gate; training is only ever for
+  // techniques or raising an item's mastery afterward. Deliberately
+  // non-combinable (no `maxClass`/`gradeEvolution`) — a starter kit
+  // never holds two of the same piece to combine.
+  static const polearm = 'polearm';
+  static const chair = 'chair';
+  static const mask = 'mask';
+  static const rapier = 'rapier';
+  static const staff = 'staff';
+  static const fan = 'fan';
+  static const towel = 'towel';
+  static const cloth = 'cloth';
+
   // Combine grade chains — each of the 6 items above branches into 2
   // named grade-2 items (weighted by the base item's own trainingWeights
   // tags), each continuing linearly to one grade-3 "masterwork" tier.

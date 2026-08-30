@@ -27,7 +27,7 @@ PluginContext _newContext() {
 
 void main() {
   test(
-      'Player (Boxing, Brass Knuckles, Momentum Trinket) vs. a Generic '
+      'Player (Polearming, Brass Knuckles, Momentum Trinket) vs. a Generic '
       'Combatant enemy — the complete combat loop', () {
     final context = _newContext();
     final combat = CombatPlugin();
@@ -45,7 +45,7 @@ void main() {
     context.components.add(enemy, const HealthComponent(current: 200, max: 200));
     context.components.add(player, ResourceComponent({'momentum': 0, 'qi': 0}));
 
-    learnStyle(player, MartialStyles.boxing, context);
+    learnStyle(player, MartialStyles.polearming, context);
     equipItem(martialItem(MartialItemIds.brassKnuckles, context), player, context);
     equipItem(martialItem(MartialItemIds.momentumTrinket, context), player, context);
 

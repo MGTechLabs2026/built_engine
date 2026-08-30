@@ -42,7 +42,7 @@ class RecordingDecisionPolicy implements RunDecisionPolicy {
   final RunDecisionPolicy inner;
 
   String _martialTradition = MartialTraditions.western;
-  String _startingStyle = MartialStyles.boxing;
+  String _startingStyle = MartialStyles.polearming;
   final List<String> _combatOrTrainingChoices = [];
   final List<int> _rewardChoices = [];
   final List<String> _trainingChoices = [];

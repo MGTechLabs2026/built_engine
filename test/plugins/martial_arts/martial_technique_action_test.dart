@@ -26,12 +26,12 @@ PluginContext _newContext() {
 
 void main() {
   group('MartialTechniqueAction attack techniques', () {
-    test('jab requires style:boxing, costs nothing, grants momentum, and '
+    test('jab requires style:polearming, costs nothing, grants momentum, and '
         'deals its base damage', () {
       final context = _newContext();
       final actor = context.entities.create();
       final target = context.entities.create();
-      learnStyle(actor, MartialStyles.boxing, context);
+      learnStyle(actor, MartialStyles.polearming, context);
 
       final action = jab(actor: actor, targets: [target]);
 
@@ -52,7 +52,7 @@ void main() {
       expect((effects.single as Damage).amount, equals(6));
     });
 
-    test('jab fails its condition without style:boxing', () {
+    test('jab fails its condition without style:polearming', () {
       final context = _newContext();
       final actor = context.entities.create();
       final action = jab(actor: actor, targets: [context.entities.create()]);
@@ -74,7 +74,7 @@ void main() {
       final context = _newContext();
       final actor = context.entities.create();
       final target = context.entities.create();
-      learnStyle(actor, MartialStyles.boxing, context);
+      learnStyle(actor, MartialStyles.polearming, context);
       context.components.add(actor, ResourceComponent({'momentum': 20}));
 
       final action = powerCross(actor: actor, targets: [target]);
@@ -97,7 +97,7 @@ void main() {
     test('powerCross fails below the momentum threshold', () {
       final context = _newContext();
       final actor = context.entities.create();
-      learnStyle(actor, MartialStyles.boxing, context);
+      learnStyle(actor, MartialStyles.polearming, context);
       context.components.add(actor, ResourceComponent({'momentum': 19}));
       final action =
           powerCross(actor: actor, targets: [context.entities.create()]);

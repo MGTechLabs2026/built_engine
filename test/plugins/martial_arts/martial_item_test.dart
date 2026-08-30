@@ -92,12 +92,12 @@ void main() {
         () {
       final context = _newContext();
       final wearer = context.entities.create();
-      learnStyle(wearer, MartialStyles.boxing, context);
+      learnStyle(wearer, MartialStyles.polearming, context);
 
       equipItem(martialItem(MartialItemIds.brassKnuckles, context), wearer, context);
 
       final tags = context.components.get<TagSet>(wearer)!.tags;
-      expect(tags, containsAll({'martial', 'style:boxing', 'equipped:brass_knuckles'}));
+      expect(tags, containsAll({'martial', 'style:polearming', 'equipped:brass_knuckles'}));
     });
 
     test('records the equipped item on MartialLoadoutComponent, '

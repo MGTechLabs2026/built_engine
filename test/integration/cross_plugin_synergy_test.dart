@@ -95,7 +95,7 @@ void main() {
       baselineTarget,
       const HealthComponent(current: 100, max: 100),
     );
-    learnStyle(baseline, MartialStyles.boxing, context);
+    learnStyle(baseline, MartialStyles.polearming, context);
     final battleBaseline = combat.system.startBattle([
       baseline,
       baselineTarget,
@@ -127,7 +127,7 @@ void main() {
       enchantedTarget,
       const HealthComponent(current: 100, max: 100),
     );
-    learnStyle(enchanted, MartialStyles.boxing, context);
+    learnStyle(enchanted, MartialStyles.polearming, context);
     equipElementalItem(
         elementalItem(ElementalItemIds.emberCharm, context), enchanted, context);
     final battleEnchanted = combat.system.startBattle([
@@ -183,7 +183,7 @@ void main() {
       enemy,
       const HealthComponent(current: 100, max: 100),
     );
-    learnStyle(player, MartialStyles.boxing, context);
+    learnStyle(player, MartialStyles.polearming, context);
     final battle = combat.system.startBattle([player, enemy]);
     combat.system.executeAction(battle, jab(actor: player, targets: [enemy]));
 

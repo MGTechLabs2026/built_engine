@@ -30,10 +30,10 @@ void main() {
       final context = _newContext();
       final entity = context.entities.create();
 
-      learnStyle(entity, MartialStyles.boxing, context);
+      learnStyle(entity, MartialStyles.polearming, context);
 
       final tags = context.components.get<TagSet>(entity)!.tags;
-      expect(tags, containsAll({'martial', 'style:boxing'}));
+      expect(tags, containsAll({'martial', 'style:polearming'}));
     });
 
     test('learning shaolin additionally registers the offense/defense '
@@ -55,14 +55,14 @@ void main() {
       expect(active.single.operation, equals(ModifierOperation.add));
     });
 
-    test('learning boxing or taiChi registers no modifier', () {
+    test('learning polearming or taiChi registers no modifier', () {
       final context = _newContext();
       final boxer = context.entities.create();
       final taiChiPractitioner = context.entities.create();
       context.components.add(boxer, TagSet({'stance:iron_body'}));
       context.components.add(taiChiPractitioner, TagSet({'stance:iron_body'}));
 
-      learnStyle(boxer, MartialStyles.boxing, context);
+      learnStyle(boxer, MartialStyles.polearming, context);
       learnStyle(taiChiPractitioner, MartialStyles.taiChi, context);
 
       expect(
@@ -77,12 +77,12 @@ void main() {
     });
 
     test('style id constants have the expected values', () {
-      expect(MartialStyles.boxing, equals('boxing'));
+      expect(MartialStyles.polearming, equals('polearming'));
       expect(MartialStyles.wrestling, equals('wrestling'));
       expect(MartialStyles.fencing, equals('fencing'));
       expect(MartialStyles.shaolin, equals('shaolin'));
       expect(MartialStyles.taiChi, equals('taiChi'));
-      expect(MartialStyles.wingChun, equals('wingChun'));
+      expect(MartialStyles.kunlun, equals('kunlun'));
     });
 
     test('grants the western tradition tag for wrestling and fencing too', () {
@@ -97,23 +97,23 @@ void main() {
       expect(context.components.get<TagSet>(fencer)!.tags, contains('western'));
     });
 
-    test('grants the eastern tradition tag for wingChun too', () {
+    test('grants the eastern tradition tag for kunlun too', () {
       final context = _newContext();
       final practitioner = context.entities.create();
 
-      learnStyle(practitioner, MartialStyles.wingChun, context);
+      learnStyle(practitioner, MartialStyles.kunlun, context);
 
       expect(context.components.get<TagSet>(practitioner)!.tags, contains('eastern'));
     });
 
-    test('grants the western tradition tag for boxing, eastern for '
+    test('grants the western tradition tag for polearming, eastern for '
         'shaolin and taiChi', () {
       final context = _newContext();
       final boxer = context.entities.create();
       final shaolinMonk = context.entities.create();
       final taiChiPractitioner = context.entities.create();
 
-      learnStyle(boxer, MartialStyles.boxing, context);
+      learnStyle(boxer, MartialStyles.polearming, context);
       learnStyle(shaolinMonk, MartialStyles.shaolin, context);
       learnStyle(taiChiPractitioner, MartialStyles.taiChi, context);
 
@@ -147,7 +147,7 @@ void main() {
 
   group('martialTraditionOf', () {
     test('maps the three western styles to MartialTraditions.western', () {
-      expect(martialTraditionOf(MartialStyles.boxing), MartialTraditions.western);
+      expect(martialTraditionOf(MartialStyles.polearming), MartialTraditions.western);
       expect(martialTraditionOf(MartialStyles.wrestling), MartialTraditions.western);
       expect(martialTraditionOf(MartialStyles.fencing), MartialTraditions.western);
     });
@@ -155,7 +155,7 @@ void main() {
     test('maps the three eastern styles to MartialTraditions.eastern', () {
       expect(martialTraditionOf(MartialStyles.shaolin), MartialTraditions.eastern);
       expect(martialTraditionOf(MartialStyles.taiChi), MartialTraditions.eastern);
-      expect(martialTraditionOf(MartialStyles.wingChun), MartialTraditions.eastern);
+      expect(martialTraditionOf(MartialStyles.kunlun), MartialTraditions.eastern);
     });
 
     test('returns null for an unrecognized style id', () {

@@ -82,7 +82,7 @@ void main() {
       context.components.add(enemy, const CombatantComponent(team: 'enemy', initiative: 5));
       context.components.add(player, const HealthComponent(current: 100, max: 100));
       context.components.add(enemy, const HealthComponent(current: 100, max: 100));
-      learnStyle(player, MartialStyles.boxing, context);
+      learnStyle(player, MartialStyles.polearming, context);
       final battle = combat.system.startBattle([player, enemy]);
       combat.system.executeAction(battle, jab(actor: player, targets: [enemy]));
 

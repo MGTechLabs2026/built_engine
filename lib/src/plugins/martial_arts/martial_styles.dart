@@ -5,19 +5,19 @@ import 'martial_vocabulary.dart';
 /// The six martial styles this plugin implements — three western, three
 /// eastern (`martialTraditionOf`), one archetype apiece (offense/defense/
 /// speed) purely as a naming rationale, not a mechanical tag system:
-/// boxing=offense, wrestling=defense, fencing=speed (western); shaolin=
-/// offense, taiChi=defense, wingChun=speed (eastern). Not components — a
+/// polearming=reach, wrestling=defense, fencing=speed (western); shaolin=
+/// offense, taiChi=defense, kunlun=speed (eastern). Not components — a
 /// style is a marker tag (`style:<id>`) granted by [learnStyle]. `martial`
 /// is granted alongside it so any future content plugin can query "is
 /// this a martial-arts practitioner" without knowing which specific
 /// style.
 abstract final class MartialStyles {
-  static const boxing = 'boxing';
+  static const polearming = 'polearming';
   static const wrestling = 'wrestling';
   static const fencing = 'fencing';
   static const shaolin = 'shaolin';
   static const taiChi = 'taiChi';
-  static const wingChun = 'wingChun';
+  static const kunlun = 'kunlun';
 }
 
 /// Grants [entity] the `martial`, `style:$styleId`, and broad-tradition
@@ -67,9 +67,11 @@ void learnStyle(EntityId entity, String styleId, PluginContext context) {
 /// screen) can determine a style's tradition before the player commits
 /// to it, not only after [learnStyle] has already applied the tag.
 String? martialTraditionOf(String styleId) => switch (styleId) {
-      MartialStyles.boxing || MartialStyles.wrestling || MartialStyles.fencing =>
+      MartialStyles.polearming ||
+      MartialStyles.wrestling ||
+      MartialStyles.fencing =>
         MartialTraditions.western,
-      MartialStyles.shaolin || MartialStyles.taiChi || MartialStyles.wingChun =>
+      MartialStyles.shaolin || MartialStyles.taiChi || MartialStyles.kunlun =>
         MartialTraditions.eastern,
       _ => null,
     };
@@ -84,7 +86,7 @@ String? martialTraditionOf(String styleId) => switch (styleId) {
 /// list, matching [martialTraditionOf]'s own "no assumption" behavior for
 /// an unrecognized style.
 List<String> stylesForTradition(String tradition) => switch (tradition) {
-      MartialTraditions.western => const [MartialStyles.boxing, MartialStyles.wrestling, MartialStyles.fencing],
-      MartialTraditions.eastern => const [MartialStyles.shaolin, MartialStyles.taiChi, MartialStyles.wingChun],
+      MartialTraditions.western => const [MartialStyles.polearming, MartialStyles.wrestling, MartialStyles.fencing],
+      MartialTraditions.eastern => const [MartialStyles.shaolin, MartialStyles.taiChi, MartialStyles.kunlun],
       _ => const [],
     };
