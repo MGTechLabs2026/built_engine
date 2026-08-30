@@ -128,4 +128,54 @@ void main() {
         context.modifiers.activeModifiersFor(actor, 'blade', context.components).toList();
     expect(active.single.value, equals(3)); // unscaled
   });
+
+  test('a hung copy\'s per-instance affix stat bonuses become modifiers', () {
+    final context = _newContext();
+    context.content.loadAll(itemContentDefinitions);
+    final actor = context.entities.create();
+    final copy = ownItem(actor, ItemIds.ironSword, context);
+    addItemStatBonuses(copy, {'blade': 5}, context);
+
+    final build = ActiveBuild(owner: actor, components: [
+      BuildComponentRef(
+        referenceType: itemReferenceType,
+        contentId: ItemIds.ironSword,
+        instanceEntityId: copy,
+      ),
+    ]);
+
+    interpreter.interpret(
+        build: build, actor: actor, targets: const [], context: context);
+
+    final blade =
+        context.modifiers.activeModifiersFor(actor, 'blade', context.components);
+    // base attack 3 + affix 5, as two separate modifiers on the same stat
+    expect(blade.map((m) => m.value).toList()..sort(), [3, 5]);
+
+    // re-interpreting doesn't stack the affix modifier
+    interpreter.interpret(
+        build: build, actor: actor, targets: const [], context: context);
+    expect(
+        context.modifiers.activeModifiersFor(actor, 'blade', context.components),
+        hasLength(2));
+  });
+
+  test('an unhung affixed copy grants nothing', () {
+    final context = _newContext();
+    context.content.loadAll(itemContentDefinitions);
+    final actor = context.entities.create();
+    final copy = ownItem(actor, ItemIds.ironSword, context);
+    addItemStatBonuses(copy, {'blade': 5}, context);
+
+    // empty build — the copy is owned but not on the Tome
+    interpreter.interpret(
+        build: ActiveBuild(owner: actor, components: const []),
+        actor: actor,
+        targets: const [],
+        context: context);
+
+    expect(
+        context.modifiers.activeModifiersFor(actor, 'blade', context.components),
+        isEmpty);
+  });
 }

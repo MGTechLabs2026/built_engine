@@ -35,6 +35,32 @@ EntityId ownItem(EntityId owner, String definitionId, PluginContext context) {
   return instance;
 }
 
+/// Merges [bonuses] into [instanceEntity]'s per-copy affix
+/// [ItemInstance.statBonuses] (added per stat to whatever's already
+/// there). A no-op if [instanceEntity] has no [ItemInstance]. Used to
+/// bind an affixed reward's rolled prefix/suffix to the specific copy it
+/// was granted on; `ItemActionInterpreter` then applies them as
+/// Modifiers while that copy is hung.
+void addItemStatBonuses(
+  EntityId instanceEntity,
+  Map<String, num> bonuses,
+  PluginContext context,
+) {
+  final instance = context.components.get<ItemInstance>(instanceEntity);
+  if (instance == null) return;
+  final merged = {...instance.statBonuses};
+  bonuses.forEach((stat, value) => merged[stat] = (merged[stat] ?? 0) + value);
+  context.components.add(
+    instanceEntity,
+    ItemInstance(
+      definitionId: instance.definitionId,
+      owner: instance.owner,
+      itemClass: instance.itemClass,
+      statBonuses: merged,
+    ),
+  );
+}
+
 /// Whether [owner] holds at least one [ItemInstance] of [definitionId] —
 /// queries live ECS state rather than storing a second "owned" flag
 /// anywhere.

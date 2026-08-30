@@ -9,18 +9,28 @@ import 'package:build_engine/build_engine.dart';
 /// single source of truth for those; duplicating them here would let the
 /// copy silently desync from the tracker it's supposed to mirror.
 ///
-/// [itemClass] is the only field `combineItems`
-/// (`docs/superpowers/specs/2026-08-24-item-combine-design.md`) mutates
-/// in place after a class upgrade; every other field stays as
-/// immutable-per-copy as before.
+/// [itemClass] and [statBonuses] are the two fields `combineItems`
+/// (`docs/superpowers/specs/2026-08-24-item-combine-design.md`) touches
+/// after a class upgrade — the class bumps by one, the surviving copy's
+/// [statBonuses] carry over; every other field stays immutable-per-copy.
 class ItemInstance {
   const ItemInstance({
     required this.definitionId,
     required this.owner,
     this.itemClass = 1,
+    this.statBonuses = const {},
   });
 
   final String definitionId;
   final EntityId owner;
   final int itemClass;
+
+  /// Flat, per-copy combat-stat bonuses bound to *this* copy — an
+  /// affixed reward's prefix/suffix rolls, keyed by the stat they add
+  /// to (`'blade'`, `'fist'`, `'item:<id>'`, …). `ItemActionInterpreter`
+  /// turns each into a [Modifier] only while the copy is hung on the
+  /// Tome, so an unequipped affixed item grants nothing. Two copies of
+  /// the same definition/class can carry different bonuses — Combine
+  /// still matches on definition + class alone.
+  final Map<String, num> statBonuses;
 }

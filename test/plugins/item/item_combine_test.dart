@@ -261,6 +261,49 @@ void main() {
       expect(published!.newClass, equals(2));
     });
 
+    test('Combine matches ignoring affixes; the survivor keeps its own '
+        'stat bonuses through the class upgrade', () {
+      loadSimpleKnife(context);
+      final owner = context.entities.create();
+      final a = ownItem(owner, 'simple_knife', context);
+      final b = ownItem(owner, 'simple_knife', context);
+      // Different affixes on the two copies — Combine still matches on
+      // definition + class alone.
+      addItemStatBonuses(a, {'blade': 5}, context);
+      addItemStatBonuses(b, {'blade': 2}, context);
+      context.resources.set(owner, ItemResources.upgradePoints, 10);
+
+      // Hang `a` so it is the guaranteed survivor.
+      context.tome.defineTome(
+        TomeDefinition.namedSlots(id: 'basic_tome', slotIds: ['weapon']),
+      );
+      context.tome.createTome(owner, 'basic_tome');
+      context.tome.insert(
+        owner,
+        const SlotId('weapon'),
+        BuildComponentRef(
+            referenceType: itemReferenceType,
+            contentId: 'simple_knife',
+            instanceEntityId: a),
+      );
+
+      final seed =
+          seedForOutcome(CombineOutcome.tierUpgrade, tier: 1, inputCount: 2);
+      final seededContext = PluginContext(
+        entities: context.entities, components: context.components, events: context.events,
+        rng: RngService(seed), rules: context.rules, queries: context.queries,
+        modifiers: context.modifiers, content: context.content, resources: context.resources,
+        mastery: context.mastery, progression: context.progression, discovery: context.discovery,
+        tome: context.tome,
+      );
+
+      final survivor = combineItems(owner, [a, b], seededContext);
+      final instance = context.components.get<ItemInstance>(survivor)!;
+      expect(instance.itemClass, equals(2));
+      expect(instance.statBonuses, equals({'blade': 5}),
+          reason: "survivor `a`'s bonus rides along; `b`'s is gone with it");
+    });
+
     test('a branchUpgrade outcome swaps the survivor\'s definitionId, itemClass unchanged', () {
       loadSimpleKnife(context, gradeEvolution: [
         {'targetId': 'fixture_sharp_knife'},

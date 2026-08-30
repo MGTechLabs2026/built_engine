@@ -182,6 +182,13 @@ EntityId combineItems(
     }
   }
 
+  // The surviving copy keeps its own affix stat-bonuses through the
+  // upgrade — Combine matches on definition + class alone, so the
+  // inputs may have carried different affixes; the survivor's ride
+  // along, the consumed copy's are gone with it.
+  final survivorBonuses =
+      context.components.get<ItemInstance>(survivor)!.statBonuses;
+
   switch (result.outcome) {
     case CombineOutcome.fail:
       context.events.publish(
@@ -191,7 +198,12 @@ EntityId combineItems(
       final newClass = first.itemClass + 1;
       context.components.add(
         survivor,
-        ItemInstance(definitionId: first.definitionId, owner: owner, itemClass: newClass),
+        ItemInstance(
+          definitionId: first.definitionId,
+          owner: owner,
+          itemClass: newClass,
+          statBonuses: survivorBonuses,
+        ),
       );
       _reflectCombineInTome(owner, first.definitionId, survivor, context);
       context.events.publish(ItemCombineSucceeded(
@@ -201,7 +213,12 @@ EntityId combineItems(
       final newId = result.chosenBranchTargetId!;
       context.components.add(
         survivor,
-        ItemInstance(definitionId: newId, owner: owner, itemClass: first.itemClass),
+        ItemInstance(
+          definitionId: newId,
+          owner: owner,
+          itemClass: first.itemClass,
+          statBonuses: survivorBonuses,
+        ),
       );
       _reflectCombineInTome(owner, newId, survivor, context);
       context.events.publish(ItemCombineSucceeded(

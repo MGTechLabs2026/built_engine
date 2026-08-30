@@ -41,9 +41,29 @@ class ItemActionInterpreter implements BuildActionInterpreter {
       final definition = context.content.find(ref.contentId);
       if (definition == null) continue; // unknown/invalid item -> no modifier, not a crash
       final item = itemDefinitionFromContent(definition);
-      final itemClass = ref.instanceEntityId == null
-          ? 1
-          : context.components.get<ItemInstance>(ref.instanceEntityId!)?.itemClass ?? 1;
+      final instance = ref.instanceEntityId == null
+          ? null
+          : context.components.get<ItemInstance>(ref.instanceEntityId!);
+      final itemClass = instance?.itemClass ?? 1;
+
+      // Per-copy affix bonuses — bound to this instance, applied only
+      // while it's in the build (hung). Idempotent per source, like the
+      // attack modifier below.
+      if (instance != null) {
+        instance.statBonuses.forEach((stat, value) {
+          final affixSource =
+              ModifierSource('affix:${ref.instanceEntityId!.value}:$stat');
+          context.modifiers.removeBySource(affixSource);
+          context.modifiers.add(Modifier(
+            source: affixSource,
+            target: actor,
+            stat: stat,
+            operation: ModifierOperation.add,
+            value: value,
+          ));
+        });
+      }
+
       final attack = item.scaledProperties(itemClass)['attack'];
       if (attack == null) continue;
 
