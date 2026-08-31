@@ -30,7 +30,7 @@ import 'run_decision_policy.dart';
 /// | Technique learned | `ProgressionTierReached` (subject `technique:<id>:knowledge`, tier 1) | existing (Progression) |
 /// | Training started | [TrainingStarted] | new |
 /// | Training result | [TrainingResultRecorded] | new |
-/// | Technique evolved | [TechniqueEvolved] | new |
+/// | Technique evolved | `TechniqueEvolved` | existing (Technique plugin — `technique_events.dart`); published here by [TrainingStage] |
 /// | Build resolved | [ActiveBuildResolved] | new |
 /// | Combat action selected | `ActionStarted` | existing (Combat) |
 /// | Combat result | `BattleWon`/`BattleLost` | existing (Combat) |
@@ -106,12 +106,6 @@ class TrainingResultRecorded {
   final String subject;
   final TrainingProfile profile;
   final num gain;
-}
-
-class TechniqueEvolved {
-  const TechniqueEvolved({required this.fromId, required this.toId});
-  final String fromId;
-  final String toId;
 }
 
 /// Fires for every Tome rebuild, the starting Tome included.

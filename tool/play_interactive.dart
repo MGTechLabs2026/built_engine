@@ -29,6 +29,7 @@ import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/combat_plugin.dart';
 import 'package:build_engine/game.dart';
 import 'package:build_engine/physique_plugin.dart';
+import 'package:build_engine/technique_plugin.dart';
 
 String _rewardLabel(RewardKind kind) => switch (kind) {
       RewardKind.unlockSlot => 'Unlock a new Tome slot',

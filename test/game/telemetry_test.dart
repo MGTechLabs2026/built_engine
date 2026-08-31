@@ -2,6 +2,9 @@ import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/combat_plugin.dart';
 import 'package:build_engine/game.dart';
 import 'package:build_engine/physique_plugin.dart';
+// TechniqueEvolved is a Technique-domain event — imported from the
+// Technique plugin's public surface, not the game-run barrel.
+import 'package:build_engine/technique_plugin.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -66,8 +69,15 @@ void main() {
     expect(trainingStarted, hasLength(result.trainingRecords.length));
     expect(trainingResult, hasLength(result.trainingRecords.length));
 
-    // Technique evolved — matches RunResult.techniquesEvolved exactly.
+    // Technique evolved — matches RunResult.techniquesEvolved exactly,
+    // and every event names a real from/to pair.
     expect(techniqueEvolved, hasLength(result.techniquesEvolved.length));
+    for (final e in techniqueEvolved) {
+      expect(e.fromId, isNotEmpty);
+      expect(e.toId, isNotEmpty);
+      expect(e.fromId, isNot(equals(e.toId)));
+      expect(result.techniquesEvolved, contains(e.toId));
+    }
 
     // Tome changed — one per tomeHistory entry, same order.
     expect(tomeChanged, hasLength(result.tomeHistory.length));
