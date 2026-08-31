@@ -221,6 +221,17 @@ Every style now owns a distinct answer to at least one enemy archetype, and no t
 specialties share a mechanic (pre-emption / dodge-ignore / initiative / flat
 mitigation / reflect / streak are all different levers).
 
+**V1 wiring status.** The client `CombatAdapter` turn loop does not yet let the
+player *enter* a martial stance mid-fight, so the stance-gated specialties (Clinch,
+Absorb, Riposte Window, Redirection, Flow, Swallow Step) and the turn-order ones
+(Opening Reach, First Blood) are **deferred** (§L) — the `spec:*` tags are granted
+and exported, but only the two that fit the current model are live:
+**Conditioning** (shaolin, −1 to every incoming hit, floor 1) and **Burst Chain**
+(kunlun, +2 damage per consecutive landed `blade` hit, resets on a miss or the
+enemy's turn). The **off-specialty penalty (§E.2) is fully live** — it needs no
+stance. Fencing still gets its `+3 initiative` static modifier from `learnStyle`,
+it just isn't yet reflected in the client's turn ordering.
+
 ### E.2 Off-specialty penalty — using content outside your style's lane
 
 The affinity matrix (§E) is a soft reward nudge. This is the hard, in-combat
@@ -438,6 +449,11 @@ Client test `test/core/engine/reward_pool_ids_test.dart`: every id in
   and any 5-stage ladders.
 - Off-specialty penalty in the headless `runGame` sim (V1 = client `CombatAdapter`
   only; the engine exports the map but registers no per-family `multiply` modifier).
+- Stance-gated + turn-order style specialties (Clinch, Absorb, Riposte Window,
+  Redirection, Flow, Swallow Step, Opening Reach, First Blood). These need the
+  client combat loop to let the player enter a martial stance and to honour the
+  `+initiative` modifier in turn ordering — a `CombatAdapter` refactor, not
+  content. V1 ships Conditioning + Burst Chain + the off-specialty penalty live.
 - New armor / footwear combinable families (only `guard_bracers` /
   `dueling_dagger` were considered; deferred to V2 to keep the diff reviewable).
 - `counter_punch` advanced/master line (reaction deepening lives under GUARD in V1).
