@@ -12,7 +12,20 @@ abstract final class TechniqueIds {
   static const heavySlash = 'heavy_slash';
   static const fastGuard = 'fast_guard';
   static const counterGuard = 'counter_guard';
+
+  /// The three base forms — the only ones with an independent LEARNING
+  /// axis. Evolved (terminal) branches are never "learned" separately.
+  static const bases = [basicPunch, basicSlash, basicGuard];
 }
+
+/// The single-tier LEARNING threshold registered per base technique.
+const techniqueLearningThresholds = <num>[10];
+
+/// The MASTERY rank thresholds registered for **every** technique — base
+/// and evolved alike, so a rewarded or evolved form shows a rising rank
+/// just like a base one. One source of truth; nothing outside this
+/// plugin should restate these numbers.
+const techniqueMasteryThresholds = <num>[5, 15, 30];
 
 /// The canonical Discovery *and* Mastery subject for technique
 /// [definitionId] — `'technique:<id>'`. Discovery and Mastery may safely

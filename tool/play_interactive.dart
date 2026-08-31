@@ -27,6 +27,7 @@ import 'dart:math';
 
 import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/combat_plugin.dart';
+import 'package:build_engine/console_policy.dart';
 import 'package:build_engine/game.dart';
 import 'package:build_engine/physique_plugin.dart';
 import 'package:build_engine/technique_plugin.dart';

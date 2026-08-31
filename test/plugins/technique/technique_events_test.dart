@@ -3,29 +3,11 @@
 // `src/plugins/game/...` internal path), and `TechniqueEvolved` is
 // published exactly once per successful evolution and never otherwise.
 import 'package:build_engine/build_engine.dart' show EventBus;
-import 'package:build_engine/game.dart'
-    show DefaultRunDecisionPolicy, RewardKind, runGame;
+import 'package:build_engine/game.dart' show runGame;
 import 'package:build_engine/technique_plugin.dart';
 import 'package:test/test.dart';
 
-/// Fights cycle 1 (nothing to train on yet), then trains every cycle —
-/// the same helper `game_run_test.dart` / `decision_log_replay_test.dart`
-/// use to exercise learning + evolution across many sessions.
-class _TrainAfterFirstCombatPolicy extends DefaultRunDecisionPolicy {
-  var _cycle = 0;
-
-  @override
-  String chooseCombatOrTraining(List<String> candidates) {
-    _cycle++;
-    return _cycle == 1 ? 'combat' : 'training';
-  }
-
-  @override
-  int chooseReward(List<RewardKind> candidates) {
-    final index = candidates.indexOf(RewardKind.itemOrTechnique);
-    return index == -1 ? 0 : index;
-  }
-}
+import '../../support/policies.dart';
 
 void main() {
   group('public API', () {
@@ -56,7 +38,7 @@ void main() {
 
         final result = runGame(
           seed,
-          policy: _TrainAfterFirstCombatPolicy(),
+          policy: TrainAfterFirstCombatPolicy(),
           eventBus: events,
         );
 

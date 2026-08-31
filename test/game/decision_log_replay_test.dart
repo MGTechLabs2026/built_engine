@@ -1,31 +1,7 @@
-import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/game.dart';
 import 'package:test/test.dart';
 
-class NeverReplacePolicy extends DefaultRunDecisionPolicy {
-  const NeverReplacePolicy();
-  @override
-  bool chooseReplace(SlotId slot, BuildComponentRef current, BuildComponentRef incoming) => false;
-}
-
-/// Fights the first cycle only, then trains every cycle after — produces
-/// a long, rich decision log (many training/upgrade-spend/slot choices)
-/// that is very unlikely to line up across two different seeds' own
-/// decision-point sequences.
-class TrainAfterFirstCombatPolicy extends DefaultRunDecisionPolicy {
-  var _cycle = 0;
-  @override
-  String chooseCombatOrTraining(List<String> candidates) {
-    _cycle++;
-    return _cycle == 1 ? 'combat' : 'training';
-  }
-
-  @override
-  int chooseReward(List<RewardKind> candidates) {
-    final index = candidates.indexOf(RewardKind.itemOrTechnique);
-    return index == -1 ? 0 : index;
-  }
-}
+import '../support/policies.dart';
 
 void main() {
   group('decision log + replay: seed + decisions reproduce the run', () {

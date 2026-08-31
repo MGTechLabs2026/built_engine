@@ -1,4 +1,5 @@
 import 'package:build_engine/build_engine.dart';
+import 'package:build_engine/console_policy.dart';
 import 'package:build_engine/game.dart';
 import 'package:build_engine/martial_arts_plugin.dart';
 import 'package:test/test.dart';

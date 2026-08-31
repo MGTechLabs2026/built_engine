@@ -5,14 +5,7 @@ import 'package:build_engine/martial_arts_plugin.dart';
 import 'package:build_engine/technique_plugin.dart';
 import 'package:test/test.dart';
 
-/// A policy that never replaces an occupied Tome slot — used to prove
-/// player decisions (not just the seed) shape the final build.
-class NeverReplacePolicy extends DefaultRunDecisionPolicy {
-  const NeverReplacePolicy();
-
-  @override
-  bool chooseReplace(SlotId slot, BuildComponentRef current, BuildComponentRef incoming) => false;
-}
+import '../support/policies.dart';
 
 /// Always takes the `itemOrTechnique` reward option when it's offered,
 /// and always targets the *last* candidate Tome slot rather than the
@@ -37,31 +30,6 @@ class PreferItemRewardPolicy extends DefaultRunDecisionPolicy {
 class PreferItemRewardNeverReplacePolicy extends PreferItemRewardPolicy {
   @override
   bool chooseReplace(SlotId slot, BuildComponentRef current, BuildComponentRef incoming) => false;
-}
-
-/// Fights the first cycle only (a training cycle before any reward has
-/// ever been granted has nothing to train on — this earns one first),
-/// then trains every cycle after, never risking death again. Exercises
-/// training/mastery/learning/evolution across many sessions without
-/// fighting the run's own combat difficulty for test coverage.
-/// `DefaultRunDecisionPolicy` always picks `'combat'` first and so never
-/// trains on its own.
-class TrainAfterFirstCombatPolicy extends DefaultRunDecisionPolicy {
-  var _cycle = 0;
-
-  @override
-  String chooseCombatOrTraining(List<String> candidates) {
-    _cycle++;
-    return _cycle == 1 ? 'combat' : 'training';
-  }
-
-  // Prefer a real item/technique over unlocking a slot, so there's
-  // actually something discovered to spend a training cycle on.
-  @override
-  int chooseReward(List<RewardKind> candidates) {
-    final index = candidates.indexOf(RewardKind.itemOrTechnique);
-    return index == -1 ? 0 : index;
-  }
 }
 
 void main() {

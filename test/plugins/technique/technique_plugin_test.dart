@@ -42,6 +42,24 @@ void main() {
     expect(context.mastery.definitionOf('technique:basic_punch'), isNotNull);
   });
 
+  test('every technique — base and evolved — gets a MASTERY axis; only the '
+      'three base forms get the LEARNING axis', () {
+    final context = _newContext();
+    TechniquePlugin().initialize(context);
+
+    for (final def in techniqueContentDefinitions) {
+      final id = def['id'] as String;
+      final mastery = context.mastery.definitionOf(techniqueSubject(id));
+      expect(mastery, isNotNull, reason: '$id should have a mastery rank axis');
+      expect(mastery!.thresholds, equals(techniqueMasteryThresholds));
+      expect(
+        context.progression.definitionOf(techniqueKnowledgeSubject(id)),
+        TechniqueIds.bases.contains(id) ? isNotNull : isNull,
+        reason: '$id: learning axis only for base forms',
+      );
+    }
+  });
+
   test('re-initializing on the same context does not throw ContentDuplicateIdException', () {
     final context = _newContext();
     final plugin = TechniquePlugin();

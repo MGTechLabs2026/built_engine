@@ -2,10 +2,20 @@ import 'package:build_engine/build_engine.dart';
 
 import 'run_decision_policy.dart';
 
-/// Every game event published through `context.events` — the same
-/// `EventBus` instance the rest of the engine already uses ("use
-/// existing EventBus where possible, do not introduce a parallel event
-/// architecture"). Several telemetry points already have a generic
+/// **Run-scoped telemetry events** published through `context.events` —
+/// the same `EventBus` instance the rest of the engine already uses
+/// ("use existing EventBus where possible, do not introduce a parallel
+/// event architecture"). Every type here describes *a run doing
+/// something* (a cycle started, an encounter resolved, a training
+/// session recorded); each is meaningless outside a `runGame` call and
+/// so belongs to this composition layer.
+///
+/// Domain *facts* that outlive a run — e.g. `TechniqueEvolved`, a
+/// lineage relationship between two technique ids — do **not** live here;
+/// they belong to their plugin's public surface (`technique_events.dart`)
+/// and are merely *published* by the run when they occur.
+///
+/// Several telemetry points already have a generic
 /// Core/Combat/Discovery/Mastery/Progression event that fires naturally
 /// as `game_run.dart` calls into the existing plugins — no duplicate
 /// event is published for those, a telemetry consumer just subscribes to

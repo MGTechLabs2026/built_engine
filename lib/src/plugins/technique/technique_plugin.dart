@@ -45,14 +45,25 @@ class TechniquePlugin extends GamePlugin {
       sdk.registerContentBatch(techniqueContentDefinitions);
     }
 
-    // A single-tier LEARNING threshold per base technique — evolved
-    // (terminal) branches aren't independently "learned" in this pass.
-    for (final id in [TechniqueIds.basicPunch, TechniqueIds.basicSlash, TechniqueIds.basicGuard]) {
-      context.progression.define(
-        ProgressionDefinition(subject: techniqueKnowledgeSubject(id), thresholds: const [10]),
-      );
+    // MASTERY axis for every technique — base and evolved alike — so a
+    // rewarded or evolved form gains a rank from training exactly like a
+    // base form. (Only the three base forms also get the LEARNING axis;
+    // evolved branches are terminal and never "learned" separately.)
+    for (final def in techniqueContentDefinitions) {
+      final id = def['id'] as String;
       context.mastery.define(
-        MasteryDefinition(subject: techniqueSubject(id), thresholds: const [5, 15, 30]),
+        MasteryDefinition(
+          subject: techniqueSubject(id),
+          thresholds: techniqueMasteryThresholds,
+        ),
+      );
+    }
+    for (final id in TechniqueIds.bases) {
+      context.progression.define(
+        ProgressionDefinition(
+          subject: techniqueKnowledgeSubject(id),
+          thresholds: techniqueLearningThresholds,
+        ),
       );
     }
   }
