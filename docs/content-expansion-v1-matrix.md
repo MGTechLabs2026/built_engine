@@ -360,17 +360,24 @@ gates on a single build.
 
 ## I. Reward-pool changes (client)
 
-`RewardAdapter._rollNext` uniform pick → **weighted** pick:
+`RewardAdapter._rollNext` uniform pick → **weighted** pick (V1 as shipped):
 
 ```
 weight(candidate) =
-    base[rarity]                     common 100 · uncommon 45 · rare 18 · master 6
-  × (style tag matches style row?    ×2.0 for ++/+++, ×1.4 for +)
-  × (aff:<physique> matches?         ×1.5)
-  × (fills a build gap?              ×2.0  — no offensive comp hung / no armor / no technique)
-  ÷ (already discovered AND owned?   ÷2.5  — favour "I didn't know this existed")
-master forms: weight 0 until run ≥ 8  (deliberately locked; see L)
+    100                              flat rarity base — every pooled entry is a
+                                     common base form (master/rare forms are
+                                     reached via training/combine, never loot)
+  × (family tag ∈ styleAlignedFamilies[style]?   ×2.0)
+  × (carries aff:<physiqueId>?                    ×1.5)
+  × (fills a build gap?                           ×2.0  — no technique hung, or
+                                                  no weapon / no armour matching
+                                                  the candidate's category)
+  ÷ (codex has already seen it?                   ÷2.0  — favour novelty)
 ```
+
+The rarity-base + master-run-lock from the original plan is dropped: no
+master- or rare-rarity form is ever in the reward pool, so it had nothing to
+gate. The `rarity:` tags still exist on content for the validator and future use.
 
 Pool growth — add the new **base** ids only (evolved/grade forms stay
 training/combine-only, matching current design):
