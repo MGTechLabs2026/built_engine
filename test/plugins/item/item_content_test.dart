@@ -20,16 +20,14 @@ void main() {
     }
   });
 
-  test('the 8 martial-style starting-kit items load, are immediately '
+  test('the six non-combinable starting-kit items load, are immediately '
       'usable, and stay non-combinable', () {
     final registry = ContentRegistry();
     registry.loadAll(itemContentDefinitions);
 
     for (final id in [
-      ItemIds.polearm,
       ItemIds.chair,
       ItemIds.mask,
-      ItemIds.rapier,
       ItemIds.staff,
       ItemIds.fan,
       ItemIds.towel,
@@ -40,6 +38,72 @@ void main() {
           reason: '$id must be usable with no training');
       expect(item.maxClass, isNull, reason: '$id must not be combinable');
       expect(item.gradeEvolutionCandidates, isEmpty);
+    }
+  });
+
+  test('V1: polearm and rapier are immediately usable AND now carry a '
+      'combine chain', () {
+    final registry = ContentRegistry();
+    registry.loadAll(itemContentDefinitions);
+
+    for (final id in [ItemIds.polearm, ItemIds.rapier]) {
+      final item = itemDefinitionFromContent(registry.get(id));
+      expect(item.requirement!.minimumLevel, equals(0),
+          reason: '$id stays gate-free');
+      expect(item.maxClass, equals(3), reason: '$id now opens a combine chain');
+      expect(item.gradeEvolutionCandidates, hasLength(2));
+      for (final c in item.gradeEvolutionCandidates) {
+        expect(registry.find(c.targetId), isNotNull,
+            reason: '$id grade target ${c.targetId} must exist');
+      }
+    }
+  });
+
+  test('V1: the hand_wraps family is a full base -> grade-2 -> grade-3 chain', () {
+    final registry = ContentRegistry();
+    registry.loadAll(itemContentDefinitions);
+
+    final base = itemDefinitionFromContent(registry.get(ItemIds.handWraps));
+    expect(base.requirement!.minimumLevel, equals(0));
+    expect(base.maxClass, equals(3));
+    expect(
+      base.gradeEvolutionCandidates.map((c) => c.targetId),
+      containsAll([ItemIds.focusWraps, ItemIds.weightedWraps]),
+    );
+    for (final g2 in [ItemIds.focusWraps, ItemIds.weightedWraps]) {
+      final item = itemDefinitionFromContent(registry.get(g2));
+      expect(item.maxClass, equals(6));
+      expect(item.gradeEvolutionCandidates, hasLength(1));
+      final g3 = itemDefinitionFromContent(
+          registry.get(item.gradeEvolutionCandidates.single.targetId));
+      expect(g3.maxClass, equals(9));
+    }
+  });
+
+  test('every loot-rollable base item carries a rarity tag; every '
+      'gradeEvolution targetId across the whole roster resolves', () {
+    final registry = ContentRegistry();
+    registry.loadAll(itemContentDefinitions);
+    const rarities = {'rarity:common', 'rarity:uncommon', 'rarity:rare', 'rarity:master'};
+
+    // The reward weighter only ever rolls base items; grade forms are
+    // reached through Combine and derive rarity from their grade.
+    for (final id in [
+      ItemIds.knife, ItemIds.ironSword, ItemIds.gloves, ItemIds.trainingStaff,
+      ItemIds.clothArmor, ItemIds.trainingShoes,
+      ItemIds.handWraps, ItemIds.polearm, ItemIds.rapier,
+    ]) {
+      final raw = itemContentDefinitions.firstWhere((d) => d['id'] == id);
+      expect((raw['tags'] as List).cast<String>().any(rarities.contains), isTrue,
+          reason: '$id needs a rarity tag');
+    }
+
+    for (final raw in itemContentDefinitions) {
+      for (final e in (raw['gradeEvolution'] as List? ?? const [])) {
+        final target = (e as Map)['targetId'] as String;
+        expect(registry.find(target), isNotNull,
+            reason: '${raw['id']} grade-evolves to missing $target');
+      }
     }
   });
 

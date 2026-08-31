@@ -4,7 +4,7 @@ import 'item_definition.dart';
 import 'item_requirement.dart';
 import 'item_vocabulary.dart';
 
-/// The 6 combinable base items plus 8 martial-style starting-kit items
+/// The 7 combinable base items plus 8 martial-style starting-kit items
 /// this plugin implements, as data — loaded into `PluginContext.content`
 /// via `PluginSdk.registerContentBatch` in `ItemPlugin.initialize`,
 /// mirroring every other content plugin's `*ContentDefinitions`
@@ -15,15 +15,22 @@ import 'item_vocabulary.dart';
 /// level, not part of `ItemDefinition`'s own shape (which only needs the
 /// subject + minimum to check usability).
 ///
+/// Content Expansion V1 tags every form with `aff:<physique>` (read only
+/// by the client reward weighter) and `rarity:<tier>`. Family tags
+/// (`fist`/`blade`/`polearm`/`reach`/`thrust`/...) double as the
+/// recognised family tags the off-specialty penalty reads.
+///
 /// The 8 starting-kit items (`polearm`, `chair`, `mask`, `rapier`,
 /// `staff`, `fan`, `towel`, `cloth`) are all `minimum: 0` — immediately
 /// usable, so a style's opening pair hangs on the Tome with no training
-/// gate — and carry no `maxClass`/`gradeEvolution`, so they stay
-/// non-combinable (a starter kit never holds a duplicate to combine).
+/// gate. Six stay non-combinable (no `maxClass`/`gradeEvolution` — a
+/// starter kit never holds a duplicate to combine); V1 gave `polearm`
+/// and `rapier` their own combine chains (additive fields, ids unchanged)
+/// so a style's starter weapon has somewhere to grow.
 /// Which two a style grants is a game-composition concern and lives in
 /// the client.
 ///
-/// Each of the 6 base items also carries a 3-grade Combine chain
+/// The 6 originals plus V1's `hand_wraps` each carry a 3-grade Combine chain
 /// (`maxClass`/`gradeEvolution`, `docs/superpowers/specs/2026-08-24-item-combine-design.md`):
 /// class-capped at 3, it branches at its first grade-up into 2 named
 /// grade-2 items, weighted by `TrainingDimensions` tags matching the
@@ -36,7 +43,7 @@ const itemContentDefinitions = <Map<String, dynamic>>[
   {
     'id': ItemIds.knife,
     'type': ItemCategories.weapon,
-    'tags': ['item', 'weapon', 'blade'],
+    'tags': ['item', 'weapon', 'blade', 'aff:burst', 'rarity:common'],
     'properties': {'attack': 2},
     'training': {'speed': 0.4, 'precision': 0.4, 'control': 0.2},
     'requirements': {
@@ -87,7 +94,7 @@ const itemContentDefinitions = <Map<String, dynamic>>[
   {
     'id': ItemIds.ironSword,
     'type': ItemCategories.weapon,
-    'tags': ['item', 'weapon', 'blade'],
+    'tags': ['item', 'weapon', 'blade', 'aff:power', 'rarity:common'],
     'properties': {'attack': 3},
     'training': {'power': 0.4, 'precision': 0.3, 'control': 0.3},
     'requirements': {
@@ -142,7 +149,7 @@ const itemContentDefinitions = <Map<String, dynamic>>[
   {
     'id': ItemIds.gloves,
     'type': ItemCategories.weapon,
-    'tags': ['item', 'weapon', 'fist'],
+    'tags': ['item', 'weapon', 'fist', 'aff:burst', 'rarity:common'],
     'properties': {'attack': 1},
     'training': {'speed': 0.35, 'reaction': 0.35, 'power': 0.3},
     'requirements': {
@@ -193,7 +200,7 @@ const itemContentDefinitions = <Map<String, dynamic>>[
   {
     'id': ItemIds.trainingStaff,
     'type': ItemCategories.weapon,
-    'tags': ['item', 'weapon', 'staff'],
+    'tags': ['item', 'weapon', 'staff', 'aff:endurance', 'rarity:common'],
     'properties': {'attack': 2},
     'training': {'control': 0.4, 'precision': 0.3, 'power': 0.3},
     'requirements': {
@@ -248,7 +255,7 @@ const itemContentDefinitions = <Map<String, dynamic>>[
   {
     'id': ItemIds.clothArmor,
     'type': ItemCategories.armor,
-    'tags': ['item', 'armor'],
+    'tags': ['item', 'armor', 'aff:sturdy', 'rarity:common'],
     'properties': {'defense': 2},
     'training': {'consistency': 0.4, 'control': 0.3, 'reaction': 0.3},
     'requirements': {
@@ -303,7 +310,7 @@ const itemContentDefinitions = <Map<String, dynamic>>[
   {
     'id': ItemIds.trainingShoes,
     'type': ItemCategories.footwear,
-    'tags': ['item', 'footwear'],
+    'tags': ['item', 'footwear', 'aff:burst', 'rarity:common'],
     'properties': {'speed': 1},
     'training': {'speed': 0.5, 'reaction': 0.3, 'consistency': 0.2},
     'requirements': {
@@ -353,15 +360,23 @@ const itemContentDefinitions = <Map<String, dynamic>>[
   },
 
   // --- Martial-style starting kits (all immediately usable) ---
+  // `polearm` and `rapier` additionally carry a V1 combine chain — still
+  // `minimum: 0`, ids unchanged; the `maxClass`/`gradeEvolution` fields
+  // are purely additive so a style's starter weapon has somewhere to grow.
   {
     'id': ItemIds.polearm,
     'type': ItemCategories.weapon,
-    'tags': ['item', 'weapon', 'polearm', 'reach'],
+    'tags': ['item', 'weapon', 'polearm', 'reach', 'aff:sturdy', 'rarity:common'],
     'properties': {'attack': 3},
     'training': {'power': 0.4, 'precision': 0.3, 'control': 0.3},
     'requirements': {
       'mastery': {'subject': 'item:polearm', 'minimum': 0},
     },
+    'maxClass': 3,
+    'gradeEvolution': [
+      {'targetId': ItemIds.reachSpear, 'tags': [TrainingDimensions.control]},
+      {'targetId': ItemIds.warGlaive, 'tags': [TrainingDimensions.power]},
+    ],
   },
   {
     'id': ItemIds.chair,
@@ -386,12 +401,17 @@ const itemContentDefinitions = <Map<String, dynamic>>[
   {
     'id': ItemIds.rapier,
     'type': ItemCategories.weapon,
-    'tags': ['item', 'weapon', 'blade', 'thrust'],
+    'tags': ['item', 'weapon', 'blade', 'thrust', 'aff:burst', 'rarity:common'],
     'properties': {'attack': 3},
     'training': {'speed': 0.4, 'precision': 0.4, 'reaction': 0.2},
     'requirements': {
       'mastery': {'subject': 'item:rapier', 'minimum': 0},
     },
+    'maxClass': 3,
+    'gradeEvolution': [
+      {'targetId': ItemIds.duelistsRapier, 'tags': [TrainingDimensions.precision]},
+      {'targetId': ItemIds.swiftRapier, 'tags': [TrainingDimensions.speed]},
+    ],
   },
   {
     'id': ItemIds.staff,
@@ -432,6 +452,137 @@ const itemContentDefinitions = <Map<String, dynamic>>[
     'requirements': {
       'mastery': {'subject': 'item:cloth', 'minimum': 0},
     },
+  },
+
+  // --- Content Expansion V1: hand_wraps combinable family ---
+  // A fist weapon for palm/finger builds (eastern-leaning). `fist` is in
+  // most styles' aligned family set, so it stays a safe hybrid pick.
+  {
+    'id': ItemIds.handWraps,
+    'type': ItemCategories.weapon,
+    'tags': ['item', 'weapon', 'fist', 'aff:endurance', 'rarity:common'],
+    'properties': {'attack': 1},
+    'training': {'control': 0.4, 'precision': 0.3, 'power': 0.3},
+    'requirements': {
+      'mastery': {'subject': 'item:hand_wraps', 'minimum': 0},
+    },
+    'maxClass': 3,
+    'gradeEvolution': [
+      {'targetId': ItemIds.focusWraps, 'tags': [TrainingDimensions.precision]},
+      {'targetId': ItemIds.weightedWraps, 'tags': [TrainingDimensions.power]},
+    ],
+  },
+  {
+    'id': ItemIds.focusWraps,
+    'type': ItemCategories.weapon,
+    'tags': ['item', 'weapon', 'fist', 'precision', 'aff:endurance', 'rarity:uncommon'],
+    'properties': {'attack': 2},
+    'training': {'precision': 0.6, 'control': 0.4},
+    'maxClass': 6,
+    'gradeEvolution': [
+      {'targetId': ItemIds.mastersWraps},
+    ],
+  },
+  {
+    'id': ItemIds.mastersWraps,
+    'type': ItemCategories.weapon,
+    'tags': ['item', 'weapon', 'fist', 'precision', 'aff:endurance', 'rarity:rare'],
+    'properties': {'attack': 3},
+    'maxClass': 9,
+  },
+  {
+    'id': ItemIds.weightedWraps,
+    'type': ItemCategories.weapon,
+    'tags': ['item', 'weapon', 'fist', 'power', 'aff:power', 'rarity:uncommon'],
+    'properties': {'attack': 2},
+    'training': {'power': 0.6, 'control': 0.4},
+    'maxClass': 6,
+    'gradeEvolution': [
+      {'targetId': ItemIds.diamondWraps},
+    ],
+  },
+  {
+    'id': ItemIds.diamondWraps,
+    'type': ItemCategories.weapon,
+    'tags': ['item', 'weapon', 'fist', 'power', 'aff:power', 'rarity:rare'],
+    'properties': {'attack': 4},
+    'maxClass': 9,
+  },
+
+  // --- Content Expansion V1: polearm starter combine chain ---
+  {
+    'id': ItemIds.reachSpear,
+    'type': ItemCategories.weapon,
+    'tags': ['item', 'weapon', 'polearm', 'reach', 'control', 'aff:sturdy', 'rarity:uncommon'],
+    'properties': {'attack': 4},
+    'training': {'control': 0.6, 'precision': 0.4},
+    'maxClass': 6,
+    'gradeEvolution': [
+      {'targetId': ItemIds.sentinelSpear},
+    ],
+  },
+  {
+    'id': ItemIds.sentinelSpear,
+    'type': ItemCategories.weapon,
+    'tags': ['item', 'weapon', 'polearm', 'reach', 'control', 'aff:sturdy', 'rarity:rare'],
+    'properties': {'attack': 6},
+    'maxClass': 9,
+  },
+  {
+    'id': ItemIds.warGlaive,
+    'type': ItemCategories.weapon,
+    'tags': ['item', 'weapon', 'polearm', 'reach', 'power', 'aff:power', 'rarity:uncommon'],
+    'properties': {'attack': 4},
+    'training': {'power': 0.6, 'control': 0.4},
+    'maxClass': 6,
+    'gradeEvolution': [
+      {'targetId': ItemIds.vanguardGlaive},
+    ],
+  },
+  {
+    'id': ItemIds.vanguardGlaive,
+    'type': ItemCategories.weapon,
+    'tags': ['item', 'weapon', 'polearm', 'reach', 'power', 'aff:power', 'rarity:rare'],
+    'properties': {'attack': 7},
+    'maxClass': 9,
+  },
+
+  // --- Content Expansion V1: rapier starter combine chain ---
+  {
+    'id': ItemIds.duelistsRapier,
+    'type': ItemCategories.weapon,
+    'tags': ['item', 'weapon', 'blade', 'thrust', 'precision', 'aff:burst', 'rarity:uncommon'],
+    'properties': {'attack': 4},
+    'training': {'precision': 0.6, 'reaction': 0.4},
+    'maxClass': 6,
+    'gradeEvolution': [
+      {'targetId': ItemIds.mastersRapier},
+    ],
+  },
+  {
+    'id': ItemIds.mastersRapier,
+    'type': ItemCategories.weapon,
+    'tags': ['item', 'weapon', 'blade', 'thrust', 'precision', 'aff:burst', 'rarity:rare'],
+    'properties': {'attack': 6},
+    'maxClass': 9,
+  },
+  {
+    'id': ItemIds.swiftRapier,
+    'type': ItemCategories.weapon,
+    'tags': ['item', 'weapon', 'blade', 'thrust', 'speed', 'aff:burst', 'rarity:uncommon'],
+    'properties': {'attack': 4},
+    'training': {'speed': 0.6, 'reaction': 0.4},
+    'maxClass': 6,
+    'gradeEvolution': [
+      {'targetId': ItemIds.windRapier},
+    ],
+  },
+  {
+    'id': ItemIds.windRapier,
+    'type': ItemCategories.weapon,
+    'tags': ['item', 'weapon', 'blade', 'thrust', 'speed', 'aff:burst', 'rarity:rare'],
+    'properties': {'attack': 6},
+    'maxClass': 9,
   },
 ];
 

@@ -10,13 +10,25 @@ abstract final class ItemIds {
   static const clothArmor = 'cloth_armor';
   static const trainingShoes = 'training_shoes';
 
+  // Content Expansion V1 — new combinable base: hand wraps (a fist
+  // weapon for palm/finger builds; eastern-leaning). Same 5-form template
+  // as the six originals: base -> 2 grade-2 branches -> 1 grade-3 each.
+  static const handWraps = 'hand_wraps';
+  static const focusWraps = 'focus_wraps';
+  static const mastersWraps = 'masters_wraps';
+  static const weightedWraps = 'weighted_wraps';
+  static const diamondWraps = 'diamond_wraps';
+
   // Martial-style starting-kit items — each style grants a two-item kit
   // (a game-composition-layer concern; the pairing lives in the client).
   // All are immediately usable (`minimum: 0`, like `knife`) so they hang
-  // on the Tome with no training gate; training is only ever for
-  // techniques or raising an item's mastery afterward. Deliberately
-  // non-combinable (no `maxClass`/`gradeEvolution`) — a starter kit
-  // never holds two of the same piece to combine.
+  // on the Tome with no training gate.
+  //
+  // Content Expansion V1 gave `polearm` and `rapier` their own combine
+  // chains (additive `maxClass`/`gradeEvolution` on their existing defs —
+  // ids unchanged, still `minimum: 0`), so a style's starter weapon now
+  // has somewhere to grow. The other six stay non-combinable — a starter
+  // kit never holds two of the same piece to combine.
   static const polearm = 'polearm';
   static const chair = 'chair';
   static const mask = 'mask';
@@ -25,6 +37,17 @@ abstract final class ItemIds {
   static const fan = 'fan';
   static const towel = 'towel';
   static const cloth = 'cloth';
+
+  // Combine chains for the two starter weapons that gained one in V1.
+  static const reachSpear = 'reach_spear';
+  static const sentinelSpear = 'sentinel_spear';
+  static const warGlaive = 'war_glaive';
+  static const vanguardGlaive = 'vanguard_glaive';
+
+  static const duelistsRapier = 'duelists_rapier';
+  static const mastersRapier = 'masters_rapier';
+  static const swiftRapier = 'swift_rapier';
+  static const windRapier = 'wind_rapier';
 
   // Combine grade chains — each of the 6 items above branches into 2
   // named grade-2 items (weighted by the base item's own trainingWeights
