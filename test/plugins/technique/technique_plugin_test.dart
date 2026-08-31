@@ -32,18 +32,24 @@ void main() {
     expect(TechniquePlugin().dependencies, isEmpty);
   });
 
-  test('initialize registers all 11 techniques and the learning/mastery definitions', () {
+  test('initialize registers the full roster and the learning/mastery definitions', () {
     final context = _newContext();
     TechniquePlugin().initialize(context);
 
     expect(context.content.get(TechniqueIds.basicPunch), isNotNull);
-    expect(context.content.get(TechniqueIds.lightPunch), isNotNull);
+    expect(context.content.get(TechniqueIds.lightningJab), isNotNull); // master tier
+    expect(context.content.get(TechniqueIds.basicKick), isNotNull); // new family
+    expect(context.content.get(TechniqueIds.thunderPalm), isNotNull);
+    // new base families get a LEARNING axis; deepened forms get MASTERY only
     expect(context.progression.definitionOf('technique:basic_punch:knowledge'), isNotNull);
+    expect(context.progression.definitionOf('technique:basic_kick:knowledge'), isNotNull);
+    expect(context.progression.definitionOf('technique:lightning_jab:knowledge'), isNull);
     expect(context.mastery.definitionOf('technique:basic_punch'), isNotNull);
+    expect(context.mastery.definitionOf('technique:mountain_cleave'), isNotNull);
   });
 
   test('every technique — base and evolved — gets a MASTERY axis; only the '
-      'three base forms get the LEARNING axis', () {
+      'base forms get the LEARNING axis', () {
     final context = _newContext();
     TechniquePlugin().initialize(context);
 
