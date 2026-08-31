@@ -118,15 +118,16 @@ class TrainingStage {
         techniquesLearned.add(techniqueId);
         tomeManager.placeTechnique(technique, 'Training (technique learned)');
 
-        if (technique.evolutionCandidates.isNotEmpty) {
-          final evolution = evolveTechnique(character, technique, result.profile, context);
-          if (evolution.evolved) {
-            final evolvedId = evolution.chosenCandidate!.targetId;
-            techniquesEvolved.add(evolvedId);
-            firstTechniqueEvolutionStep ??= cycleIndex;
-            events.publish(TechniqueEvolved(fromId: techniqueId, toId: evolvedId));
-            tomeManager.replaceWithEvolved(techniqueId, evolvedId, 'Training (evolved)');
-          }
+        // The evolution decision + the TechniqueEvolved publish are owned
+        // by the Technique domain now — this stage only reacts with its
+        // own telemetry + Tome swap.
+        final evolution = resolveTechniqueEvolutionAfterTraining(
+            character, technique, result.profile, context);
+        if (evolution.evolved) {
+          final evolvedId = evolution.chosenCandidate!.targetId;
+          techniquesEvolved.add(evolvedId);
+          firstTechniqueEvolutionStep ??= cycleIndex;
+          tomeManager.replaceWithEvolved(techniqueId, evolvedId, 'Training (evolved)');
         }
       }
     }
