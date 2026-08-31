@@ -98,11 +98,38 @@ validator to catch drift.
 
 ```
 Critical: 0
-High:     2
-Medium:   4
+High:     2   (A1, A2 — RESOLVED 2026-09-01, see below)
+Medium:   4   (A4 — RESOLVED 2026-09-01)
 Low:      3
 Info:     3
 ```
+
+### Resolved (2026-09-01, laser-targeted A1/A2/A4 refactor)
+
+- **[A4]** `resolveTechniqueEvolutionAfterTraining` on
+  `technique_plugin.dart` is now the single evolution decision and the
+  single `TechniqueEvolved` publisher; `TrainingStage` and the client's
+  `TrainingAdapter` call it and only do their own follow-up. Locked by
+  `technique_evolution_flow_test` + an architecture test asserting one
+  class definition / one publisher.
+- **[A2]** `StyleCombatRules` + `BurstChainState` on
+  `martial_arts_plugin.dart` own the off-specialty penalty, Shaolin
+  Conditioning and Kunlun Burst Chain (pure, deterministic, no
+  RNG/context/Flutter). The client's `CombatAdapter` consumes them and no
+  longer restates any of the numbers. Locked by `style_combat_test` +
+  client/engine architecture tests.
+- **[A1]** The two named divergent rule sets (style combat, evolution
+  trigger) now have one engine implementation each. `lib/game.dart` /
+  `game_run.dart` / `combat_stage.dart` are documented as a headless
+  reference / balance-simulation harness — the client owns run
+  composition/sequencing/presentation, the engine owns the domain rules
+  both consume. Locked by an architecture test asserting nothing outside
+  `plugins/game/` imports the harness. *Not* addressed: unifying the
+  combat *loop* itself or moving enemy-roster / reward-pool *selection*
+  (those are UI-facing client orchestration by the target architecture).
+
+The findings below are the audit as written on 2026-08-31 and are kept
+verbatim for the record.
 
 ---
 

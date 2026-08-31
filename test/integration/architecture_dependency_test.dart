@@ -201,4 +201,70 @@ void main() {
       }
     }
   });
+
+  group('audit A1 — the headless harness is top-of-graph, never depended on',
+      () {
+    // Nothing under lib/ except lib/src/plugins/game/ and lib/game.dart
+    // itself may import the harness. It is a composition root — a plugin
+    // or Core module pulling it back in would recreate the "two
+    // divergent compositions" the A1 refactor removed.
+    final nonGameDirs = [
+      for (final d in Directory('lib/src').listSync().whereType<Directory>())
+        if (!d.path.endsWith('game')) d.path,
+      // lib/src itself minus plugins/game — but plugins/ has subdirs, so
+      // check each non-game plugin dir explicitly too.
+      for (final d in Directory('lib/src/plugins').listSync().whereType<Directory>())
+        if (!d.path.endsWith('game')) d.path,
+    ];
+    for (final dir in nonGameDirs.toSet()) {
+      test('$dir does not import game.dart or plugins/game/', () {
+        _assertNoSubstringInDirectory("game.dart'", dir);
+        _assertNoSubstringInDirectory('plugins/game/', dir);
+      });
+    }
+  });
+
+  group('audit A2 — style combat rules stay engine-pure', () {
+    test('MartialArts (incl. style_combat.dart) references no Flutter/UI', () {
+      _assertNoSubstringInDirectory('package:flutter/', 'lib/src/plugins/martial_arts');
+      _assertNoSubstringInDirectory("import 'dart:ui'", 'lib/src/plugins/martial_arts');
+    });
+    test('style_combat.dart draws only on martial vocabulary — no RNG, no '
+        'PluginContext', () {
+      final src = File('lib/src/plugins/martial_arts/style_combat.dart')
+          .readAsStringSync();
+      expect(src, isNot(contains('RngService')));
+      expect(src, isNot(contains('PluginContext')));
+      expect(src, isNot(contains('context.rng')));
+    });
+  });
+
+  group('audit A4 — TechniqueEvolved has one definition and one publisher', () {
+    test('TechniqueEvolved is declared exactly once in lib/', () {
+      var declarations = 0;
+      for (final f in Directory('lib')
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'))) {
+        declarations += RegExp(r'class TechniqueEvolved\b')
+            .allMatches(f.readAsStringSync())
+            .length;
+      }
+      expect(declarations, 1);
+    });
+    test('only resolveTechniqueEvolutionAfterTraining publishes it', () {
+      final publishers = <String>[];
+      for (final f in Directory('lib')
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'))) {
+        final src = f.readAsStringSync();
+        if (src.contains('publish(') &&
+            RegExp(r'publish\(\s*TechniqueEvolved\(').hasMatch(src)) {
+          publishers.add(f.path);
+        }
+      }
+      expect(publishers, ['lib/src/plugins/technique/technique_evolution.dart']);
+    });
+  });
 }

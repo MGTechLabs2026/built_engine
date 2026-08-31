@@ -8,13 +8,19 @@ import 'enemy.dart';
 import 'run_events.dart';
 import 'run_result.dart';
 
-/// Owns `runGame`'s combat resolution: turning the active Tome build
-/// into a player action, spawning an enemy, and running one fight to
-/// completion via `AutoCombatController`. Extracted from `runGame`
+/// Owns the **harness's** combat resolution: turning the active Tome
+/// build into a player action, spawning an enemy, and running one fight
+/// to completion via `AutoCombatController`. Extracted from `runGame`
 /// (previously 3 nested closures — see `ARCHITECTURE_AUDIT.md`'s
-/// god-function finding) so this piece of the run is independently
-/// constructable. Owns [encounters], the fight-by-fight trail
-/// `runGame`'s own `encounters` list always held.
+/// god-function finding). Owns [encounters], the fight-by-fight trail.
+///
+/// This deliberately runs a *simpler* combat model than the shipped
+/// client's: `AutoCombatController` picks actions and applies damage with
+/// no per-turn mastery success roll and no mid-fight stance entry. The
+/// authoritative style-scoped combat rules live in `MartialArtsPlugin`'s
+/// `StyleCombatRules` (audit A2); this harness does not apply Shaolin
+/// Conditioning or Kunlun Burst Chain (they need per-turn resolution) —
+/// but it must never implement a *conflicting* style rule of its own.
 class CombatStage {
   CombatStage({
     required this.character,

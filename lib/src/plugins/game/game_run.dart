@@ -40,7 +40,12 @@ void restoreHealth(EntityId character, PluginContext context) {
   const Heal(9999).apply(context.ruleContextFor(character));
 }
 
-/// The endless roguelike loop:
+/// The **headless reference / balance-simulation** loop — see
+/// `lib/game.dart` for the ownership split. This is a CI/balance probe,
+/// not the shipped run: the client (`Tome_client`) owns the structured
+/// run flow, sequencing and presentation; this harness composes the same
+/// engine-owned domain rules into an endless survival loop so a seed is
+/// reproducible and a `DecisionLog` can replay it.
 ///
 ///   New Run -> name -> Random Physique -> martial tradition -> starting
 ///   style -> Starting Tome (knife + cloth armor, 9 of RunTomeSlots.maxSlots
@@ -51,7 +56,9 @@ void restoreHealth(EntityId character, PluginContext context) {
 ///
 /// Repeats until the player dies (`won: false`) or a 200-cycle safety
 /// cap is reached alive (`won: true`) — the cap is a pure engineering
-/// safety net for the headless simulation, not a game-design "win."
+/// safety net for the simulation, not a game-design "win," and the
+/// endless loop here is the harness's own shape, not the client's
+/// structured 2/4/6/8-normal + 1-hard progression.
 ///
 /// Built entirely by composing the plugins that already implement every
 /// stage — nothing here is new engine machinery:
