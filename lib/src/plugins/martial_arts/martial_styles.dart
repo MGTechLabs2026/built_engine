@@ -32,12 +32,23 @@ abstract final class MartialStyles {
 /// three known styles is still accepted (this plugin doesn't validate
 /// style ids) — it simply receives no tradition tag.
 ///
-/// Learning [MartialStyles.shaolin] additionally registers a permanent
-/// conditional `Modifier` — `+4 add` to `palm`, active only while
-/// `stance:iron_body` is present — implementing Shaolin's
-/// defensive-synergy-into-offense mechanic entirely through the Modifier
-/// Engine. This content-specific branch belongs here, in the content
-/// plugin, not in Core or Combat.
+/// Content Expansion V1 (matrix §E.1) additionally grants each style its
+/// one or two `spec:*` marker tags ([MartialSpecs.byStyle]) and registers
+/// the part of its specialty a static `Modifier` can express:
+///
+/// * polearming — `+2 add thrust` (reach pressure), unconditional;
+/// * wrestling — `×1.15 defense` while `stance:sprawl`;
+/// * fencing — `+3 add initiative` (First Blood), unconditional;
+/// * shaolin — `+4 add palm` while `stance:iron_body` (the original);
+/// * taiChi — `+3 add internal` while `stance:tai_chi`;
+/// * kunlun — `+2 add speed` while `stance:swallow`.
+///
+/// The dynamic parts (opening pre-emption, clinch dodge-ignore, riposte
+/// window, conditioning damage floor, redirect, swallow free-dodge, burst
+/// chain) and the −15% off-specialty penalty are applied by the client
+/// `CombatAdapter`, which reads the `spec:*` tags and
+/// [styleAlignedFamilies]. This content-specific branching belongs here,
+/// in the content plugin, not in Core or Combat.
 void learnStyle(EntityId entity, String styleId, PluginContext context) {
   final ctx = context.ruleContextFor(entity);
   const AddTag('martial').apply(ctx);
@@ -46,15 +57,40 @@ void learnStyle(EntityId entity, String styleId, PluginContext context) {
   if (traditionTag != null) {
     AddTag(traditionTag).apply(ctx);
   }
-  if (styleId == MartialStyles.shaolin) {
+
+  for (final spec in MartialSpecs.byStyle[styleId] ?? const <String>[]) {
+    AddTag(spec).apply(ctx);
+  }
+
+  void addModifier(String stat, ModifierOperation op, num value,
+      {Query? condition}) {
     context.modifiers.add(Modifier(
-      source: ModifierSource('style:shaolin:synergy:${entity.value}'),
+      source: ModifierSource('style:$styleId:affinity:${entity.value}'),
       target: entity,
-      stat: 'palm',
-      operation: ModifierOperation.add,
-      value: 4,
-      condition: HasTagQuery(MartialStances.ironBody),
+      stat: stat,
+      operation: op,
+      value: value,
+      condition: condition,
     ));
+  }
+
+  switch (styleId) {
+    case MartialStyles.polearming:
+      addModifier('thrust', ModifierOperation.add, 2);
+    case MartialStyles.wrestling:
+      addModifier('defense', ModifierOperation.multiply, 1.15,
+          condition: HasTagQuery(MartialStances.sprawl));
+    case MartialStyles.fencing:
+      addModifier('initiative', ModifierOperation.add, 3);
+    case MartialStyles.shaolin:
+      addModifier('palm', ModifierOperation.add, 4,
+          condition: HasTagQuery(MartialStances.ironBody));
+    case MartialStyles.taiChi:
+      addModifier('internal', ModifierOperation.add, 3,
+          condition: HasTagQuery(MartialStances.taiChi));
+    case MartialStyles.kunlun:
+      addModifier('speed', ModifierOperation.add, 2,
+          condition: HasTagQuery(MartialStances.swallow));
   }
 }
 

@@ -244,11 +244,14 @@ is penalised; generic/no-family content is neutral, never penalised):
 Recognised family tags: `fist` `palm` `finger` `blade` `reach` `polearm` `thrust`
 `staff` `fan` `grapple` `internal` `guard` `kick` `improvised` `cloth`.
 
-**Where it lives.** Engine exports `styleAlignedFamilies` (one source of truth) and
-`learnStyle` registers `multiply 0.85` modifiers on the off-lane damage stats so
-the headless sim honours it. Client `CombatAdapter` applies the same `×0.85` in its
-own damage calc by reading the exported map — generic branch on
-"family tag ∈ aligned set?", no `if styleId == …`.
+**Where it lives.** Engine exports `styleAlignedFamilies` + `recognisedFamilyTags`
++ `offSpecialtyDamageFactor` (one source of truth, in `martial_vocabulary.dart`).
+The client `CombatAdapter` applies the `×0.85` in its own damage calc by reading
+that map — a generic branch on "family tag ∈ aligned set?", no `if styleId == …`.
+V1 does **not** register per-family `multiply 0.85` modifiers in `learnStyle` (too
+many `damageStat` assumptions across the two technique systems); the headless
+`runGame` sim honours styles only through `learnStyle`'s clean static modifiers
+(the §E table) for now. Wiring the penalty into the headless sim is deferred (§L).
 
 Design intent: a style can still *use* anything (hybrid builds stay legal — spec's
 hybrid guardrail), it just isn't as good at it, so committing to your lane is
@@ -433,6 +436,8 @@ Client test `test/core/engine/reward_pool_ids_test.dart`: every id in
 
 - 4th technique stage (`master`) for slash's speed line beyond `lightning_slash`,
   and any 5-stage ladders.
+- Off-specialty penalty in the headless `runGame` sim (V1 = client `CombatAdapter`
+  only; the engine exports the map but registers no per-family `multiply` modifier).
 - New armor / footwear combinable families (only `guard_bracers` /
   `dueling_dagger` were considered; deferred to V2 to keep the diff reviewable).
 - `counter_punch` advanced/master line (reaction deepening lives under GUARD in V1).

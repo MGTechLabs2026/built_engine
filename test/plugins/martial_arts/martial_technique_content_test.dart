@@ -25,12 +25,19 @@ PluginContext _newContext() {
 }
 
 void main() {
-  test('all 9 technique/stance definitions load atomically as a batch',
-      () {
+  test('all 18 technique/stance definitions load atomically as a batch '
+      '(the original 9 plus V1 wrestling/fencing/kunlun sets)', () {
     final registry = ContentRegistry();
     final definitions = registry.loadAll(martialTechniqueContentDefinitions);
-    expect(definitions, hasLength(9));
-    expect(registry.allOfType('technique'), hasLength(9));
+    expect(definitions, hasLength(18));
+    expect(registry.allOfType('technique'), hasLength(18));
+    for (final id in [
+      'collar_tie', 'takedown', 'sprawl_stance',
+      'lunge', 'riposte', 'en_garde_stance',
+      'crescent_slash', 'moonfall_slash', 'swallow_step',
+    ]) {
+      expect(registry.find(id), isNotNull, reason: '$id should load');
+    }
   });
 
   group('martialTechniqueFromDefinition', () {
@@ -79,7 +86,7 @@ void main() {
     });
   });
 
-  group('the 9 convenience factory functions', () {
+  group('the convenience factory functions', () {
     test('produce the same shape as looking the content up directly', () {
       final actor = const EntityId(1);
       final target = const EntityId(2);
@@ -101,13 +108,13 @@ void main() {
     });
   });
 
-  test('MartialArtsPlugin.initialize loads the same 9 definitions into '
+  test('MartialArtsPlugin.initialize loads all 18 definitions into '
       'the real, shared PluginContext.content', () {
     final context = _newContext();
     final plugin = MartialArtsPlugin();
     plugin.initialize(context);
 
-    expect(context.content.allOfType('technique'), hasLength(9));
+    expect(context.content.allOfType('technique'), hasLength(18));
     expect(context.content.get('jab').type, equals('technique'));
   });
 
@@ -119,6 +126,6 @@ void main() {
     plugin.unregister(context);
 
     expect(() => plugin.initialize(context), returnsNormally);
-    expect(context.content.allOfType('technique'), hasLength(9));
+    expect(context.content.allOfType('technique'), hasLength(18));
   });
 }

@@ -55,7 +55,8 @@ void main() {
       expect(active.single.operation, equals(ModifierOperation.add));
     });
 
-    test('learning polearming or taiChi registers no modifier', () {
+    test('no style grants a palm modifier except shaolin — polearming and '
+        'taiChi affinity modifiers target other stats', () {
       final context = _newContext();
       final boxer = context.entities.create();
       final taiChiPractitioner = context.entities.create();
@@ -73,6 +74,48 @@ void main() {
         context.modifiers
             .activeModifiersFor(taiChiPractitioner, 'palm', context.components),
         isEmpty,
+      );
+    });
+
+    test('V1: every style grants its spec:* marker tag(s)', () {
+      for (final entry in MartialSpecs.byStyle.entries) {
+        final context = _newContext();
+        final e = context.entities.create();
+        learnStyle(e, entry.key, context);
+        final tags = context.components.get<TagSet>(e)!.tags;
+        expect(tags, containsAll(entry.value),
+            reason: '${entry.key} must grant ${entry.value}');
+      }
+    });
+
+    test('V1: fencing gets an unconditional +3 initiative (First Blood); '
+        'kunlun gets +2 speed only while stance:swallow', () {
+      final context = _newContext();
+      final fencer = context.entities.create();
+      final kunlunStylist = context.entities.create();
+
+      learnStyle(fencer, MartialStyles.fencing, context);
+      learnStyle(kunlunStylist, MartialStyles.kunlun, context);
+
+      expect(
+        context.modifiers
+            .activeModifiersFor(fencer, 'initiative', context.components)
+            .single
+            .value,
+        equals(3),
+      );
+      expect(
+        context.modifiers
+            .activeModifiersFor(kunlunStylist, 'speed', context.components),
+        isEmpty,
+      );
+      context.components.add(kunlunStylist, TagSet({MartialStances.swallow}));
+      expect(
+        context.modifiers
+            .activeModifiersFor(kunlunStylist, 'speed', context.components)
+            .single
+            .value,
+        equals(2),
       );
     });
 
