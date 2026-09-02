@@ -11,6 +11,13 @@
 Map<String, num> styleCentre(String styleId, String familyId) =>
     _styleCentres[styleId]?[familyId] ?? const {};
 
+/// Test-only view of the backing table. `styleCentre`'s `?? const {}`
+/// fallback hides a missing `(style, family)` entry; a completeness test
+/// (spec §9 — "every (style) × (base family) pair gets an entry, possibly
+/// `{}`") needs to see the literal key set. Not part of the supported API.
+Map<String, Map<String, Map<String, num>>> get styleCentreTable =>
+    _styleCentres;
+
 /// Axis keys mirror `TechniqueAxes` (`power` / `speed` / `endurance` /
 /// `precision`). Magnitudes are deliberately small (1–3): a starting
 /// bias, not a defining trait. Roughly follows each style's

@@ -518,7 +518,10 @@ style centre the caller passes in (`martial_arts`'s `styleCentre`; the
 technique plugin never looks it up). Inspirers are never mutated; a
 freshly minted variant starts `masteryLevel 0` / `usage 0` and so cannot
 chain a second discovery. Usage is per-run, like SP0a's per-instance
-mastery. The evolution path is untouched and still runs alongside.
+mastery. The evolution path is untouched and still runs alongside. In the
+headless `game_run` harness the hook is inert (no `TechniqueVariant`s are
+minted there), so it draws no RNG and shifts no golden; a later harness
+migration changes that.
 
 ## Reward/Loot system (`lib/src/reward/`)
 

@@ -198,7 +198,7 @@ class TechniqueInspirationResolver {
         return InspirationResult(
           discovered: true,
           familyId: trainedFamilyId,
-          descriptorIds: pickedIds,
+          descriptorIds: Set.unmodifiable(pickedIds),
           // Step 9 — attribution: only the inspirers that actually shaped
           // a drawn descriptor, NOT the whole eligible set.
           inspirerInstanceIds:
@@ -299,6 +299,8 @@ InspirationResult resolveTechniqueInspirationAfterTraining(
     ));
     if (v.baseFamilyId == familyId) exclude.add(v.descriptorIds);
   }
+
+  if (inspirers.isEmpty) return InspirationResult.none;
 
   final pool = [
     for (final def in context.content.allOfType('technique_descriptor'))

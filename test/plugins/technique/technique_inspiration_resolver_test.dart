@@ -322,6 +322,31 @@ void _resolverTests() {
       expect(attrFor([b, a]), [const EntityId(2)]);
     });
 
+    test('multi-id attribution is a list in ascending eligible-index order', () {
+      // Two equal-weight eligible inspirers (each mastery 3, usage 9 →
+      // w = 3*3 = 9): one on power, one on speed. ΣW = 18, c = 0.5 →
+      // p = 0.05 + 0.55*0.5 = 0.325. meanMastery 3 >= 2, ΣW 18 >= 6.0,
+      // eligible.length 2 → strong → k = 3, capped to min(3, 2) = 2 → BOTH
+      // descriptors drawn. `strong` (pure power) is attributed to the power
+      // inspirer, `swift` (pure speed) to the speed inspirer.
+      List<EntityId> attrFor(List<Inspirer> ins) => _resolver.resolve(
+            trainedFamilyId: 'basic_punch',
+            inspirers: ins,
+            descriptorPool: [
+              _d('strong', {'power': 4}),
+              _d('swift', {'speed': 5}),
+            ],
+            rng: _seedWithFirstDrawBelow(0.30),
+          ).inspirerInstanceIds;
+      final power = _insp(1, {'power': 6}, mastery: 3, usage: 9);
+      final speed = _insp(2, {'speed': 6}, mastery: 3, usage: 9);
+      // A List (not a Set), and ascending by eligible index == position in
+      // the passed iterable, regardless of draw order.
+      expect(attrFor([power, speed]), [const EntityId(1), const EntityId(2)]);
+      // swapped order → result follows the NEW eligible index, [#2, #1].
+      expect(attrFor([speed, power]), [const EntityId(2), const EntityId(1)]);
+    });
+
     test('attribution adds no rng draw', () {
       // Two runs from the same seed: the rng state after resolve is
       // identical, and equals a hand-advanced generator that made exactly
@@ -465,6 +490,22 @@ void _compatibilityTests() {
         descriptorPool: pool(),
         rng: _seedWithFirstDrawBelow(0.60),
       );
+      expect(res.descriptorIds, hasLength(1));
+    });
+
+    test('single strong source → still 1 (strong needs 2+ eligible)', () {
+      // ONE eligible inspirer, mastery 3 + usage 30 → w = 3*sqrt(30) ≈ 16.4
+      // (>= kInspirationStrongWeightBar 6.0) and mastery 3 >=
+      // kInspirationStrongMasteryBar 2 — both "strong" sub-conditions are
+      // met, but `strong` also requires eligible.length >= 2, so k stays 1.
+      // Single inspirer → c = 1.0 → p = 0.60.
+      final res = _resolver.resolve(
+        trainedFamilyId: 'basic_punch',
+        inspirers: [_insp(1, {'power': 6}, mastery: 3, usage: 30)],
+        descriptorPool: pool(),
+        rng: _seedWithFirstDrawBelow(0.60),
+      );
+      expect(res.discovered, isTrue);
       expect(res.descriptorIds, hasLength(1));
     });
 

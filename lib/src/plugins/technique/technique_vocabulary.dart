@@ -128,7 +128,13 @@ const kInspirationExcludeRetries = 3;
 /// blend "strong" (a candidate for a 3rd descriptor).
 const kInspirationStrongMasteryBar = 2;
 
-/// ...and the summed damped inspirer weight must also reach this.
+/// Minimum total damped inspirer weight for a "strong" (3-descriptor)
+/// multi-source blend (spec §6.2 step 6). NOTE: with the current
+/// `kMinUsageToInspire` (3) and `kInspirationStrongMasteryBar` (2), any
+/// 2+-inspirer blend that clears the mastery bar already has
+/// `Σ(mastery·√usage) ≥ 2·2·√3 ≈ 6.93`, so this bar does not currently
+/// bind on its own — it is a floor the eligibility gates satisfy. Kept
+/// as an explicit knob for future retuning of those gates.
 const kInspirationStrongWeightBar = 6.0;
 
 /// Descriptor tag prefix that restricts a descriptor to one base family,

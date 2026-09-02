@@ -111,6 +111,16 @@ bumping the pin. Newest first.
   axis nudge for a minted variant.
 - SP0a's `_familyOf` / `_requireVariant` promoted to public
   `techniqueFamilyOf` / `requireTechniqueVariant` (visibility only).
+- The post-training hook is **wired but inert in the headless `game_run`
+  harness**: that harness still uses the legacy learn/evolve path and mints
+  no `TechniqueVariant`s, so `resolveTechniqueInspirationAfterTraining`
+  always returns `InspirationResult.none` without drawing from
+  `context.rng` — existing `game_run` seed/golden/replay expectations are
+  unchanged. A future pass that migrates the harness to mint variants will
+  make the hook live and require regenerating those expectations.
+- A successful discovery also publishes `TechniqueVariantMinted` (from
+  `mintTechniqueVariant`, SP0a) in addition to `TechniqueVariantInspired`
+  — a consumer counting mints will now see inspired variants.
 
 ### Changed — public barrels
 

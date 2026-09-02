@@ -33,4 +33,17 @@ void main() {
       }
     }
   });
+
+  test('the table has an explicit entry for every (style) × (base family) pair',
+      () {
+    // Spec §9: "Every (style) × (base family) pair gets an entry (possibly
+    // {})". styleCentre()'s `?? const {}` fallback would let a missing pair
+    // pass the sweep above silently, so assert against the literal table.
+    expect(styleCentreTable.keys.toSet(), _styles.toSet(),
+        reason: 'top-level style keys must be exactly the 6 shipped styles');
+    for (final s in _styles) {
+      expect(styleCentreTable[s]!.keys.toSet(), _families.toSet(),
+          reason: 'style "$s" must map all 6 basic_* families explicitly');
+    }
+  });
 }
