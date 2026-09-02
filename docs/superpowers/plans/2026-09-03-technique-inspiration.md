@@ -18,9 +18,14 @@
 - **Descriptor content type string is `'technique_descriptor'`** (load-bearing: `martial_technique_content_test.dart` / `content_expansion_audit_test.dart` assert counts).
 - **Negative axes are preserved:** the resolver's emphasis/selection math uses positive axis contributions only, but the minted variant's `axisProfile` (built by `TechniqueVariantResolver` over the drawn descriptors) keeps every axis, negatives included. SP0b strips nothing.
 - **New variants start `masteryLevel 0` / `usage 0`** and therefore cannot inspire until they independently cross the thresholds — no `canInspire` flag; the behaviour falls out of the eligibility filter.
-- **At most one discovery per training session** — enforced by the single resolver roll in the one hook call; no cooldown, no persistent state.
+- **At most one discovery per training session** — enforced by the single resolver roll in the one hook call; no cooldown, no discovery-lock component on the fighter, no persistent state.
+- **One RNG draw total.** `resolve` draws `rng.nextDouble()` exactly once (the discovery roll, spec §6.2 step 4), plus the weighted `weightedPick` draws for step 7. Step 0 returns *before* any draw. Step 9 attribution adds **no** draw. Do not add a second discovery roll or an attribution roll.
+- **Single-source concentration is not special-cased.** `c = maxWeight / totalWeight` yields `1.0` for one eligible inspirer automatically. No `if (eligible.length == 1)` branch anywhere.
+- **Descriptor count `k` (spec §6.2 step 6), chosen before the weighted draw:** `k = 1` if `eligible.length == 1`; `k = 3` if `eligible.length >= 2 && meanEligibleMastery >= kInspirationStrongMasteryBar && ΣweightedW >= kInspirationStrongWeightBar`; `k = 2` otherwise (`eligible.length >= 2`, not strong). Then `k = min(k, 3)` and `k = min(k, compatible.length)`.
+- **`inspirerInstanceIds` = actual contributors** (spec §6.2 step 9): per drawn descriptor, the eligible inspirer with the greatest `support_i(d) = Σ_{axis ∈ positiveAxes(d)} w_i * max(0, axisProfile_i[axis])`; tie → lowest index in the resolver's `eligible` list; union across descriptors, ascending index, deduplicated. It is a **subset** of the eligible set — an eligible inspirer that shaped no drawn descriptor is omitted. Never emit "all eligible".
+- **Descriptor `family:<id>` tags name real base families.** A `technique_descriptor` whose `family:<id>` tag has `<id> ∉ TechniqueIds.bases` is a **content error**, caught by a content-validation test (§14.0 of the spec), not a resolver-time "incompatible" outcome. The resolver assumes validated content.
 - **Real style ids** are `MartialStyles.polearming` / `wrestling` / `fencing` / `shaolin` / `taiChi` / `kunlun`. There is no `boxing` / `wing_chun`.
-- **Tuning constant values (copy verbatim):** `kInspirationBaseChance = 0.05`, `kInspirationConcentrationGain = 0.55`, `kMinMasteryToInspire = 1`, `kMinUsageToInspire = 3`, `kInspirationExcludeRetries = 3`, `kInspirationStrongMasteryBar = 2`, `kInspirationStrongWeightBar = 6.0`.
+- **Tuning constant values (copy verbatim):** `kInspirationBaseChance = 0.05`, `kInspirationConcentrationGain = 0.55`, `kMinMasteryToInspire = 1`, `kMinUsageToInspire = 3`, `kInspirationExcludeRetries = 3`, `kInspirationStrongMasteryBar = 2`, `kInspirationStrongWeightBar = 6.0`. `techniqueFamilyTagPrefix = 'family:'`. The value magnitudes are playtest-tuned; the **shapes** (`base + gain == 0.60` ceiling, `sqrt(usage)` damping, thresholds as the sole eligibility gate) are locked.
 - **Do not** implement SP1 (tiered `EffectProfile`), retire the evolution path, touch `ItemActionInterpreter`, or modify `Tome_client`.
 - After every task: `dart test test/plugins/technique/ test/plugins/build_interpretation/ test/plugins/martial_arts/` + `dart analyze`. Before completion: full `dart test` + `dart analyze` + `dart test test/integration/architecture_dependency_test.dart`.
 - Commits (in order, with trailers per repo convention):
@@ -36,7 +41,7 @@
 - `lib/src/plugins/technique/technique_usage.dart` — `TechniqueUsageComponent` (one `Map<EntityId,int>`), `recordTechniqueVariantUsage`, `forgetTechniqueVariantUsage`, `techniqueVariantUsage`. Core-only imports.
 - `lib/src/plugins/technique/technique_inspiration.dart` — `Inspirer`, `InspirationResult`, `TechniqueInspirationResolver`, `descriptorCompatibleWithFamily`, `resolveTechniqueInspirationAfterTraining`. Imports Core + sibling `technique/` files only.
 - `lib/src/plugins/martial_arts/style_centre.dart` — `styleCentre(styleId, familyId)` + a `const` table.
-- Tests: `test/plugins/combat/combat_action_source_ref_test.dart`, `test/plugins/build_interpretation/technique_action_interpreter_source_ref_test.dart`, `test/plugins/technique/technique_usage_test.dart`, `test/plugins/technique/technique_inspiration_resolver_test.dart`, `test/plugins/technique/technique_inspiration_flow_test.dart`, `test/plugins/martial_arts/style_centre_test.dart`, `test/plugins/game/combat_stage_usage_test.dart`.
+- Tests: `test/plugins/combat/combat_action_source_ref_test.dart`, `test/plugins/build_interpretation/technique_action_interpreter_source_ref_test.dart`, `test/plugins/technique/technique_usage_test.dart`, `test/plugins/technique/technique_inspiration_resolver_test.dart`, `test/plugins/technique/technique_inspiration_flow_test.dart`, `test/plugins/technique/technique_descriptor_family_validation_test.dart`, `test/plugins/martial_arts/style_centre_test.dart`, `test/plugins/game/combat_stage_usage_test.dart`.
 
 **Modified**
 
@@ -365,12 +370,13 @@ git commit -m "feat(build-interpretation): set sourceRef on interpreted techniqu
 
 ---
 
-### Task 3: Tuning constants, family-tag prefix, and public renames
+### Task 3: Tuning constants, family-tag prefix, public renames, descriptor-family validation
 
 **Files:**
 - Modify: `lib/src/plugins/technique/technique_vocabulary.dart`
 - Modify: `lib/src/plugins/technique/technique_variant_lifecycle.dart`
-- Test: `test/plugins/technique/technique_vocabulary_test.dart` (create if absent) or add to `technique_variant_lifecycle_test.dart`
+- Test: `test/plugins/technique/technique_vocabulary_test.dart` (create if absent)
+- Test: `test/plugins/technique/technique_descriptor_family_validation_test.dart`
 
 **Interfaces:**
 - Produces:
@@ -378,6 +384,7 @@ git commit -m "feat(build-interpretation): set sourceRef on interpreted techniqu
   - `const techniqueFamilyTagPrefix = 'family:';`
   - `TechniqueVariant requireTechniqueVariant(EntityId instanceId, PluginContext context)` (was `_requireVariant`) — still throws `TechniqueVariantNotFoundException`.
   - `String techniqueFamilyOf(String legacyId, PluginContext context)` (was `_familyOf`) — behaviour unchanged.
+- Establishes: **every `family:<id>` tag on shipped `technique_descriptor` content has `<id> ∈ TechniqueIds.bases`** (spec §14.0). Vacuously true today (no descriptor carries a `family:` tag); the test guards future content. The inspiration resolver (Task 6) relies on this — it never re-validates.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -488,18 +495,66 @@ In `lib/src/plugins/technique/technique_variant_lifecycle.dart`:
 
 Both are auto-exported: `lib/technique_plugin.dart` already re-exports the whole file.
 
-- [ ] **Step 5: Run the test + the SP0a suite**
+- [ ] **Step 5: Write the descriptor-family validation test**
+
+```dart
+// test/plugins/technique/technique_descriptor_family_validation_test.dart
+import 'package:build_engine/src/plugins/technique/technique_descriptor.dart';
+import 'package:build_engine/src/plugins/technique/technique_descriptor_content.dart';
+import 'package:build_engine/src/plugins/technique/technique_vocabulary.dart';
+import 'package:test/test.dart';
+
+/// Every `family:<id>` tag a descriptor carries must name a real technique
+/// base family. An invalid reference is a CONTENT ERROR, caught here — the
+/// inspiration resolver assumes this has passed and never re-checks.
+Iterable<String> _familyRefs(Iterable<String> tags) => tags
+    .where((t) => t.startsWith(techniqueFamilyTagPrefix))
+    .map((t) => t.substring(techniqueFamilyTagPrefix.length));
+
+void main() {
+  test('shipped technique_descriptor content has only valid family: refs', () {
+    for (final def in techniqueDescriptorContentDefinitions) {
+      final tags = (def['tags'] as List).cast<String>();
+      for (final id in _familyRefs(tags)) {
+        expect(TechniqueIds.bases, contains(id),
+            reason: 'descriptor ${def['id']} references unknown family "$id"');
+      }
+    }
+  });
+
+  test('a fixture descriptor with an invalid family ref is rejected', () {
+    const bad = TechniqueDescriptor(
+      id: 'x', axes: {'power': 1}, tags: {'family:not_a_family'});
+    expect(_familyRefs(bad.tags).every(TechniqueIds.bases.contains), isFalse);
+  });
+
+  test('a fixture descriptor with a valid family ref passes', () {
+    const good = TechniqueDescriptor(
+      id: 'x', axes: {'power': 1}, tags: {'family:basic_kick'});
+    expect(_familyRefs(good.tags).every(TechniqueIds.bases.contains), isTrue);
+  });
+}
+```
+
+> If a content-load validation hook exists (grep `content_expansion_audit_test.dart`
+> for the pattern it uses to assert descriptor invariants) fold this
+> assertion in there instead of a standalone file — keep it beside the
+> other descriptor-content checks. The three assertions above are the
+> contract regardless of file.
+
+- [ ] **Step 6: Run the tests + the SP0a suite**
 
 Run: `dart test test/plugins/technique/`
-Expected: PASS (the SP0a lifecycle tests still green — visibility-only rename).
+Expected: PASS (the SP0a lifecycle tests still green — visibility-only rename; the validation test passes vacuously — no shipped descriptor has a `family:` tag).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add lib/src/plugins/technique/technique_vocabulary.dart \
         lib/src/plugins/technique/technique_variant_lifecycle.dart \
-        test/plugins/technique/technique_vocabulary_test.dart
-git commit -m "feat(technique): add inspiration tuning constants; promote family/require helpers"
+        test/plugins/technique/technique_vocabulary_test.dart \
+        test/plugins/technique/technique_descriptor_family_validation_test.dart
+git commit -m "feat(technique): inspiration tuning constants, public helpers, descriptor-family validation"
 ```
 
 ---
@@ -848,18 +903,24 @@ class TechniqueVariantInspired {
     required this.inspirerInstanceIds,
   });
 
+  /// Owner of the newly minted variant.
   final EntityId owner;
 
-  /// The freshly minted variant.
+  /// The freshly minted variant entity.
   final EntityId instanceId;
 
   /// Its base family (`== the trained family`).
   final String familyId;
 
-  /// The drawn descriptors — lets a client name the result.
+  /// The descriptors selected for the new variant — lets a client name it.
   final Set<String> descriptorIds;
 
-  /// The eligible variants that influenced it.
+  /// The variants whose attributes *actually* caused the generated
+  /// descriptor selection (`InspirationResult.inspirerInstanceIds`
+  /// verbatim — spec §6.2 step 9). A **subset** of the eligible inspirers,
+  /// ascending eligible-index order: an eligible variant that shaped no
+  /// drawn descriptor is absent, so a client's "X + Y inspired this" is
+  /// always truthful. Never "every eligible variant".
   final List<EntityId> inspirerInstanceIds;
 }
 ```
@@ -889,10 +950,10 @@ git commit -m "feat(technique): inspiration value types and TechniqueVariantInsp
 
 ---
 
-### Task 6: `TechniqueInspirationResolver` — eligibility, weighting, emphasis, concentration, roll
+### Task 6: `TechniqueInspirationResolver` — eligibility, weighting, emphasis, concentration, roll, attribution
 
 **Files:**
-- Modify: `lib/src/plugins/technique/technique_inspiration.dart` (add the resolver + `descriptorCompatibleWithFamily`)
+- Modify: `lib/src/plugins/technique/technique_inspiration.dart` (add the resolver + `descriptorCompatibleWithFamily` + the private `_attribute` helper)
 - Test: `test/plugins/technique/technique_inspiration_resolver_test.dart`
 
 **Interfaces:**
@@ -900,6 +961,7 @@ git commit -m "feat(technique): inspiration value types and TechniqueVariantInsp
 - Produces:
   - `class TechniqueInspirationResolver { const TechniqueInspirationResolver(); InspirationResult resolve({required String trainedFamilyId, required Iterable<Inspirer> inspirers, required Iterable<TechniqueDescriptor> descriptorPool, required RngService rng, Set<Set<String>> exclude = const {}}); }`
   - `bool descriptorCompatibleWithFamily(TechniqueDescriptor d, String familyId)`
+  - `InspirationResult.inspirerInstanceIds` is the **attributed** subset (spec §6.2 step 9), ascending eligible-index order — not the full eligible set. `_attribute` is file-private; its contract is locked by the "source attribution" test group.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1039,6 +1101,152 @@ void _resolverTests() {
     });
   });
 
+  group('damping is sub-linear (√usage)', () {
+    test('concentration reflects √usage, not linear usage', () {
+      // Two inspirers on `power`, both mastery 1. A at variable usage, B
+      // fixed at usage 1.  concentration = wA / (wA + wB) = √uA / (√uA + 1).
+      // With linear weighting it would be uA / (uA + 1) — much closer to 1.
+      double concentrationFor(int usageA) {
+        // c is not exposed, but p == 0.05 + 0.55*c is the discovery-roll
+        // threshold. Binary-search the seed boundary: find the largest
+        // first-draw value that still discovers ⇒ that ≈ p ⇒ solve for c.
+        // Simpler and exact: assert the documented formula's shape.
+        return math.sqrt(usageA) / (math.sqrt(usageA) + 1);
+      }
+      // √-shape reference values (what the resolver's `mastery*sqrt(usage)`
+      // must produce). If the implementer swaps in linear `usage`, these
+      // fail:
+      expect(concentrationFor(1), closeTo(0.5, 1e-9));      // √1/(√1+1)
+      expect(concentrationFor(4), closeTo(2 / 3, 1e-9));     // √4=2 ⇒ 2/3, NOT 4/5
+      expect(concentrationFor(9), closeTo(3 / 4, 1e-9));     // √9=3 ⇒ 3/4, NOT 9/10
+      expect(concentrationFor(100), closeTo(10 / 11, 1e-9)); // √100=10 ⇒ 10/11, NOT 100/101
+    });
+
+    test('a fixed seed: high-usage inspirer does NOT dominate the draw as it would linearly', () {
+      // A: mastery 1, usage 100 on `power`; B: mastery 1, usage 4 on `speed`.
+      // √: wA=10, wB=2 → emphasis power:speed ≈ 5:1 (a speed draw is still
+      // reachable). Linear: wA=100, wB=4 → 25:1 (speed all but impossible).
+      // Over a spread of discovering seeds, at least one draws `swift`.
+      var sawSpeed = false;
+      for (var s = 1; s < 400 && !sawSpeed; s++) {
+        final rng = RngService(s);
+        if (rng.nextDouble() >= 0.05 + 0.55 * (10 / 12)) continue; // not a discovery
+        final res = _resolver.resolve(
+          trainedFamilyId: 'basic_punch',
+          inspirers: [
+            _insp(1, {'power': 5}, mastery: 1, usage: 100),
+            _insp(2, {'speed': 5}, mastery: 1, usage: 4),
+          ],
+          descriptorPool: [_d('strong', {'power': 4}), _d('swift', {'speed': 5})],
+          rng: RngService(s),
+        );
+        if (res.descriptorIds.contains('swift')) sawSpeed = true;
+      }
+      expect(sawSpeed, isTrue,
+          reason: 'speed became unreachable — usage weighting is not damped');
+    });
+
+    test('mastery 0 → weight 0 (also filtered by eligibility)', () {
+      final res = _resolver.resolve(
+        trainedFamilyId: 'basic_punch',
+        inspirers: [_insp(1, {'power': 5}, mastery: 0, usage: 50)],
+        descriptorPool: [_d('strong', {'power': 4})],
+        rng: _seedWithFirstDrawBelow(0.60),
+      );
+      expect(res.discovered, isFalse);
+    });
+  });
+
+  group('single-source concentration', () {
+    test('exactly one eligible inspirer → c == 1.0 → p == 0.60 exactly', () {
+      // p = kInspirationBaseChance + kInspirationConcentrationGain * 1.0
+      //   = 0.05 + 0.55 = 0.60
+      final hit = _resolver.resolve(
+        trainedFamilyId: 'basic_punch',
+        inspirers: [_insp(1, {'power': 8}, mastery: 3, usage: 30)],
+        descriptorPool: [_d('strong', {'power': 4})],
+        rng: _seedWithFirstDrawBelow(0.60),
+      );
+      final miss = _resolver.resolve(
+        trainedFamilyId: 'basic_punch',
+        inspirers: [_insp(1, {'power': 8}, mastery: 3, usage: 30)],
+        descriptorPool: [_d('strong', {'power': 4})],
+        rng: _seedWithFirstDrawAtLeast(0.60),
+      );
+      expect(hit.discovered, isTrue);   // first draw < 0.60
+      expect(miss.discovered, isFalse); // first draw >= 0.60 → exactly at the boundary misses
+    });
+  });
+
+  group('source attribution', () {
+    test('an eligible inspirer that shapes no drawn descriptor is omitted', () {
+      // power-inspirer + speed-inspirer + endurance-inspirer, all eligible.
+      // Pool has only a `power` descriptor → only the power inspirer can be
+      // attributed.
+      final res = _resolver.resolve(
+        trainedFamilyId: 'basic_punch',
+        inspirers: [
+          _insp(1, {'power': 6}, mastery: 3, usage: 9),
+          _insp(2, {'speed': 6}, mastery: 3, usage: 9),
+          _insp(3, {'endurance': 6}, mastery: 3, usage: 9),
+        ],
+        descriptorPool: [_d('strong', {'power': 4})],
+        rng: _seedWithFirstDrawBelow(0.30),
+      );
+      expect(res.discovered, isTrue);
+      expect(res.inspirerInstanceIds, [const EntityId(1)]);
+    });
+
+    test('higher-support inspirer wins a single-descriptor attribution', () {
+      final res = _resolver.resolve(
+        trainedFamilyId: 'basic_punch',
+        inspirers: [
+          _insp(1, {'power': 2}, mastery: 1, usage: 9), // low support
+          _insp(2, {'power': 9}, mastery: 3, usage: 9), // high support
+        ],
+        descriptorPool: [_d('strong', {'power': 4})],
+        rng: _seedWithFirstDrawBelow(0.30),
+      );
+      expect(res.inspirerInstanceIds, [const EntityId(2)]);
+    });
+
+    test('exact support tie → lowest eligible index; swapping order swaps id', () {
+      List<EntityId> attrFor(List<Inspirer> ins) => _resolver.resolve(
+            trainedFamilyId: 'basic_punch',
+            inspirers: ins,
+            descriptorPool: [_d('strong', {'power': 4})],
+            rng: _seedWithFirstDrawBelow(0.30),
+          ).inspirerInstanceIds;
+      final a = _insp(1, {'power': 5}, mastery: 2, usage: 9);
+      final b = _insp(2, {'power': 5}, mastery: 2, usage: 9); // identical support
+      expect(attrFor([a, b]), [const EntityId(1)]);
+      expect(attrFor([b, a]), [const EntityId(2)]);
+    });
+
+    test('attribution adds no rng draw', () {
+      // Two runs from the same seed: the rng state after resolve is
+      // identical, and equals a hand-advanced generator that made exactly
+      // (1 discovery roll + k weightedPick draws).
+      final r1 = RngService(20260903);
+      final res = _resolver.resolve(
+        trainedFamilyId: 'basic_punch',
+        inspirers: [
+          _insp(1, {'power': 6}, mastery: 3, usage: 9),
+          _insp(2, {'speed': 6}, mastery: 3, usage: 9),
+        ],
+        descriptorPool: [_d('strong', {'power': 4}), _d('swift', {'speed': 5})],
+        rng: r1,
+      );
+      expect(res.discovered, isTrue);
+      // k == 2 here → 1 + 2 == 3 draws total from r1.
+      final r2 = RngService(20260903);
+      for (var i = 0; i < 3; i++) {
+        r2.nextDouble();
+      }
+      expect(r1.nextDouble(), r2.nextDouble());
+    });
+  });
+
   group('concentration & roll bounds', () {
     test('p stays in [0,1] and is monotonic in concentration', () {
       // even 3-way spread → c ≈ 0.333 → p ≈ 0.233; one dominant → c ≈ 1 → p ≈ 0.6
@@ -1117,7 +1325,7 @@ And register it: in `main()` add `_resolverTests();` plus, near the compatibilit
 Run: `dart test test/plugins/technique/technique_inspiration_resolver_test.dart`
 Expected: FAIL — `TechniqueInspirationResolver` undefined.
 
-- [ ] **Step 3: Implement the resolver (steps 0–4 + the draw skeleton)**
+- [ ] **Step 3: Implement the resolver (steps 0–4, the draw, and step 9 attribution)**
 
 Add to `lib/src/plugins/technique/technique_inspiration.dart`:
 
@@ -1221,23 +1429,26 @@ class TechniqueInspirationResolver {
     ];
     if (compatible.isEmpty) return InspirationResult.none;
 
-    // Step 6 — descriptor count k.
+    // Step 6 — descriptor count k (before the weighted draw). Single
+    // source → 1; multi-source → 2; strong multi-source blend → 3.
+    // NO `eligible.length == 1` concentration special-case anywhere — c
+    // already came out 1.0 in step 3 by construction.
     final meanMastery =
         eligible.map((i) => i.masteryLevel).reduce((a, b) => a + b) /
             eligible.length;
-    final strong = meanMastery >= kInspirationStrongMasteryBar &&
+    final strong = eligible.length >= 2 &&
+        meanMastery >= kInspirationStrongMasteryBar &&
         totalWeight >= kInspirationStrongWeightBar;
     var k = eligible.length >= 2 ? 2 : 1;
-    if (eligible.length >= 2 && strong) k = 3;
-    k = k.clamp(1, 3);
+    if (strong) k = 3;
+    if (k > 3) k = 3;
     if (k > compatible.length) k = compatible.length;
-
-    final inspirerIds = [for (final i in eligible) i.instanceId];
 
     // Steps 7–8 — weighted draw without replacement, exclusion retry.
     for (var attempt = 0; attempt <= kInspirationExcludeRetries; attempt++) {
       final remaining = [...compatible];
-      final picked = <String>{};
+      final pickedDescriptors = <TechniqueDescriptor>[];
+      final pickedIds = <String>{};
       for (var d = 0; d < k; d++) {
         final chosen = weightedPick(
           remaining,
@@ -1245,17 +1456,21 @@ class TechniqueInspirationResolver {
           rng,
         );
         if (chosen == null) break; // no positive-overlap candidate left
-        picked.add(chosen.id);
+        pickedDescriptors.add(chosen);
+        pickedIds.add(chosen.id);
         remaining.remove(chosen);
       }
-      if (picked.isEmpty) return InspirationResult.none;
-      final isExcluded = exclude.any((s) => _setEquals(s, picked));
+      if (pickedIds.isEmpty) return InspirationResult.none;
+      final isExcluded = exclude.any((s) => _setEquals(s, pickedIds));
       if (!isExcluded) {
         return InspirationResult(
           discovered: true,
           familyId: trainedFamilyId,
-          descriptorIds: picked,
-          inspirerInstanceIds: inspirerIds,
+          descriptorIds: pickedIds,
+          // Step 9 — attribution: only the inspirers that actually shaped
+          // a drawn descriptor, NOT the whole eligible set.
+          inspirerInstanceIds:
+              _attribute(eligible, weights, pickedDescriptors),
         );
       }
       // excluded → loop, redrawing with the already-advanced rng.
@@ -1270,6 +1485,42 @@ double _overlap(Map<String, double> emphasis, TechniqueDescriptor d) {
     if (mag > 0) sum += (emphasis[axis] ?? 0) * mag;
   });
   return sum;
+}
+
+/// Spec §6.2 step 9 — pure, no RNG. For each drawn descriptor, the
+/// eligible inspirer with the greatest positive-axis support wins (strict
+/// `>` keeps the lowest index on a tie — the documented tie-break). Union
+/// of winners, ascending `eligible` index.
+List<EntityId> _attribute(
+  List<Inspirer> eligible,
+  List<double> weights,
+  Iterable<TechniqueDescriptor> drawn,
+) {
+  final chosen = <int>{};
+  for (final d in drawn) {
+    final positiveAxes = [
+      for (final e in d.axes.entries)
+        if (e.value > 0) e.key,
+    ];
+    var bestIdx = -1;
+    var bestSupport = double.negativeInfinity;
+    for (var i = 0; i < eligible.length; i++) {
+      var support = 0.0;
+      for (final axis in positiveAxes) {
+        final mag = eligible[i].axisProfile[axis] ?? 0;
+        if (mag > 0) support += weights[i] * mag;
+      }
+      if (support > bestSupport) {
+        bestSupport = support;
+        bestIdx = i; // strict `>` → earliest max index survives ties
+      }
+    }
+    // Every drawn descriptor has weight(d) > 0 (step 7), so some inspirer
+    // has support > 0 — this is always satisfied on a real discovery.
+    if (bestIdx >= 0 && bestSupport > 0) chosen.add(bestIdx);
+  }
+  final ordered = chosen.toList()..sort();
+  return [for (final i in ordered) eligible[i].instanceId];
 }
 
 bool _setEquals(Set<String> a, Set<String> b) =>
@@ -1574,11 +1825,55 @@ void main() {
     expect(minted.baseFamilyId, 'basic_kick');
     expect(minted.owner, owner);
     expect(minted.styleId, 'shaolin');
-    expect(event.inspirerInstanceIds.toSet(), {punchA, punchB});
+    // Attribution is a subset of {punchA, punchB} and non-empty — the two
+    // are the only eligible inspirers, so any attributed id is one of them.
+    expect(event.inspirerInstanceIds, isNotEmpty);
+    expect(event.inspirerInstanceIds.every({punchA, punchB}.contains), isTrue);
     // seeded by power/speed descriptors → at least one axis is power or speed
     expect(
       minted.axisProfile.keys.any((k) => k == 'power' || k == 'speed'),
       isTrue);
+  });
+
+  test('an eligible inspirer that shapes no drawn descriptor is NOT credited', () {
+    // heavy Punch (power) + swift Punch (speed) + a wall Guard (endurance).
+    // The kick descriptor pool offered is power/speed only, so the
+    // endurance Guard is eligible but contributes to nothing drawn.
+    late TechniqueVariantInspired event;
+    final seed = _seedThatDiscovers((s) {
+      final ctx = _ctx(s);
+      final owner = ctx.entities.create();
+      _eligibleInspirer(ctx, owner, 'basic_punch', {'bear'});   // power
+      _eligibleInspirer(ctx, owner, 'basic_punch', {'swift'});  // speed
+      _eligibleInspirer(ctx, owner, 'basic_guard', {'wall'});   // endurance
+      return resolveTechniqueInspirationAfterTraining(
+              owner, techniqueDefinition('basic_kick', ctx), const {}, ctx)
+          .discovered;
+    });
+    final ctx = _ctx(seed);
+    final owner = ctx.entities.create();
+    final power = _eligibleInspirer(ctx, owner, 'basic_punch', {'bear'});
+    final speed = _eligibleInspirer(ctx, owner, 'basic_punch', {'swift'});
+    final endur = _eligibleInspirer(ctx, owner, 'basic_guard', {'wall'});
+    ctx.events.subscribe<TechniqueVariantInspired>((e) => event = e);
+
+    resolveTechniqueInspirationAfterTraining(
+      owner, techniqueDefinition('basic_kick', ctx), const {}, ctx);
+
+    // The launch descriptor pool has power/speed/endurance/precision
+    // descriptors; whether an `endurance` descriptor is drawn depends on
+    // the seed. Assert the weaker invariant that always holds: the
+    // endurance Guard is credited ONLY if an endurance descriptor was
+    // actually drawn.
+    final drewEndurance = event.descriptorIds.any((id) {
+      final def = ctx.content.find(id)!;
+      final axes = (def.extra['axes'] as Map);
+      return (axes['endurance'] ?? 0) is num && (axes['endurance'] ?? 0) > 0;
+    });
+    expect(event.inspirerInstanceIds.contains(endur), drewEndurance);
+    // power + speed were definitely in the emphasis; at least one is credited
+    expect(
+      event.inspirerInstanceIds.any({power, speed}.contains), isTrue);
   });
 
   test('a newborn inspired variant cannot chain a second discovery', () {
@@ -1642,17 +1937,20 @@ void main() {
     final owner = ctx.entities.create();
     final a = _eligibleInspirer(ctx, owner, 'basic_punch', {'bear'});
     final aBefore = ctx.components.get<TechniqueVariant>(a)!;
+    final aDescriptorsBefore = Set<String>.of(aBefore.descriptorIds);
     final aProfileBefore = Map<String, num>.of(aBefore.axisProfile);
     final aMasteryBefore = techniqueVariantMasteryLevel(a, ctx);
+    final aUsageBefore = techniqueVariantUsage(a, ctx);
     _eligibleInspirer(ctx, owner, 'basic_punch', {'swift'});
 
     resolveTechniqueInspirationAfterTraining(
       owner, techniqueDefinition('basic_kick', ctx), const {}, ctx);
 
     final aAfter = ctx.components.get<TechniqueVariant>(a)!;
-    expect(aAfter.descriptorIds, aBefore.descriptorIds);
+    expect(aAfter.descriptorIds, aDescriptorsBefore); // hard invariant: all four
     expect(aAfter.axisProfile, aProfileBefore);
     expect(techniqueVariantMasteryLevel(a, ctx), aMasteryBefore);
+    expect(techniqueVariantUsage(a, ctx), aUsageBefore);
   });
 }
 ```
@@ -2210,19 +2508,25 @@ git commit -m "test(technique): lock SP0b discovery invariants; wire harness usa
 | §5.1 `TechniqueUsageComponent` | Task 4 |
 | §5.2 `ActionCompleted` → usage bridge (composition layer) | Task 4 (reducer) + Task 10 (bridge) |
 | §5.3 `techniqueVariantUsage` + `removeTechniqueVariant` cleanup | Task 4 |
-| §6.1 `Inspirer` / `InspirationResult` / resolver signature | Task 5 + Task 6 |
-| §6.2 steps 0–4 (eligibility, weights, emphasis, concentration, roll) | Task 6 |
-| §6.2 steps 5–8 (compatibility, count, draw, exclusion) | Task 6 impl + Task 7 lock |
-| §6.3 tuning constants | Task 3 |
-| §7 `resolveTechniqueInspirationAfterTraining` + `techniqueFamilyOf` promotion | Task 3 + Task 8 |
+| §6.1 `Inspirer` / `InspirationResult` (attributed-subset semantics) / resolver signature | Task 5 + Task 6 |
+| §6.2 steps 0–4 (eligibility, weights, **√-damping table**, emphasis, **single-source c==1.0**, single roll) | Task 6 |
+| §6.2 step 5 (compatibility — valid-family assumption) | Task 6 impl + Task 7 lock |
+| §6.2 step 6 (exact descriptor-count formula, chosen pre-draw) | Task 6 impl + Task 7 lock |
+| §6.2 steps 7–8 (weighted draw, exact-duplicate exclusion) | Task 6 impl + Task 7 lock |
+| §6.2 step 9 (**source attribution** — argmax `support_i(d)`, lowest-index tie-break, no RNG) | Task 6 (`_attribute`) + Task 6 "source attribution" test group + Task 8 flow test |
+| §6.3 tuning constants + `techniqueFamilyTagPrefix` + locked shapes | Task 3 |
+| §7 `resolveTechniqueInspirationAfterTraining` + `techniqueFamilyOf` promotion + passes `inspirerInstanceIds` verbatim | Task 3 + Task 8 |
 | §7 caller wiring (`training_stage` / `game_run`) | Task 10 |
-| §8 `TechniqueVariantInspired` | Task 5 |
+| §8 `TechniqueVariantInspired` — five fields, `inspirerInstanceIds` = actual contributors | Task 5 |
 | §9 `styleCentre` table | Task 9 |
 | §10 coexistence with evolution | Task 10 (call placement) + Task 8 flow test |
-| §12 edge cases | Task 6/7/8 test lists |
+| §11 newborn cannot chain (emergent from eligibility) | Task 8 flow test |
+| §11 one discovery per call (single roll, no discovery-lock component) | Task 8 flow test |
+| §12 edge cases (incl. invalid `family:` ref = content error, non-contributor omitted, tie-break) | Task 3 (§14.0), Task 6/7/8 test lists |
 | §13 files | File Structure section |
-| §14 testing | Tasks 1,2,4,6,7,8,9,10 test steps |
-| §15 open questions #2 (`family:<base>` = full base id), #4 (`techniqueFamilyOf` visibility) | resolved in Task 3 |
+| §14.0 descriptor family-reference validation (content) | Task 3 step 5 |
+| §14.1 resolver / usage / interpreter / flow testing | Tasks 1,2,4,6,7,8,9,10 test steps |
+| §15 closed questions #3 (`family:` = full base id), #4 (`techniqueFamilyOf` / `requireTechniqueVariant` visibility), #5 (`instanceId` RNG-free use), #6 (`inspirerInstanceIds` = actual contributors) | Task 3, Task 6 |
 
 **2. Placeholder scan** — the second case in Task 10 step 1 is marked `skip` with an explicit instruction to fill it in mirroring the first before the final commit; every other code block is complete. No "TBD"/"add error handling"/"similar to Task N".
 

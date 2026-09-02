@@ -37,15 +37,16 @@ high-mastery variants you actually use are the seed.
 
 | Question | Answer |
 |---|---|
-| **Trigger** | After a training session — a parallel hook to today's `resolveTechniqueEvolutionAfterTraining`. Exactly one discovery roll per call; **at most one** new variant per training session. |
+| **Trigger** | After a training session — a parallel hook to today's `resolveTechniqueEvolutionAfterTraining`. **Exactly one** discovery roll per call; **at most one** new variant per training session. No cooldown, no discovery-lock component — the single roll is the whole cap (§8). |
 | **Usage signal** | A variant instance *performed a combat action* (hung **and** it struck / guarded in a resolved fight), counted from `ActionCompleted`. |
-| **Inspirers** | `0` eligible → no discovery. `1` eligible → **focused** inspiration (a single well-practiced technique alone can inspire). `2+` → **blended**. |
-| **Weighting** | `w = masteryLevel × √usage` — mastery is the linear proficiency signal, usage the recent-behaviour signal with **diminishing returns**; `usage 0` contributes nothing. |
+| **Inspirers** | `0` eligible → no discovery. `1` eligible → **focused** inspiration (a single well-practiced technique alone can inspire); concentration `== 1.0` by construction (§6.2 step 3), which is exactly right — one source *is* maximally focused behaviour. `2+` → **blended**. |
+| **Weighting** | `w = masteryLevel × √usage` — mastery is the linear proficiency signal, usage the recent-behaviour signal with **diminishing returns**; `mastery 0` or `usage 0` → `w == 0` (§6.2 step 1). |
 | **Seed blend** | Weighted draw over the descriptors **compatible** with the trained family; each candidate's weight tracks how much its *positive* axes overlap the axes your inspirers emphasize. RNG via `RngService`. |
 | **Family** | Always the **trained** technique's family (train a kick → a kick variant, seeded by your heavy/fast Punch usage — cross-pollination preserved). |
-| **Descriptor count** | Behaviour-driven: single source → 1, multiple distinct → 2, a strong multi-source blend → 3. Hard cap 3. |
-| **Discovery odds** | `p = base + gain · concentration`, where `concentration = max inspirer weight / total inspirer weight` — deterministic, monotonic, bounded `[0, 1]`. |
-| **Result placement** | Minted **owned but loose**; the player hangs it. Never a replacement, never a Tome eviction; the inspirers are never mutated. |
+| **Descriptor count** | Behaviour-driven, chosen **before** the weighted draw: `1` single-source; `2` multi-source below the strong-blend bar; `3` multi-source **and** mean eligible mastery `>= kInspirationStrongMasteryBar` **and** total damped weight `>= kInspirationStrongWeightBar`. Clamped `<= 3`, then `min(k, compatiblePoolSize)`. |
+| **Discovery odds** | `p = clamp(kInspirationBaseChance + kInspirationConcentrationGain · concentration, 0, 1)`, where `concentration = max inspirer weight / total inspirer weight` — deterministic, monotonic, bounded `[0, 1]`. With the shipped constants: `c == 0 → p == 0.05`; `c == 1 → p == 0.60`. |
+| **Result placement** | Minted **owned but loose**; the player hangs it. Never a replacement, never a Tome eviction; the inspirers are never mutated (§13). |
+| **Attribution** | `inspirerInstanceIds` reports only the eligible inspirers that **actually contributed** the winning positive-axis support to a drawn descriptor (§6.2 step 9), not every eligible variant — so a client can name the real sources ("Heavy Jab + Swift Jab inspired this"). Deterministic, no extra RNG. |
 
 ---
 
@@ -61,12 +62,20 @@ high-mastery variants you actually use are the seed.
   → usage bridge added to the composition layer's existing subscription
   (§5.2), never inside `technique/`.
 - `TechniqueInspirationResolver` — a pure function: inspirers + descriptor
-  pool + rng → `InspirationResult`.
+  pool + rng → `InspirationResult`. Includes deterministic, RNG-free
+  source attribution (§6.2 step 9) so `inspirerInstanceIds` names only the
+  variants that actually shaped the result.
+- `descriptorCompatibleWithFamily` — the `family:<base>` allow-list check
+  (§6.2 step 5), assuming content already validated.
+- A **content-validation** check that every `family:<id>` tag on a
+  `technique_descriptor` names a real `TechniqueIds.bases` member
+  (§14.0) — reuses existing family vocabulary, adds no framework.
 - `resolveTechniqueInspirationAfterTraining` — the one authoritative
   post-training hook. Gathers inspirers, calls the resolver, mints on a
   hit, publishes `TechniqueVariantInspired`.
-- `TechniqueVariantInspired` event.
-- Tuning constants in `technique_vocabulary.dart`.
+- `TechniqueVariantInspired` event (five fields, locked — §8).
+- Tuning constants + `techniqueFamilyTagPrefix` in
+  `technique_vocabulary.dart`.
 - `removeTechniqueVariant` also drops the removed instance's usage entry.
 - `martial_arts`: a `styleCentre(styleId, familyId)` lookup over a
   per-style, per-base-family axis-nudge table.
@@ -237,8 +246,8 @@ without that key — the same rebuild pattern it already uses for
 ```dart
 class Inspirer {
   const Inspirer({
-    required this.instanceId,    // the variant entity — reported back in the event
-    required this.axisProfile,   // the variant's stored TechniqueVariant.axisProfile
+    required this.instanceId,    // the variant entity — reported back iff it is an attributed source
+    required this.axisProfile,   // the variant's stored TechniqueVariant.axisProfile (signed)
     required this.masteryLevel,  // per-instance mastery level, 0..3
     required this.usage,         // combat actions performed this run, >= 0
   });
@@ -253,7 +262,11 @@ class InspirationResult {
     required this.discovered,
     required this.familyId,             // == trainedFamilyId; '' when !discovered
     required this.descriptorIds,        // 1..3 ids when discovered, empty otherwise
-    required this.inspirerInstanceIds,  // the eligible inspirers the resolver used; [] when !discovered
+    required this.inspirerInstanceIds,  // the eligible inspirers that ACTUALLY contributed
+                                        // the winning positive-axis support to a drawn
+                                        // descriptor (§6.2 step 9) — a subset of the
+                                        // eligible set, ascending eligible-index order;
+                                        // [] when !discovered
   });
   final bool discovered;
   final String familyId;
@@ -304,8 +317,23 @@ There is no lower bound of 2.
 `w_i = masteryLevel_i * sqrt(usage_i)`. Rationale: mastery is the stronger
 proficiency signal (linear); usage is the recent-behaviour signal but
 with **diminishing returns** (`sqrt`), so a long-lived high-usage variant
-cannot run away with every future discovery. `usage_i == 0` → `w_i == 0`.
-If `Σ w_i == 0` → `InspirationResult.none`.
+cannot run away with every future discovery. `masteryLevel_i == 0` →
+`w_i == 0`; `usage_i == 0` → `w_i == 0`. If `Σ w_i == 0` →
+`InspirationResult.none`.
+
+The `sqrt` damping is the whole point — hold mastery fixed and the usage
+contribution grows sub-linearly:
+
+| `usage` | `sqrt(usage)` | vs `usage 1` |
+|---|---|---|
+| 1 | 1 | ×1 |
+| 4 | 2 | ×2 (not ×4) |
+| 9 | 3 | ×3 (not ×9) |
+| 25 | 5 | ×5 (not ×25) |
+| 100 | 10 | ×10 (not ×100) |
+
+Do not "fix" this to linear during implementation unless a test proves a
+defect — it is a deliberate anti-runaway design choice.
 
 **Step 2 — emphasis profile `E`.** For each axis,
 `E[axis] = Σ_i w_i * max(0, axisProfile_i[axis])`. Only **positive** axis
@@ -324,20 +352,44 @@ with focus, bounded to `(0, 1]`. Worked examples (using raw weights for
 illustration): `{100}` → 1.0; `{60, 30, 10}` → 0.60;
 `{34, 33, 33}` → ≈ 0.34.
 
-**Step 4 — discovery roll.**
+**Exactly one eligible inspirer → `c == 1.0`, by construction and on
+purpose.** `max_i(w_i) == Σ_i(w_i)` when there is one term. There is **no
+special single-source branch** — the formula already yields the intended
+result: one heavily-drilled, heavily-used technique *is* maximally
+focused behaviour, so it earns the maximum discovery probability
+(`p == 0.60` with the shipped constants). Do not add a `case
+eligible.length == 1` anywhere.
+
+**Step 4 — discovery roll (the one and only roll).**
 `p = clamp(kInspirationBaseChance + kInspirationConcentrationGain * c,
-0, 1)` — monotonic in `c`, bounded `[0, 1]`. Draw `rng.nextDouble()`; if
-`>= p` → `InspirationResult.none`. (This is the single roll that gives
-§8's one-discovery-per-training guarantee.)
+0, 1)` — monotonic in `c`, bounded `[0, 1]`. With the shipped constants
+(`0.05`, `0.55`): `c == 0 → p == 0.05`, `c == 1 → p == 0.60`. Draw
+`rng.nextDouble()` **once**; if `>= p` → `InspirationResult.none`. This is
+the single roll that gives §8's one-discovery-per-training guarantee — no
+second roll anywhere in the resolver, no roll added for event
+attribution (§6.2 step 9).
 
 **Step 5 — compatible descriptor pool.**
-`compatible = descriptorPool where compatibleWith(d, trainedFamilyId)`:
+`compatible = descriptorPool where descriptorCompatibleWithFamily(d,
+trainedFamilyId)`. The rule has exactly two cases:
 
-- If `d.tags` contains **no** tag of the form `family:<base>` → compatible
-  (unrestricted content stays open-ended).
-- If `d.tags` contains one or more `family:<base>` tags → compatible
-  **iff** one of them is `family:<trainedFamilyId>` (e.g.
-  `family:basic_kick`).
+- **No family restriction** — `d.tags` contains no tag with the
+  `techniqueFamilyTagPrefix` (`family:`) prefix → `d` is eligible for
+  **every valid technique base family**, including `trainedFamilyId`.
+- **Family-restricted** — `d.tags` contains one or more
+  `family:<baseId>` tags → `d` is compatible **iff** one of them is
+  exactly `family:<trainedFamilyId>` (the *full base id*, e.g.
+  `family:basic_kick` — see §15 open question #2, now closed: the suffix
+  is the full base id so it matches `techniqueFamilyOf`'s return with no
+  extra mapping).
+
+The tag suffix `<baseId>` is always assumed to name a **valid** technique
+base family. An `family:<id>` tag whose `<id>` is **not** one of
+`TechniqueIds.bases` is a **content error**, caught by content validation
+(§14.0) before any resolver call — it is *never* a resolver-time
+"incompatible" outcome. The resolver does not distinguish "restricted
+away" from "invalid": it only asks "does any `family:` tag equal
+`family:<trainedFamilyId>`?" and trusts the content is valid.
 
 A descriptor explicitly restricted away from the trained family is never
 selected. No launch descriptor carries a `family:` tag today, so every
@@ -345,15 +397,28 @@ current descriptor is universal; this is forward-looking content vocab,
 not a launch-content change. If `compatible` is empty →
 `InspirationResult.none`.
 
-**Step 6 — descriptor count `k`.**
-`k = min(eligible.length, 2)`  (1 source → 1, 2+ sources → 2).
-`strong = mean(eligible.masteryLevel) >= kInspirationStrongMasteryBar &&
-Σ w_i >= kInspirationStrongWeightBar`.
-`if (eligible.length >= 2 && strong) k = 3`.
-`k = clamp(k, 1, 3)`, then `k = min(k, compatible.length)`.
+**Step 6 — descriptor count `k` (chosen *before* the weighted draw).**
+The full contract, using aggregates already computed in steps 1 and 3 —
+no new scoring system:
 
-So: single ordinary source → 1; single strong source → 1; multiple
-distinct sources → 2; a strong multi-source blend → 3. Cap 3 always.
+```
+meanMastery = mean(eligible[i].masteryLevel)          // step 0 set
+strong      = eligible.length >= 2
+              && meanMastery >= kInspirationStrongMasteryBar
+              && Σ w_i        >= kInspirationStrongWeightBar   // Σ w_i from step 1
+
+k = 1                       if eligible.length == 1           // single-source
+k = 3                       if strong                         // strong multi-source blend
+k = 2                       otherwise (eligible.length >= 2, not strong)
+
+k = min(k, 3)               // hard cap, always
+k = min(k, compatible.length)
+```
+
+So: single source (ordinary *or* strong) → 1; multiple sources below the
+strong bar → 2; multiple sources **and** `meanMastery >=
+kInspirationStrongMasteryBar` **and** `Σ w_i >= kInspirationStrongWeightBar`
+→ 3. Never above 3, never below 1, never above the compatible-pool size.
 
 **Step 7 — weighted draw, `k` times, without replacement, over
 `compatible`.** For each remaining candidate `d`,
@@ -361,22 +426,51 @@ distinct sources → 2; a strong multi-source blend → 3. Cap 3 always.
 positive overlap has weight 0. Pick: `total = Σ weight(remaining)`;
 `t = rng.nextDouble() * total`; walk the remaining candidates in a stable
 order accumulating `weight`, take the first whose running sum `> t` — the
-normalized-cumulative pick `RewardResolver` already uses. Remove the
-picked `d` and repeat. If every remaining candidate has weight 0, stop
-early — a result with ≥ 1 descriptor still stands; 0 descriptors →
-`InspirationResult.none`.
+normalized-cumulative pick `RewardResolver`'s `weightedPick` already
+does. Remove the picked `d` and repeat. If every remaining candidate has
+weight 0, stop early — a result with ≥ 1 descriptor still stands; 0
+descriptors → `InspirationResult.none`. The weighted draw's
+probabilities are **never** adjusted to make step 9 attribution tidier.
 
 **Step 8 — exclusion retry.** If the drawn set is set-equal to any entry
-in `exclude`, discard it and redo steps 6–7 with the *already-advanced*
-`rng`. Repeat at most `kInspirationExcludeRetries` (3) times; if still
-excluded or empty, `InspirationResult.none`.
+in `exclude`, discard it and redo step 7 (with the *already-advanced*
+`rng`; `k` is unchanged). Repeat at most `kInspirationExcludeRetries` (3)
+times; if still excluded or empty, `InspirationResult.none`. This guards
+only **exact** descriptor-set duplicates for the trained family;
+near-duplicates (`{strong, swift}` vs `{strong, fast}`) are allowed to
+coexist (§14 / §16).
+
+**Step 9 — source attribution (post-draw, no RNG).** For each drawn
+descriptor `d`, let `A(d)` be its positive axes (`{axis : d.axes[axis] >
+0}`). For each eligible inspirer `i`, its **support** for `d` is
+
+```
+support_i(d) = Σ_{axis ∈ A(d)}  w_i * max(0, axisProfile_i[axis])
+```
+
+— exactly the share of `E`'s mass on `d`'s axes that came from `i`, using
+the `w_i` from step 1. The inspirer with the greatest `support_i(d)` is
+`d`'s attributed source; on an exact tie, the inspirer earliest in the
+resolver's `eligible` order (lowest index — the order the caller supplied
+them, which for the hook is `ownedTechniqueVariants` order, stable within
+a run) wins. `inspirerInstanceIds` is the **union** of the attributed
+sources across all drawn descriptors, in ascending `eligible`-index
+order, deduplicated.
+
+Because every drawn `d` has `weight(d) > 0` (step 7), at least one `E`
+axis it touches is positive, so at least one inspirer has
+`support_i(d) > 0` — attribution always yields ≥ 1 id, and
+`inspirerInstanceIds` is a **subset** of the eligible inspirers that is
+often smaller (an eligible inspirer whose positive axes never overlap any
+drawn descriptor is correctly **omitted**).
 
 **Result:** `InspirationResult(discovered: true, familyId:
 trainedFamilyId, descriptorIds: {the drawn ids}, inspirerInstanceIds:
-[eligible instance ids])`.
+[attributed source ids, ascending eligible-index order])`.
 
-Every step is pure arithmetic over `num` plus `rng`. Same `rng` state +
-same inputs → identical result — a two-runs-equal test locks it.
+Every step is pure arithmetic over `num` plus a single `rng` draw. Same
+`rng` state + same inputs → identical `discovered`, `descriptorIds`,
+**and** `inspirerInstanceIds` — a two-runs-equal test locks all three.
 
 ### 6.3 Tuning constants (`technique_vocabulary.dart`)
 
@@ -390,8 +484,13 @@ const kInspirationStrongMasteryBar = 2;     // mean eligible mastery for a "stro
 const kInspirationStrongWeightBar = 6.0;    // total damped weight for a "strong" blend
 ```
 
-Placeholder values — tuned against `game_run` balance sweeps; each is a
-named constant, never inline in the resolver.
+Magnitudes are tuned against `game_run` balance sweeps; each is a named
+constant, never inline in the resolver. The **shapes** they lock,
+however, are not up for renegotiation during implementation:
+`kInspirationBaseChance + kInspirationConcentrationGain == 0.60` is the
+`c == 1` probability ceiling by design; `sqrt(usage)` damping (§6.2
+step 1) stays sub-linear; `kMinMasteryToInspire`/`kMinUsageToInspire`
+are the *only* eligibility gate (no `canInspire` state).
 
 ---
 
@@ -409,12 +508,14 @@ named constant, never inline in the resolver.
 /// [TechniqueInspirationResolver] once, and on a hit:
 ///   - `mintTechniqueVariant(owner, familyId, descriptorIds, context,
 ///      styleId: <char style>, styleCentre: styleCentre)`,
-///   - publishes [TechniqueVariantInspired] exactly once, built from the
-///     result's `inspirerInstanceIds` + `descriptorIds`.
+///   - publishes [TechniqueVariantInspired] exactly once, carrying the
+///     result's `descriptorIds` and `inspirerInstanceIds` **verbatim**
+///     (the latter is already narrowed to the actually-contributing
+///     sources by §6.2 step 9 — the hook does no further filtering).
 /// Exactly one call → one resolver roll → **at most one** minted variant
-/// and **at most one** event. No cooldown, no mutable state; the single
-/// roll is the cap (§8). Returns the [InspirationResult] snapshot; the
-/// caller owns telemetry / UI.
+/// and **at most one** event. No cooldown, no discovery-lock component,
+/// no mutable state of any kind; the single roll is the entire cap (§8).
+/// Returns the [InspirationResult] snapshot; the caller owns telemetry / UI.
 InspirationResult resolveTechniqueInspirationAfterTraining(
   EntityId owner,
   TechniqueDefinition trainedTechnique,
@@ -430,14 +531,20 @@ InspirationResult resolveTechniqueInspirationAfterTraining(
 - **Inspirers:** `for (final e in ownedTechniqueVariants(owner, context))`
   build `Inspirer(instanceId: e, axisProfile: v.axisProfile, masteryLevel:
   techniqueVariantMasteryLevel(e, context), usage: techniqueVariantUsage(e,
-  context))`. Pass the whole set; the resolver filters (§6.2 step 0). A
-  **newly minted** variant has `masteryLevel == 0` and `usage == 0`, so it
-  fails the eligibility filter and **cannot inspire** until it
-  independently crosses the thresholds — no `canInspire` flag, the
-  behaviour falls out of the numbers (§7 of the improvement brief).
+  context))`. Pass the whole set in `ownedTechniqueVariants` order (stable
+  within a run — it seeds the step 9 tie-break); the resolver filters
+  (§6.2 step 0). A **newly minted** variant has `masteryLevel == 0` and
+  `usage == 0`, so it fails the eligibility filter and **cannot inspire**
+  until it independently crosses `kMinMasteryToInspire` /
+  `kMinUsageToInspire` — there is no `canInspire` flag and none is to be
+  added; the "newborn can't chain" behaviour falls out of the eligibility
+  numbers alone.
 - **Descriptor pool:** `context.content.allOfType('technique_descriptor')`
-  parsed via `techniqueDescriptorFromContent`. The resolver applies the
-  compatibility filter (§6.2 step 5) and then the axis weighting.
+  parsed via `techniqueDescriptorFromContent`. Content has already passed
+  the descriptor-family validation (§14.0), so every `family:` tag in the
+  pool names a real base family; the resolver applies the compatibility
+  filter (§6.2 step 5) and then the axis weighting without re-checking
+  validity.
 - **Exact-duplicate guard:** build `exclude` = `{ v.descriptorIds : v in
   owned variants where v.baseFamilyId == trainedFamilyId }` and pass it to
   `resolve`. The resolver's step 8 handles the bounded retry / give-up.
@@ -451,8 +558,16 @@ InspirationResult resolveTechniqueInspirationAfterTraining(
 - **Mint:** the discovered variant gets `styleId` set, so
   `hangTechniqueVariant` treats it as **derived** (no learning gate). It
   is minted **owned but loose** — no Tome placement, no eviction; the
-  client hangs it later. The inspirers are never touched: no descriptor
-  edit, no mastery reset, no replacement.
+  client hangs it later. It is a **new** `TechniqueVariant` entity — never
+  an in-place edit of an inspiring one.
+- **Inspirer immutability (hard invariant).** For every inspirer the
+  resolver read, all four of these are byte-identical before and after
+  the hook: its `descriptorIds`, its `axisProfile`, its per-instance
+  mastery, its per-instance usage. No descriptor edit, no mastery reset,
+  no usage reset, no replacement, no Tome change. The `Inspirer` value
+  objects the resolver builds are read-only snapshots; the resolver never
+  holds an `EntityId` for anything but reporting (§15 #5). A test asserts
+  all four on a real discovery.
 - **Callers:** the engine's reference training flow
   (`game_run` / `training_stage`) and, in the client, `TrainingAdapter`,
   each add one call immediately after their existing
@@ -472,23 +587,35 @@ InspirationResult resolveTechniqueInspirationAfterTraining(
 class TechniqueVariantInspired {
   const TechniqueVariantInspired({
     required this.owner,
-    required this.instanceId,           // the freshly minted variant
-    required this.familyId,             // its base family (== the trained family)
-    required this.descriptorIds,        // the drawn descriptors — lets a client name it
-    required this.inspirerInstanceIds,  // the eligible variants that influenced it
+    required this.instanceId,
+    required this.familyId,
+    required this.descriptorIds,
+    required this.inspirerInstanceIds,
   });
-  final EntityId owner;
-  final EntityId instanceId;
-  final String familyId;
-  final Set<String> descriptorIds;
-  final List<EntityId> inspirerInstanceIds;
+  final EntityId owner;               // owner of the newly minted variant
+  final EntityId instanceId;          // the newly minted variant entity
+  final String familyId;              // the trained family (== the new variant's base family)
+  final Set<String> descriptorIds;    // the descriptors selected for the new variant
+  final List<EntityId> inspirerInstanceIds; // the variants whose attributes actually
+                                            // caused the generated descriptor selection
+                                            // (§6.2 step 9) — NOT every eligible variant
 }
 ```
 
-Enough for a client to render *"Your Heavy Jab and Swift Jab inspired a
-new Heavy-Fast Jab"* — `inspirerInstanceIds` names the real influencing
-variants, `descriptorIds` + `familyId` name the result. RNG internals and
-intermediate scores are **not** exposed.
+**Payload is locked to exactly these five fields.** `inspirerInstanceIds`
+is the resolver's `InspirationResult.inspirerInstanceIds` verbatim: the
+eligible variants that actually contributed the winning positive-axis
+support to a drawn descriptor, ascending `eligible`-index order,
+deduplicated. It is a subset of the eligible inspirers — an eligible
+variant that did **not** shape any drawn descriptor is absent, so a
+client can say *"Heavy Jab + Swift Jab inspired this"* and be **true**,
+never crediting a Guard that sat in the eligible set but contributed
+nothing.
+
+Not exposed: the RNG state, the discovery probability `p`, the emphasis
+profile `E`, per-inspirer weights, or any intermediate score. If a future
+client needs a "why" breakdown, that is a separate additive event — this
+one stays minimal.
 
 ---
 
@@ -552,9 +679,10 @@ the evolution function.
    per-instance mastery (SP0a) ─────────────────────────┘    ├─ TechniqueInspirationResolver.resolve(..., rng, exclude) → InspirationResult
                                                              │        eligible: 0 → none | 1 → focused | 2+ → blended
                                                              │        w_i = mastery × √usage  → emphasis E (positive axes only)
-                                                             │        c = max(w_i) / Σ(w_i)   → p = base + gain·c → roll
-                                                             │        compatibility filter → k (source count + blend strength, 1..3)
+                                                             │        c = max(w_i) / Σ(w_i)   → p = base + gain·c → one roll
+                                                             │        compatibility filter → k (source count + blend strength, 1..3, pre-draw)
                                                              │        weighted draw → exact-duplicate exclusion (bounded retry)
+                                                             │        attribution: per-descriptor argmax support_i → inspirerInstanceIds (no roll)
                                                              ├─ mintTechniqueVariant(owner, familyId, descriptorIds,
                                                              │     styleId, styleCentre)          ← SP0a  (owned, loose; inspirers untouched)
                                                              └─ publish TechniqueVariantInspired(owner, instanceId, familyId,
@@ -567,14 +695,18 @@ the evolution function.
 
 | Case | Behaviour |
 |------|-----------|
-| Zero eligible inspirers | `InspirationResult.none`, no event, no mint. |
-| Exactly one eligible inspirer | Focused inspiration — discovery is possible; concentration `c == 1.0`. |
-| Newly minted variant (`mastery 0`, `usage 0`) as a candidate inspirer | Fails the eligibility filter; cannot inspire until it independently reaches `kMinMasteryToInspire` / `kMinUsageToInspire`. |
+| Zero eligible inspirers | `InspirationResult.none`, no event, no mint, **no `rng` draw** (return precedes step 4). |
+| Exactly one eligible inspirer | Focused inspiration — discovery is possible; concentration `c == 1.0` by construction (§6.2 step 3); no special-case branch. |
+| Newly minted variant (`mastery 0`, `usage 0`) as a candidate inspirer | Fails the eligibility filter; cannot inspire until it independently reaches `kMinMasteryToInspire` / `kMinUsageToInspire`. No `canInspire` state exists or is added. |
+| Inspirer with `masteryLevel == 0` but high `usage` | `w_i == 0` (mastery is a factor); it also fails the eligibility gate. Contributes nothing. |
 | Every eligible inspirer all-neutral / all-negative (`Σ E == 0`) | `InspirationResult.none`. |
-| `Σ w_i == 0` (every eligible inspirer has `usage == 0`) | `InspirationResult.none`. |
+| `Σ w_i == 0` (every eligible inspirer has `usage == 0`) | `InspirationResult.none`. (Also unreachable via eligibility: `kMinUsageToInspire == 3 > 0`.) |
 | Compatible descriptor pool empty (all pooled descriptors restricted away from the trained family) | `InspirationResult.none`. |
+| A descriptor carries `family:<id>` where `<id>` is **not** a real base family | **Content error** — fails descriptor-family validation (§14.0) at content-load time; never reaches the resolver, so there is no "resolver-time incompatible" case for it. |
 | Weighted draw runs out of positive-weight candidates before `k` | Stop early; a result with ≥ 1 descriptor still `discovered: true`; 0 → `InspirationResult.none`. |
-| Drawn set set-equal to an `exclude` entry | Re-roll steps 6–7, at most `kInspirationExcludeRetries` times; still excluded/empty → `InspirationResult.none`. Near-duplicates are allowed. |
+| Drawn set set-equal to an `exclude` entry | Re-roll step 7 (`k` unchanged), at most `kInspirationExcludeRetries` times; still excluded/empty → `InspirationResult.none`. Exact sets only — near-duplicates (`{strong,swift}` vs `{strong,fast}`) coexist. |
+| Eligible inspirer that shaped **no** drawn descriptor | Absent from `inspirerInstanceIds` — attribution (§6.2 step 9) reports only actual contributors, not the whole eligible set. |
+| Two eligible inspirers tie exactly on `support_i(d)` for a drawn descriptor | The one earliest in the resolver's `eligible` order (lowest index) is attributed; deterministic, no `rng`. |
 | Trained technique is a base family, not an evolved id | `techniqueFamilyOf` returns it unchanged; the inspired variant is of that family. |
 | Cross-pollination: inspirers of a different family than the trained one | Allowed and preserved — `familyId` is always the trained family; inspirer families only shape the axis emphasis. |
 | A technique action with `sourceRef.instanceEntityId == null` (pre-SP0a placement) | Usage handler ignores it — no tally, no crash. |
@@ -599,7 +731,8 @@ the evolution function.
   familyId)` + its table.
 - tests under `test/plugins/technique/`,
   `test/plugins/build_interpretation/`, `test/plugins/martial_arts/`,
-  `test/plugins/game/`.
+  `test/plugins/game/` — including the descriptor family-reference
+  validation check (§14.0) beside the existing descriptor-content tests.
 
 **Changed**
 
@@ -636,7 +769,27 @@ import — `architecture_dependency_test` still passes unchanged.
 
 ## 14. Testing
 
-**`TechniqueInspirationResolver`** (pure):
+### 14.0 Descriptor family-reference validation (content)
+
+A new content-validation check, using the **existing** Technique family
+vocabulary — not a new compatibility framework:
+
+> Every `family:<id>` tag on any `technique_descriptor` content
+> definition must have `<id> ∈ TechniqueIds.bases`.
+
+- All shipped `techniqueDescriptorContentDefinitions` pass (none carries a
+  `family:` tag today — the check is vacuously green now and guards future
+  content).
+- A fixture descriptor tagged `family:not_a_family` **fails** the check.
+- A fixture descriptor tagged `family:basic_kick` passes.
+- Lives beside the existing descriptor-content assertions (e.g.
+  `content_expansion_audit_test.dart` / a `technique_descriptor_content_test.dart`).
+- The resolver's `descriptorCompatibleWithFamily` does **not** re-validate
+  — it assumes this check has run, so an invalid `family:` reference is a
+  content error, never a resolver-time "incompatible" result (§6.2 step 5,
+  §12).
+
+### 14.1 `TechniqueInspirationResolver` (pure)
 
 *Eligibility*
 - Zero eligible → `InspirationResult.none`.
@@ -663,8 +816,13 @@ import — `architecture_dependency_test` still passes unchanged.
 
 *Concentration*
 - One dominant inspirer → `c` near 1.0.
+- **Exactly one eligible inspirer → `c == 1.0` exactly** (not "near") and
+  `p == kInspirationBaseChance + kInspirationConcentrationGain` (`0.60`
+  with the shipped constants) — the single-source case rides the shared
+  formula, no special branch.
 - Weights `{6, 3, 1}` → `c == 0.6`; `{1, 1, 1}` → `c ≈ 0.333`.
-- `p` is monotonic in `c` and stays within `[0, 1]` at the extremes.
+- `p` is monotonic in `c` and stays within `[0, 1]` at the extremes;
+  `c == 0 → p == 0.05`.
 
 *Compatibility*
 - A descriptor tagged `family:basic_kick` is never drawn for a
@@ -674,13 +832,19 @@ import — `architecture_dependency_test` still passes unchanged.
 - A descriptor with no `family:` tag is eligible for any family.
 - All pooled descriptors restricted away from the trained family →
   `InspirationResult.none`.
+- (Invalid `family:` references are covered by §14.0, not here — the
+  resolver never sees one.)
 
-*Descriptor count*
-- Single ordinary source → 1.
-- Single strong source (mastery ≥ bar, weight ≥ bar) → still 1.
-- Two+ distinct sources → 2.
-- Two+ sources that are also strong → 3.
-- Never exceeds 3; never below 1; `min(k, compatiblePoolSize)`.
+*Descriptor count* (chosen before the draw)
+- Single source (`eligible.length == 1`), ordinary → 1.
+- Single source, even with `mastery ≥ kInspirationStrongMasteryBar` and
+  `w ≥ kInspirationStrongWeightBar` → still 1 (strong needs
+  `eligible.length >= 2`).
+- Two+ sources, `meanMastery < kInspirationStrongMasteryBar` **or**
+  `Σ w_i < kInspirationStrongWeightBar` → 2.
+- Two+ sources, `meanMastery >= kInspirationStrongMasteryBar` **and**
+  `Σ w_i >= kInspirationStrongWeightBar` → 3.
+- Never exceeds 3; never below 1; final `k == min(k, compatiblePoolSize)`.
 
 *Draw / duplicates / determinism*
 - With `E` all on `power`, a fixed seed draws a `power` descriptor,
@@ -692,7 +856,26 @@ import — `architecture_dependency_test` still passes unchanged.
   non-matching `exclude` set → unaffected; a near-duplicate
   (`{strong, fast}` vs an owned `{strong, swift}`) is **not** excluded.
 - Identical `trainedFamilyId` + `inspirers` + `descriptorPool` +
-  `RngService(seed)` → identical `discovered` and `descriptorIds`, twice.
+  `RngService(seed)` → identical `discovered`, `descriptorIds`, **and**
+  `inspirerInstanceIds`, twice.
+
+*Source attribution (`inspirerInstanceIds`)*
+- Eligible set `{power-inspirer, speed-inspirer, endurance-inspirer}`,
+  drawn descriptors touch only `power` + `speed` → `inspirerInstanceIds`
+  is exactly `{power-inspirer, speed-inspirer}`; the endurance one is
+  **absent**.
+- Single drawn `power` descriptor, two eligible `power` inspirers with
+  different `w_i * axisProfile[power]` → the higher-support one is
+  attributed; the lower is absent.
+- Exact `support_i(d)` tie between two inspirers → the lower `eligible`
+  index is attributed; swapping the caller's inspirer order swaps which
+  id appears (locks the documented tie-break).
+- `inspirerInstanceIds` is always non-empty on `discovered: true` and is
+  ordered ascending by `eligible` index.
+- Attribution adds **no** `rng` draw: run the resolver twice from
+  `RngService(seed)`; the post-roll `rng` state is identical whether or
+  not attribution ran (i.e. the draw count is unchanged from the
+  pre-refinement resolver).
 
 **`TechniqueUsageComponent` + subscription:**
 
@@ -725,26 +908,36 @@ import — `architecture_dependency_test` still passes unchanged.
   (heavy + swift), train a **Kick**, fixed seed → a new **Kick** variant
   whose descriptors reflect power/speed; the event fires once with the
   two Punch inspirer ids.
+- **Attribution excludes a non-contributor:** the owner also holds an
+  eligible endurance-heavy variant that shapes none of the drawn
+  descriptors → it is **absent** from `event.inspirerInstanceIds`, which
+  contains only the heavy + swift Punch ids.
 - **Single-source:** one strong Heavy Jab (mastery 3, usage 30) alone,
-  train that family, fixed seed → one new variant.
+  train that family, fixed seed → one new variant; `inspirerInstanceIds`
+  is exactly `[that Heavy Jab]`.
 - **Newborn cannot chain:** immediately after a discovery, call the hook
   again with the same (still `mastery 0` / `usage 0`) new variant among
-  the candidates → it is not an eligible inspirer; no second discovery
-  from it.
+  the candidates → it is not an eligible inspirer; it never appears in a
+  subsequent `inspirerInstanceIds`; no second discovery from it.
 - **One per session:** a single hook call mints at most one variant and
-  publishes at most one event, on any inspirer state.
+  publishes at most one event, on any inspirer state; no discovery-lock
+  component is written to the fighter.
 - **Lifecycle:** the minted variant has `mastery 0`, `usage 0`, the right
   `owner`, no Tome placement; every inspirer's `descriptorIds`,
-  `axisProfile`, and mastery are unchanged.
-- **Event payload:** `owner`, `instanceId` (the new one), `familyId`
-  (trained family), `descriptorIds` (the drawn set),
-  `inspirerInstanceIds` (the eligible inspirers) — all correct.
+  `axisProfile`, per-instance mastery, and per-instance usage are
+  **unchanged** (assert all four).
+- **Event payload:** `owner` (of the new variant), `instanceId` (the new
+  one), `familyId` (trained family), `descriptorIds` (the drawn set),
+  `inspirerInstanceIds` (the actual contributing inspirers, a subset of
+  the eligible set) — all correct; no other fields.
 - **No discovery → no event:** below-threshold inspirers, a failed roll,
   and an all-excluded pool each publish nothing and mint nothing.
 - **Coexistence:** `resolveTechniqueEvolutionAfterTraining` behaves
   exactly as before in the same flow.
 - **Tradeoff preservation:** a discovered variant seeded by a `bear`-like
-  descriptor still has the negative `speed` axis in its `axisProfile`.
+  descriptor (`{power: 6, speed: -1}`) still has the negative `speed` axis
+  in its `axisProfile` — SP0b converts nothing to combat numbers (that is
+  SP1).
 
 **Whole-suite:** `dart test test/` stays green; `dart analyze` clean;
 the `architecture_dependency_test` still passes (no new cross-plugin
@@ -752,21 +945,36 @@ import — `technique/` imports neither `combat` nor `martial_arts`).
 
 ---
 
-## 15. Open questions (settle during planning / playtest)
+## 15. Open questions
 
-1. **Tuning constants** (`kInspirationBaseChance`,
+### Still open (playtest only — not implementation blockers)
+
+1. **Tuning-constant magnitudes** (`kInspirationBaseChance`,
    `kInspirationConcentrationGain`, `kInspirationStrongMasteryBar`,
    `kInspirationStrongWeightBar`, `kMinMasteryToInspire`,
-   `kMinUsageToInspire`, `kInspirationExcludeRetries`) — placeholders;
-   tuned against `game_run` balance sweeps.
-2. **`family:<base>` tag naming** — `family:basic_kick` (the full base id)
-   vs `family:kick` (the family-tag vocab techniques already use). The
-   spec assumes the full base id; confirm during planning against what
-   reads cleanest in content. No launch descriptor carries one either way.
-3. **`martial_arts` table completeness** — every shipped style × 6 base
-   families; some pairs may legitimately be `{}`.
-4. **`techniqueFamilyOf` visibility** — promoting SP0a's `_familyOf`
-   from private; behaviour unchanged, visibility only.
-5. **`Inspirer.instanceId` in the resolver** — carried only so the result
-   can report `inspirerInstanceIds`; it never enters the math. Confirm
-   the resolver stays otherwise pure of entity identity.
+   `kMinUsageToInspire`, `kInspirationExcludeRetries`) — the *values* are
+   tuned against `game_run` balance sweeps. The *shapes* they lock (§6.3)
+   are fixed.
+2. **`martial_arts` style-centre magnitudes** — every shipped style × 6
+   base families gets an entry (possibly `{}`); the specific nudges are
+   playtest-tuned.
+
+### Closed by this refinement pass
+
+3. **`family:<base>` tag suffix** — CLOSED: the **full base id**
+   (`family:basic_kick`), so it matches `techniqueFamilyOf`'s return with
+   no extra mapping. `techniqueFamilyTagPrefix = 'family:'` is the one
+   named constant. An `<id>` outside `TechniqueIds.bases` is a content
+   error (§14.0), not a resolver concern.
+4. **`techniqueFamilyOf` / `requireTechniqueVariant` visibility** —
+   CLOSED: promote SP0a's `_familyOf` / `_requireVariant` from private to
+   public; behaviour unchanged, visibility only.
+5. **`Inspirer.instanceId` in the resolver** — CLOSED: it is used in
+   exactly two places, both deterministic and RNG-free — (a) building
+   `inspirerInstanceIds` from the §6.2-step-9 attribution, (b) the
+   attribution tie-break (lowest `eligible` index). It never enters the
+   weighting, emphasis, concentration, roll, or draw arithmetic.
+6. **`inspirerInstanceIds` semantics** — CLOSED: the **actual
+   contributing** inspirers (per-descriptor argmax `support_i(d)`, unioned;
+   §6.2 step 9), a subset of the eligible set — never "every eligible
+   variant".
