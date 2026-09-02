@@ -39,6 +39,7 @@ void main() {
   });
 
   _resolverTests();
+  _compatibilityTests();
 }
 
 TechniqueDescriptor _d(String id, Map<String, num> axes,
@@ -401,6 +402,156 @@ void _resolverTests() {
       expect(a.discovered, b.discovered);
       expect(a.descriptorIds, b.descriptorIds);
       expect(a.inspirerInstanceIds, b.inspirerInstanceIds);
+    });
+  });
+}
+
+void _compatibilityTests() {
+  group('descriptorCompatibleWithFamily', () {
+    test('no family tag → universal', () {
+      expect(descriptorCompatibleWithFamily(_d('strong', {'power': 4}), 'basic_kick'), isTrue);
+    });
+    test('matching family tag → compatible', () {
+      expect(
+        descriptorCompatibleWithFamily(
+          _d('kicker', {'power': 4}, tags: {'family:basic_kick'}), 'basic_kick'),
+        isTrue);
+    });
+    test('non-matching family tag → incompatible', () {
+      expect(
+        descriptorCompatibleWithFamily(
+          _d('puncher', {'power': 4}, tags: {'family:basic_punch'}), 'basic_kick'),
+        isFalse);
+    });
+  });
+
+  group('draw respects compatibility', () {
+    test('a family:basic_kick descriptor is never drawn for basic_punch training', () {
+      final res = _resolver.resolve(
+        trainedFamilyId: 'basic_punch',
+        inspirers: [_insp(1, {'power': 8}, mastery: 3, usage: 30)],
+        descriptorPool: [
+          _d('kickonly', {'power': 9}, tags: {'family:basic_kick'}),
+          _d('strong', {'power': 4}),
+        ],
+        rng: _seedWithFirstDrawBelow(0.60),
+      );
+      expect(res.descriptorIds, {'strong'});
+    });
+
+    test('all pooled descriptors restricted away → none', () {
+      final res = _resolver.resolve(
+        trainedFamilyId: 'basic_punch',
+        inspirers: [_insp(1, {'power': 8}, mastery: 3, usage: 30)],
+        descriptorPool: [_d('kickonly', {'power': 9}, tags: {'family:basic_kick'})],
+        rng: _seedWithFirstDrawBelow(0.60),
+      );
+      expect(res.discovered, isFalse);
+    });
+  });
+
+  group('descriptor count k', () {
+    List<TechniqueDescriptor> pool() => [
+          _d('strong', {'power': 4}),
+          _d('swift', {'speed': 5}),
+          _d('iron', {'power': 5, 'endurance': 2}),
+          _d('bull', {'power': 6}),
+        ];
+
+    test('single ordinary source → 1', () {
+      final res = _resolver.resolve(
+        trainedFamilyId: 'basic_punch',
+        inspirers: [_insp(1, {'power': 5}, mastery: 1, usage: 9)],
+        descriptorPool: pool(),
+        rng: _seedWithFirstDrawBelow(0.60),
+      );
+      expect(res.descriptorIds, hasLength(1));
+    });
+
+    test('two ordinary sources → 2', () {
+      final res = _resolver.resolve(
+        trainedFamilyId: 'basic_punch',
+        inspirers: [
+          _insp(1, {'power': 5}, mastery: 1, usage: 9),
+          _insp(2, {'speed': 5}, mastery: 1, usage: 9),
+        ],
+        descriptorPool: pool(),
+        rng: _seedWithFirstDrawBelow(0.30),
+      );
+      expect(res.descriptorIds, hasLength(2));
+    });
+
+    test('two strong sources → 3 (mean mastery ≥ 2 and Σw ≥ 6.0)', () {
+      // each: mastery 3, usage 9 → w = 3*3 = 9; Σw = 18; mean mastery 3
+      final res = _resolver.resolve(
+        trainedFamilyId: 'basic_punch',
+        inspirers: [
+          _insp(1, {'power': 6}, mastery: 3, usage: 9),
+          _insp(2, {'speed': 6}, mastery: 3, usage: 9),
+        ],
+        descriptorPool: pool(),
+        rng: _seedWithFirstDrawBelow(0.30),
+      );
+      expect(res.descriptorIds, hasLength(3));
+    });
+
+    test('k never exceeds the compatible pool size', () {
+      final res = _resolver.resolve(
+        trainedFamilyId: 'basic_punch',
+        inspirers: [
+          _insp(1, {'power': 6}, mastery: 3, usage: 9),
+          _insp(2, {'speed': 6}, mastery: 3, usage: 9),
+        ],
+        descriptorPool: [_d('strong', {'power': 4})], // only 1 compatible
+        rng: _seedWithFirstDrawBelow(0.30),
+      );
+      expect(res.descriptorIds, hasLength(1));
+      expect(res.discovered, isTrue);
+    });
+  });
+
+  group('exclusion retry', () {
+    test('the only reachable blend is excluded → none after the retries', () {
+      final res = _resolver.resolve(
+        trainedFamilyId: 'basic_punch',
+        inspirers: [_insp(1, {'power': 8}, mastery: 3, usage: 30)],
+        descriptorPool: [_d('strong', {'power': 4})],
+        rng: _seedWithFirstDrawBelow(0.60),
+        exclude: {
+          {'strong'}
+        },
+      );
+      expect(res.discovered, isFalse);
+    });
+
+    test('a non-matching exclude set does not block the draw', () {
+      final res = _resolver.resolve(
+        trainedFamilyId: 'basic_punch',
+        inspirers: [_insp(1, {'power': 8}, mastery: 3, usage: 30)],
+        descriptorPool: [_d('strong', {'power': 4})],
+        rng: _seedWithFirstDrawBelow(0.60),
+        exclude: {
+          {'swift'}
+        },
+      );
+      expect(res.descriptorIds, {'strong'});
+    });
+
+    test('a near-duplicate ({strong,fast} vs owned {strong,swift}) is allowed', () {
+      final res = _resolver.resolve(
+        trainedFamilyId: 'basic_punch',
+        inspirers: [
+          _insp(1, {'power': 6}, mastery: 2, usage: 9),
+          _insp(2, {'speed': 6}, mastery: 2, usage: 9),
+        ],
+        descriptorPool: [_d('strong', {'power': 4}), _d('fast', {'speed': 4})],
+        rng: _seedWithFirstDrawBelow(0.30),
+        exclude: {
+          {'strong', 'swift'}
+        },
+      );
+      expect(res.discovered, isTrue);
+      expect(res.descriptorIds, {'strong', 'fast'});
     });
   });
 }
