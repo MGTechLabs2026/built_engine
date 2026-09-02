@@ -487,6 +487,39 @@ degraded to a descriptor-less basic-like variant. Every legacy evolved
 technique that becomes a `TechniqueVariant` therefore has an explicit
 migration mapping.
 
+## Technique inspiration / discovery (SP0b) (`lib/src/plugins/technique/`)
+
+New variants come from how the player fights. `CombatAction.sourceRef`
+(optional `BuildComponentRef`, default `null`, never read by
+`CombatSystem`) lets a performed action be attributed to a variant
+instance; the composition layer's existing `ActionCompleted` subscription
+calls the Core-only `recordTechniqueVariantUsage`, accumulating a
+per-run `TechniqueUsageComponent` on the fighter. `lib/src/plugins/technique/`
+still names neither `combat` nor `martial_arts` — the bridge lives in the
+harness, the same split `TechniqueActionInterpreter` already uses.
+
+`TechniqueInspirationResolver` is pure (randomness only from an injected
+`RngService`): it filters inspirers by `masteryLevel >= 1 && usage >= 3`,
+weights them `mastery * sqrt(usage)` (usage has diminishing returns so a
+long-lived variant cannot monopolise discoveries), builds a
+positive-axis-only emphasis profile, converts usage concentration
+(`maxWeight / totalWeight`) into a discovery probability, filters the
+descriptor pool by a `family:<base>` compatibility tag, picks a
+behaviour-driven count (1 for one source, 2 for several, 3 for a strong
+blend, hard cap 3), and draws without replacement with a bounded
+exact-duplicate exclusion retry. One roll per call.
+
+`resolveTechniqueInspirationAfterTraining` is the sole caller and the
+sole publisher of `TechniqueVariantInspired` — parallel to
+`resolveTechniqueEvolutionAfterTraining`. On a hit it mints one **owned
+but loose** variant on the **trained** family (inspirers may be any
+family — cross-pollination), seeded by the drawn descriptors plus the
+style centre the caller passes in (`martial_arts`'s `styleCentre`; the
+technique plugin never looks it up). Inspirers are never mutated; a
+freshly minted variant starts `masteryLevel 0` / `usage 0` and so cannot
+chain a second discovery. Usage is per-run, like SP0a's per-instance
+mastery. The evolution path is untouched and still runs alongside.
+
 ## Reward/Loot system (`lib/src/reward/`)
 
 Reward *generation*, not a specific loot table — no `MartialLootTable`/

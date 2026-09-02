@@ -75,6 +75,43 @@ bumping the pin. Newest first.
   long-lived `PluginContext` across runs accumulates one small definition per
   variant — correctness is unaffected, since entity ids are never recycled.
 
+### Added — Technique inspiration / discovery (SP0b)
+
+- `CombatAction.sourceRef: BuildComponentRef?` — optional, default `null`,
+  behaviour-neutral. Set by `TechniqueActionInterpreter` on every action
+  it builds so a performed action can be attributed to a technique-variant
+  instance. `AttackAction` / `SelfEffectAction` gain the matching
+  constructor parameter. Also the SP1 active-tier seam.
+- `TechniqueUsageComponent` + `recordTechniqueVariantUsage` /
+  `techniqueVariantUsage` on
+  `package:build_engine/technique_plugin.dart` — per-run, per-variant
+  count of performed combat actions. Fed by the composition layer's
+  `ActionCompleted` subscription (the Technique plugin itself stays
+  Combat-free). Dropped by `removeTechniqueVariant`.
+- `TechniqueInspirationResolver.resolve({trainedFamilyId, inspirers,
+  descriptorPool, rng, exclude})` — pure: eligibility filter
+  (`masteryLevel >= 1 && usage >= 3`), damped weights
+  (`mastery * sqrt(usage)`), positive-axis emphasis, usage concentration
+  → discovery probability, family-compatibility filter, behaviour-driven
+  descriptor count (1–3), weighted draw without replacement, bounded
+  exact-duplicate exclusion retry. `Inspirer` / `InspirationResult`
+  (`InspirationResult.none`) value types.
+- `resolveTechniqueInspirationAfterTraining(owner, trainedTechnique,
+  styleCentre, context, {styleId})` — the one authoritative post-training
+  discovery step, parallel to `resolveTechniqueEvolutionAfterTraining`.
+  One roll → at most one minted (owned, loose) variant on the **trained**
+  family (cross-pollination preserved) → publishes `TechniqueVariantInspired`
+  exactly once. Inspirers are never mutated.
+- `TechniqueVariantInspired {owner, instanceId, familyId, descriptorIds,
+  inspirerInstanceIds}` event.
+- Tuning constants in `technique_vocabulary.dart` (`kInspirationBaseChance`
+  … `kInspirationStrongWeightBar`) + `techniqueFamilyTagPrefix`.
+- `styleCentre(styleId, familyId)` on
+  `package:build_engine/martial_arts_plugin.dart` — per-style, per-base-family
+  axis nudge for a minted variant.
+- SP0a's `_familyOf` / `_requireVariant` promoted to public
+  `techniqueFamilyOf` / `requireTechniqueVariant` (visibility only).
+
 ### Changed — public barrels
 
 - **`TechniqueEvolved` moved to the Technique plugin.** It was defined in

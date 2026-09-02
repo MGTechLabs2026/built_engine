@@ -3,6 +3,7 @@ import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/build_interpretation.dart';
 import 'package:build_engine/combat_plugin.dart';
 import 'package:build_engine/item_plugin.dart';
+import 'package:build_engine/technique_plugin.dart';
 
 import 'enemy.dart';
 import 'run_events.dart';
@@ -94,7 +95,18 @@ class CombatStage {
 
     var turnsUsed = 0;
     final subscription = events.subscribe<ActionCompleted>((e) {
-      if (e.battle == battle) turnsUsed++;
+      if (e.battle != battle) return;
+      turnsUsed++;
+      // SP0b: attribute a performed technique action to its variant
+      // instance so training-time inspiration can weigh it. The Technique
+      // plugin stays Combat-free — this bridge lives in the harness, the
+      // same split `TechniqueActionInterpreter` uses.
+      final ref = e.action.sourceRef;
+      if (ref != null &&
+          ref.referenceType == techniqueReferenceType &&
+          ref.instanceEntityId != null) {
+        recordTechniqueVariantUsage(ref.instanceEntityId!, context);
+      }
     });
     controller.runUntilBattleEnds();
     subscription.cancel();

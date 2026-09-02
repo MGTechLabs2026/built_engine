@@ -234,6 +234,7 @@ RunResult runGame(
     rng: rng,
     events: events,
     tomeManager: tomeManager,
+    styleId: styleId,
   );
   final combatStage = CombatStage(
     character: character,

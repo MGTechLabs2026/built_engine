@@ -1,5 +1,6 @@
 import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/item_plugin.dart';
+import 'package:build_engine/martial_arts_plugin.dart';
 import 'package:build_engine/technique_plugin.dart';
 
 import 'decision_log.dart';
@@ -25,6 +26,7 @@ class TrainingStage {
     required this.rng,
     required this.events,
     required this.tomeManager,
+    required this.styleId,
   });
 
   final EntityId character;
@@ -33,6 +35,7 @@ class TrainingStage {
   final RngService rng;
   final EventBus events;
   final TomeManager tomeManager;
+  final String styleId;
 
   final trainingRecords = <TrainingRecord>[];
   final itemsMastered = <String>[];
@@ -129,6 +132,23 @@ class TrainingStage {
           firstTechniqueEvolutionStep ??= cycleIndex;
           tomeManager.replaceWithEvolved(techniqueId, evolvedId, 'Training (evolved)');
         }
+
+        // SP0b: a training session may also *inspire* a brand-new loose
+        // variant, seeded by the player's high-mastery / high-usage
+        // variants. Parallel to evolution, never a replacement. In this
+        // harness the player holds no TechniqueVariant instances yet
+        // (the legacy learn/evolve path is still used), so this is inert
+        // until a later pass migrates the harness — the call is here to
+        // keep the one-authoritative-post-training-step shape visible and
+        // compiled.
+        final family = techniqueFamilyOf(technique.id, context);
+        resolveTechniqueInspirationAfterTraining(
+          character,
+          technique,
+          styleCentre(styleId, family),
+          context,
+          styleId: styleId,
+        );
       }
     }
   }
