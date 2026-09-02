@@ -1,6 +1,7 @@
 import 'package:build_engine/build_engine.dart';
 
 import 'technique_content.dart';
+import 'technique_descriptor_content.dart';
 import 'technique_vocabulary.dart';
 
 /// The Technique plugin: generic learnable movements/abilities (Basic
@@ -43,6 +44,12 @@ class TechniquePlugin extends GamePlugin {
     // plugin is initialize()d again on the same context afterward.
     if (context.content.find(TechniqueIds.basicPunch) == null) {
       sdk.registerContentBatch(techniqueContentDefinitions);
+    }
+
+    final firstDescriptorId =
+        techniqueDescriptorContentDefinitions.first['id'] as String;
+    if (context.content.find(firstDescriptorId) == null) {
+      sdk.registerContentBatch(techniqueDescriptorContentDefinitions);
     }
 
     // MASTERY axis for every technique — base and evolved alike — so a
