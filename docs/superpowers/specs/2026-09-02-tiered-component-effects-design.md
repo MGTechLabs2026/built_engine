@@ -264,25 +264,37 @@ ResolvedBuild BuildResolver.resolve(
 });
 ```
 
-The caller already holds both facts: Tome placements (from
-`TomeService.inspect`) and the ownership roster (whatever the game tracks
-owned items/techniques with — in `Tome_client` that is
-`item_adapter.ownedItems()` / `technique_adapter`'s discovered set). SP1
-threads `ownedRefs` through; it does not invent an engine-side ownership
-store.
+**Ownership is one authoritative relationship (SP0a rule 5).** There is a
+single source of truth for "owner *has* this component instance": the
+instance entity's own `owner` field — `ItemInstance.owner` for an item,
+`TechniqueVariant.owner` for a technique. `ownedRefs` is *derived* from
+that relationship, not a separate roster:
 
-**What "owned" means per component type.** Post-SP0a, items and
-techniques are symmetric: one `BuildComponentRef` per instance the owner
-holds, `instanceEntityId` set — an `ItemInstance` for an item, a
-technique-variant instance for a technique (see
-`2026-09-02-technique-instancing-design.md`). Two copies / two variants
-contribute twice. A component that is hung is by definition owned, so the
-caller builds `ownedRefs` as (owned instances ∪ hung), deduplicated.
+```
+ownedRefs(owner) =
+    [ ref(e) for e in components.entitiesWith<ItemInstance>()   if e.owner == owner ]
+  + [ ref(e) for e in components.entitiesWith<TechniqueVariant>() if e.owner == owner ]
+```
 
-A technique's `EffectProfile` (§5) is derived by the technique plugin
-from that instance's `TechniqueVariant` axis profile plus its per-instance
-mastery level — SP0a stores those; SP1 maps them to `EffectProfile`
-tiers.
+`active` (hung) is then simply the subset of those instances that a Tome
+placement references (`placement.ref.instanceEntityId == e`), so
+`active ⊆ owned` holds by construction — the exact precondition
+`EffectProfileResolver` documents (§4.3). There is no "roster ∪ hung"
+union to keep consistent; "owned but not hung" is an owned instance no
+placement points at.
+
+**`instanceEntityId` invariant (SP0a rule 4).** Every technique
+`BuildComponentRef` this system reads carries a non-null
+`instanceEntityId` pointing at a live instance. A null one is a pre-SP0a
+placement: the interpreter treats it as the bare base definition —
+`EffectProfile.empty`, no per-instance mastery. Items have carried
+`instanceEntityId` since they were instanced; a null there is likewise
+"no per-copy data".
+
+**Deriving a technique's `EffectProfile` (§5).** The technique plugin
+maps that instance's `TechniqueVariant.axisProfile` plus its per-instance
+mastery level to the three `EffectProfile` tiers — SP0a stores the axis
+profile and mastery; SP1 defines the axis-key → (tier, stat-key) mapping.
 
 `ActiveBuild` is kept as a type for backward compatibility — `ResolvedBuild
 .active` can be exposed as an `ActiveBuild` via a thin getter so existing
@@ -291,13 +303,15 @@ Combat call sites are untouched. New code reads `ResolvedBuild`.
 ### 6.2 Flow
 
 ```
-Tome placements ─┐
-                 ├─► BuildResolver.resolve ─► ResolvedBuild ─► Combat
-ownership roster ─┘         (pure)             {active, owned}
+Tome placements ──────────────┐
+                              ├─► BuildResolver.resolve ─► ResolvedBuild ─► Combat
+ownedRefs (derived from        ┘         (pure)             {active, owned}
+  *Instance.owner, per rule 5)
 ```
 
 One-way, as today. No new import direction: `BuildResolver` gains a
-parameter, not a dependency.
+parameter, not a dependency. The caller that computes `ownedRefs` is the
+`build_interpretation` layer, which already holds a `PluginContext`.
 
 ---
 

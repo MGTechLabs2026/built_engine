@@ -18,6 +18,12 @@
 - **Additive only.** `EvolutionResolver`, `TechniqueDefinition.evolutionCandidates`, and the hand-authored evolved ids (`heavy_punch`, `lightning_jab`, …) keep working unchanged. All existing tests must stay green.
 - **Content type string:** technique descriptors use `'type': 'technique_descriptor'`. Axes are the open string set `power` / `speed` / `endurance` / `precision` (launch content).
 - **Determinism:** no `RngService` anywhere in SP0a. All resolution is additive arithmetic.
+- **The five design rules (from the spec §1.3) — hold across every task:**
+  1. `TechniqueDescriptor` carries `axes: Map<String, num>` (multi-axis), not a single `axis`/`magnitude`.
+  2. `TechniqueVariantResolver.resolve` takes only `Iterable<TechniqueDescriptor>` — no `styleCentre` parameter, ever.
+  3. Style-centre composition is a separate pure `composeAxisProfile(base, contribution)`; only `mintTechniqueVariant` calls it.
+  4. Every technique `BuildComponentRef` the plugin writes carries a **non-null** `instanceEntityId`; readers tolerate a null one (pre-SP0a placement) as the bare base.
+  5. Ownership is authoritative on `TechniqueVariant.owner` (like `ItemInstance.owner`). "Hung" is derived from Tome placements — never a second stored list. Lifecycle fns other than `mint` read the owner off the component, not a parameter.
 - **Test harness:** build a `PluginContext` with the `_newContext()` helper pattern from `test/plugins/technique/technique_lifecycle_test.dart` (copy it into each new test file). Tests may import `package:build_engine/src/plugins/technique/...` directly, as the existing technique tests do.
 - **Commits:** follow the repo convention — `feat(technique): …` / `test(technique): …` / `docs: …`, and append the trailers this repo already uses:
   ```
@@ -34,11 +40,11 @@
 
 | File | Responsibility |
 |------|----------------|
-| `technique_descriptor.dart` | `TechniqueDescriptor` value type; `techniqueDescriptorFromContent`; `techniqueDescriptor(id, context)` accessor; `UnknownTechniqueDescriptorException`. |
-| `technique_descriptor_content.dart` | `techniqueDescriptorContentDefinitions` (launch data); `TechniqueAxes` constants. |
-| `technique_variant.dart` | `TechniqueVariant` component (pure data). |
-| `technique_variant_resolver.dart` | `TechniqueVariantResolver` — pure descriptors (+ styleCentre) → axisProfile. |
-| `technique_variant_lifecycle.dart` | `mintTechniqueVariant`, `hangTechniqueVariant`, `removeTechniqueVariant`, `trainTechniqueVariantMastery`, `techniqueVariantMasteryLevel`, `mintVariantForLegacyEvolvedId`; `TechniqueVariantNotFoundException`. |
+| `technique_descriptor.dart` | `TechniqueDescriptor` value type (`id`, `axes: Map<String, num>`, `tags`); `techniqueDescriptorFromContent`; `techniqueDescriptor(id, context)` accessor; `UnknownTechniqueDescriptorException`. |
+| `technique_descriptor_content.dart` | `techniqueDescriptorContentDefinitions` (launch data, `axes` maps); `TechniqueAxes` constants. |
+| `technique_variant.dart` | `TechniqueVariant` component (pure data): `owner`, `baseFamilyId`, `descriptorIds`, `axisProfile`, `styleId`. |
+| `technique_variant_resolver.dart` | `TechniqueVariantResolver.resolve(Iterable<TechniqueDescriptor>)` — pure, descriptors only (rule 2); `composeAxisProfile(base, contribution)` — pure additive merge (rule 3). |
+| `technique_variant_lifecycle.dart` | `mintTechniqueVariant`, `hangTechniqueVariant`, `removeTechniqueVariant`, `ownedTechniqueVariants`, `trainTechniqueVariantMastery`, `techniqueVariantMasteryLevel`, `mintVariantForLegacyEvolvedId`; `TechniqueVariantNotFoundException`. |
 
 **Modified**
 
@@ -66,9 +72,9 @@
 **Interfaces:**
 - Consumes: `ContentDefinition` (`.id`, `.tags`, `.extra`) and `PluginContext` (`.content.find`) from `package:build_engine/build_engine.dart`.
 - Produces:
-  - `class TechniqueDescriptor { const TechniqueDescriptor({required String id, required String axis, required num magnitude, Set<String> tags}); final String id; final String axis; final num magnitude; final Set<String> tags; }`
+  - `class TechniqueDescriptor { const TechniqueDescriptor({required String id, required Map<String, num> axes, Set<String> tags}); final String id; final Map<String, num> axes; final Set<String> tags; }` — `axes` is `{axisKey: signedMagnitude, ...}`, one or more entries (rule 1).
   - `TechniqueDescriptor techniqueDescriptorFromContent(ContentDefinition definition)`
-  - `TechniqueDescriptor techniqueDescriptor(String id, PluginContext context)` — throws `UnknownTechniqueDescriptorException` if no content with that id has an `axis` field.
+  - `TechniqueDescriptor techniqueDescriptor(String id, PluginContext context)` — throws `UnknownTechniqueDescriptorException` if no content with that id has an `axes` field.
   - `class UnknownTechniqueDescriptorException implements Exception { const UnknownTechniqueDescriptorException(String id); final String id; }`
 
 - [ ] **Step 1: Write the failing test**
@@ -80,21 +86,19 @@ import 'package:build_engine/src/plugins/technique/technique_descriptor.dart';
 import 'package:test/test.dart';
 
 void main() {
-  test('parses a descriptor from content', () {
+  test('parses a multi-axis descriptor from content', () {
     final registry = ContentRegistry();
     registry.loadAll(const [
       {
         'id': 'bear',
         'type': 'technique_descriptor',
         'tags': ['technique_descriptor', 'beast'],
-        'axis': 'power',
-        'magnitude': 6,
+        'axes': {'power': 6, 'speed': -1},
       },
     ]);
     final d = techniqueDescriptorFromContent(registry.get('bear'));
     expect(d.id, 'bear');
-    expect(d.axis, 'power');
-    expect(d.magnitude, 6);
+    expect(d.axes, {'power': 6, 'speed': -1});
     expect(d.tags, contains('beast'));
   });
 
@@ -111,7 +115,7 @@ TechniqueDescriptor _lookup(ContentRegistry registry, String id) {
   // techniqueDescriptor takes a PluginContext; exercise the same logic via a
   // tiny shim so this test needs no full context.
   final def = registry.find(id);
-  if (def == null || def.extra['axis'] == null) {
+  if (def == null || def.extra['axes'] == null) {
     throw UnknownTechniqueDescriptorException(id);
   }
   return techniqueDescriptorFromContent(def);
@@ -131,25 +135,25 @@ import 'package:build_engine/build_engine.dart';
 
 /// A thematic modifier a technique variant can carry. Content data,
 /// loaded via `ContentRegistry` like `TechniqueDefinition` already is.
-/// `axis` is one of the open string set in `technique_descriptor_content.dart`
-/// (`power` / `speed` / `endurance` / `precision` at launch); `magnitude`
-/// is signed. `tags` are free thematic tags for SP0b matching.
+/// [axes] maps one or more axis keys (the open string set in
+/// `technique_descriptor_content.dart` — `power` / `speed` / `endurance`
+/// / `precision` at launch) to signed magnitudes: one `bear` can be
+/// `{power: 6, speed: -1}` (rule 1). [tags] are free thematic tags for
+/// SP0b matching.
 class TechniqueDescriptor {
   const TechniqueDescriptor({
     required this.id,
-    required this.axis,
-    required this.magnitude,
+    required this.axes,
     this.tags = const {},
   });
 
   final String id;
-  final String axis;
-  final num magnitude;
+  final Map<String, num> axes;
   final Set<String> tags;
 }
 
 /// Thrown by [techniqueDescriptor] when no loaded content with [id] is a
-/// descriptor (no `axis` field).
+/// descriptor (no `axes` field).
 class UnknownTechniqueDescriptorException implements Exception {
   const UnknownTechniqueDescriptorException(this.id);
   final String id;
@@ -159,13 +163,17 @@ class UnknownTechniqueDescriptorException implements Exception {
 
 /// Builds a [TechniqueDescriptor] from an already-parsed [ContentDefinition]
 /// — mirrors `techniqueDefinitionFromContent`.
-TechniqueDescriptor techniqueDescriptorFromContent(ContentDefinition definition) =>
-    TechniqueDescriptor(
-      id: definition.id,
-      axis: definition.extra['axis'] as String,
-      magnitude: definition.extra['magnitude'] as num,
-      tags: definition.tags,
-    );
+TechniqueDescriptor techniqueDescriptorFromContent(ContentDefinition definition) {
+  final rawAxes = definition.extra['axes'] as Map;
+  return TechniqueDescriptor(
+    id: definition.id,
+    axes: {
+      for (final entry in rawAxes.entries)
+        entry.key as String: entry.value as num,
+    },
+    tags: definition.tags,
+  );
+}
 
 /// Resolves descriptor [id] from [context]'s loaded content — the same
 /// convenience `techniqueDefinition` provides. Throws
@@ -173,7 +181,7 @@ TechniqueDescriptor techniqueDescriptorFromContent(ContentDefinition definition)
 /// descriptor.
 TechniqueDescriptor techniqueDescriptor(String id, PluginContext context) {
   final definition = context.content.find(id);
-  if (definition == null || definition.extra['axis'] == null) {
+  if (definition == null || definition.extra['axes'] == null) {
     throw UnknownTechniqueDescriptorException(id);
   }
   return techniqueDescriptorFromContent(definition);
@@ -209,7 +217,7 @@ git commit -m "feat(technique): TechniqueDescriptor content type + accessor"
 - Consumes: nothing (pure data + `ContentRegistry.loadAll` in the test).
 - Produces:
   - `abstract final class TechniqueAxes { static const power = 'power'; static const speed = 'speed'; static const endurance = 'endurance'; static const precision = 'precision'; static const all = [power, speed, endurance, precision]; }`
-  - `const List<Map<String, dynamic>> techniqueDescriptorContentDefinitions` — every entry has `id`, `'type': 'technique_descriptor'`, `tags` (including `'technique_descriptor'`), `axis`, `magnitude`.
+  - `const List<Map<String, dynamic>> techniqueDescriptorContentDefinitions` — every entry has `id`, `'type': 'technique_descriptor'`, `tags` (including `'technique_descriptor'`), and an `axes` map of one-or-more `axisKey: num`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -224,18 +232,23 @@ import 'package:build_engine/src/plugins/technique/technique_descriptor_content.
     for (final raw in techniqueDescriptorContentDefinitions) {
       final id = raw['id'] as String;
       final d = techniqueDescriptorFromContent(registry.get(id));
-      expect(TechniqueAxes.all, contains(d.axis),
-          reason: '$id has an unknown axis ${d.axis}');
-      expect(d.magnitude, isA<num>());
+      expect(d.axes, isNotEmpty, reason: '$id has no axes');
+      for (final axis in d.axes.keys) {
+        expect(TechniqueAxes.all, contains(axis),
+            reason: '$id references unknown axis $axis');
+      }
     }
-    // at least one descriptor per launch axis
+    // at least one descriptor whose primary (largest-magnitude) axis is each launch axis
     for (final axis in TechniqueAxes.all) {
-      expect(
-        techniqueDescriptorContentDefinitions.any((r) => r['axis'] == axis),
-        isTrue,
-        reason: 'no descriptor for axis $axis',
-      );
+      final hit = techniqueDescriptorContentDefinitions.any((r) =>
+          (r['axes'] as Map).containsKey(axis));
+      expect(hit, isTrue, reason: 'no descriptor touches axis $axis');
     }
+    // at least one descriptor is genuinely multi-axis (rule 1)
+    expect(
+      techniqueDescriptorContentDefinitions.any((r) => (r['axes'] as Map).length > 1),
+      isTrue,
+    );
   });
 ```
 
@@ -261,39 +274,39 @@ abstract final class TechniqueAxes {
   static const all = [power, speed, endurance, precision];
 }
 
-/// Launch descriptor set. Each maps a thematic id to one axis with a
-/// signed magnitude; a descriptor may also nudge a second axis (authored
-/// as a separate entry sharing the id prefix is avoided — keep one axis
-/// per descriptor for SP0a; multi-axis descriptors are an SP0b concern).
+/// Launch descriptor set. Each maps a thematic id to an `axes` map of
+/// one or more `axisKey: signedMagnitude` (rule 1). The dominant axis is
+/// the theme; a secondary, usually-negative axis is the trade-off
+/// (`bear`: heavy but a touch slower).
 const techniqueDescriptorContentDefinitions = <Map<String, dynamic>>[
-  // ── power ────────────────────────────────────────────────────────
-  {'id': 'bear', 'type': 'technique_descriptor', 'tags': ['technique_descriptor', 'beast'], 'axis': 'power', 'magnitude': 6},
-  {'id': 'elephant', 'type': 'technique_descriptor', 'tags': ['technique_descriptor', 'beast'], 'axis': 'power', 'magnitude': 8},
-  {'id': 'strong', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axis': 'power', 'magnitude': 4},
-  {'id': 'destruction', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axis': 'power', 'magnitude': 9},
-  {'id': 'thunder', 'type': 'technique_descriptor', 'tags': ['technique_descriptor', 'weather'], 'axis': 'power', 'magnitude': 7},
-  {'id': 'iron', 'type': 'technique_descriptor', 'tags': ['technique_descriptor', 'material'], 'axis': 'power', 'magnitude': 5},
+  // ── power-leaning ────────────────────────────────────────────────
+  {'id': 'bear', 'type': 'technique_descriptor', 'tags': ['technique_descriptor', 'beast'], 'axes': {'power': 6, 'speed': -1}},
+  {'id': 'elephant', 'type': 'technique_descriptor', 'tags': ['technique_descriptor', 'beast'], 'axes': {'power': 8, 'speed': -2}},
+  {'id': 'strong', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axes': {'power': 4}},
+  {'id': 'destruction', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axes': {'power': 9, 'precision': -2}},
+  {'id': 'thunder', 'type': 'technique_descriptor', 'tags': ['technique_descriptor', 'weather'], 'axes': {'power': 7}},
+  {'id': 'iron', 'type': 'technique_descriptor', 'tags': ['technique_descriptor', 'material'], 'axes': {'power': 5, 'endurance': 2}},
 
-  // ── speed ────────────────────────────────────────────────────────
-  {'id': 'swift', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axis': 'speed', 'magnitude': 5},
-  {'id': 'fast', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axis': 'speed', 'magnitude': 4},
-  {'id': 'lightning', 'type': 'technique_descriptor', 'tags': ['technique_descriptor', 'weather'], 'axis': 'speed', 'magnitude': 8},
-  {'id': 'light', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axis': 'speed', 'magnitude': 6},
-  {'id': 'flash', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axis': 'speed', 'magnitude': 7},
+  // ── speed-leaning ───────────────────────────────────────────────
+  {'id': 'swift', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axes': {'speed': 5}},
+  {'id': 'fast', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axes': {'speed': 4}},
+  {'id': 'lightning', 'type': 'technique_descriptor', 'tags': ['technique_descriptor', 'weather'], 'axes': {'speed': 8, 'power': -1}},
+  {'id': 'light', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axes': {'speed': 6, 'power': -2}},
+  {'id': 'flash', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axes': {'speed': 7, 'endurance': -1}},
 
-  // ── endurance ────────────────────────────────────────────────────
-  {'id': 'immortal', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axis': 'endurance', 'magnitude': 9},
-  {'id': 'wall', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axis': 'endurance', 'magnitude': 5},
-  {'id': 'mountain', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axis': 'endurance', 'magnitude': 7},
-  {'id': 'undead', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axis': 'endurance', 'magnitude': 6},
-  {'id': 'rooted', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axis': 'endurance', 'magnitude': 4},
+  // ── endurance-leaning ──────────────────────────────────────────
+  {'id': 'immortal', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axes': {'endurance': 9, 'speed': -2}},
+  {'id': 'wall', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axes': {'endurance': 5}},
+  {'id': 'mountain', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axes': {'endurance': 7, 'speed': -1}},
+  {'id': 'undead', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axes': {'endurance': 6}},
+  {'id': 'rooted', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axes': {'endurance': 4, 'speed': -1}},
 
-  // ── precision ────────────────────────────────────────────────────
-  {'id': 'bullseye', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axis': 'precision', 'magnitude': 6},
-  {'id': 'hawkseye', 'type': 'technique_descriptor', 'tags': ['technique_descriptor', 'beast'], 'axis': 'precision', 'magnitude': 7},
-  {'id': 'one_hit', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axis': 'precision', 'magnitude': 9},
-  {'id': 'needle', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axis': 'precision', 'magnitude': 5},
-  {'id': 'focused', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axis': 'precision', 'magnitude': 4},
+  // ── precision-leaning ──────────────────────────────────────────
+  {'id': 'bullseye', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axes': {'precision': 6}},
+  {'id': 'hawkseye', 'type': 'technique_descriptor', 'tags': ['technique_descriptor', 'beast'], 'axes': {'precision': 7}},
+  {'id': 'one_hit', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axes': {'precision': 9, 'power': 2}},
+  {'id': 'needle', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axes': {'precision': 5, 'power': -1}},
+  {'id': 'focused', 'type': 'technique_descriptor', 'tags': ['technique_descriptor'], 'axes': {'precision': 4}},
 ];
 ```
 
@@ -323,33 +336,37 @@ git commit -m "feat(technique): launch descriptor content + TechniqueAxes"
 - Test: `test/plugins/technique/technique_variant_test.dart`
 
 **Interfaces:**
-- Consumes: nothing.
+- Consumes: `EntityId` from `package:build_engine/build_engine.dart`.
 - Produces:
-  - `class TechniqueVariant { const TechniqueVariant({required String baseFamilyId, required Set<String> descriptorIds, required Map<String, num> axisProfile, String? styleId}); final String baseFamilyId; final Set<String> descriptorIds; final Map<String, num> axisProfile; final String? styleId; }`
+  - `class TechniqueVariant { const TechniqueVariant({required EntityId owner, required String baseFamilyId, required Set<String> descriptorIds, required Map<String, num> axisProfile, String? styleId}); final EntityId owner; final String baseFamilyId; final Set<String> descriptorIds; final Map<String, num> axisProfile; final String? styleId; }` — `owner` is the authoritative ownership relationship (rule 5), like `ItemInstance.owner`.
 
 - [ ] **Step 1: Write the failing test**
 
 ```dart
 // test/plugins/technique/technique_variant_test.dart
+import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/src/plugins/technique/technique_variant.dart';
 import 'package:test/test.dart';
 
 void main() {
-  test('holds its family, descriptors, resolved profile and style', () {
+  test('holds its owner, family, descriptors, resolved profile and style', () {
     const v = TechniqueVariant(
+      owner: EntityId(1),
       baseFamilyId: 'basic_punch',
       descriptorIds: {'bear', 'thunder'},
-      axisProfile: {'power': 13},
+      axisProfile: {'power': 13, 'speed': -1},
       styleId: 'wing_chun',
     );
+    expect(v.owner, const EntityId(1));
     expect(v.baseFamilyId, 'basic_punch');
     expect(v.descriptorIds, {'bear', 'thunder'});
-    expect(v.axisProfile['power'], 13);
+    expect(v.axisProfile, {'power': 13, 'speed': -1});
     expect(v.styleId, 'wing_chun');
   });
 
   test('a basic variant has an empty descriptor set and null style', () {
     const v = TechniqueVariant(
+      owner: EntityId(2),
       baseFamilyId: 'basic_kick',
       descriptorIds: {},
       axisProfile: {},
@@ -370,22 +387,28 @@ Expected: FAIL — `TechniqueVariant` undefined.
 
 ```dart
 // lib/src/plugins/technique/technique_variant.dart
+import 'package:build_engine/build_engine.dart';
 
-/// Per-instance variant state for one technique the owner holds. Pure
+/// Per-instance variant state for one technique an owner holds. Pure
 /// data, no behaviour — the `ComponentStore` component attached to a
 /// technique instance entity.
 ///
-/// [axisProfile] is the **stored** result of resolving [descriptorIds]
-/// (plus a style centre) at mint time — see `TechniqueVariantResolver`.
-/// It is not recomputed on read, so a later content change to a
-/// descriptor's magnitude does not silently restat existing instances.
+/// [owner] is the single authoritative "this owner has this instance"
+/// relationship (rule 5), mirroring `ItemInstance.owner`. [axisProfile]
+/// is the **stored** composed result (style centre ⊕ descriptor sum) at
+/// mint time — not recomputed on read, so a later content change to a
+/// descriptor does not silently restat existing instances.
 class TechniqueVariant {
   const TechniqueVariant({
+    required this.owner,
     required this.baseFamilyId,
     required this.descriptorIds,
     required this.axisProfile,
     this.styleId,
   });
+
+  /// The entity that owns this variant instance.
+  final EntityId owner;
 
   /// The base family this is a variant of, e.g. `'basic_punch'`.
   final String baseFamilyId;
@@ -393,7 +416,7 @@ class TechniqueVariant {
   /// Thematic descriptor ids carried by this instance.
   final Set<String> descriptorIds;
 
-  /// Resolved axis contributions, e.g. `{'power': 13, 'speed': -1}`.
+  /// Composed axis contributions, e.g. `{'power': 13, 'speed': -1}`.
   final Map<String, num> axisProfile;
 
   /// The style this variant is tied to; `null` for a basic technique.
@@ -420,7 +443,7 @@ git commit -m "feat(technique): TechniqueVariant component"
 
 ---
 
-## Task 4: `TechniqueVariantResolver`
+## Task 4: `TechniqueVariantResolver` + `composeAxisProfile`
 
 **Files:**
 - Create: `lib/src/plugins/technique/technique_variant_resolver.dart`
@@ -429,7 +452,8 @@ git commit -m "feat(technique): TechniqueVariant component"
 **Interfaces:**
 - Consumes: `TechniqueDescriptor` (Task 1).
 - Produces:
-  - `class TechniqueVariantResolver { const TechniqueVariantResolver(); Map<String, num> resolve({required Iterable<TechniqueDescriptor> descriptors, Map<String, num> styleCentre = const {}}); }`
+  - `class TechniqueVariantResolver { const TechniqueVariantResolver(); Map<String, num> resolve(Iterable<TechniqueDescriptor> descriptors); }` — **no `styleCentre` parameter** (rule 2).
+  - `Map<String, num> composeAxisProfile(Map<String, num> base, Map<String, num> contribution)` — pure additive per-axis union (rule 3).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -439,54 +463,61 @@ import 'package:build_engine/src/plugins/technique/technique_descriptor.dart';
 import 'package:build_engine/src/plugins/technique/technique_variant_resolver.dart';
 import 'package:test/test.dart';
 
-const _bear = TechniqueDescriptor(id: 'bear', axis: 'power', magnitude: 6);
-const _thunder = TechniqueDescriptor(id: 'thunder', axis: 'power', magnitude: 7);
-const _swift = TechniqueDescriptor(id: 'swift', axis: 'speed', magnitude: 5);
-const _drag = TechniqueDescriptor(id: 'drag', axis: 'speed', magnitude: -2);
+const _bear = TechniqueDescriptor(id: 'bear', axes: {'power': 6, 'speed': -1});
+const _thunder = TechniqueDescriptor(id: 'thunder', axes: {'power': 7});
+const _swift = TechniqueDescriptor(id: 'swift', axes: {'speed': 5});
 
 void main() {
   const resolver = TechniqueVariantResolver();
 
-  test('empty descriptors and empty centre yields empty profile', () {
-    expect(resolver.resolve(descriptors: const []), isEmpty);
+  test('empty descriptors → empty profile', () {
+    expect(resolver.resolve(const []), isEmpty);
   });
 
-  test('one descriptor yields its axis and magnitude', () {
-    expect(resolver.resolve(descriptors: const [_bear]), {'power': 6});
+  test('a multi-axis descriptor yields every axis in its map', () {
+    expect(resolver.resolve(const [_bear]), {'power': 6, 'speed': -1});
   });
 
-  test('descriptors on the same axis sum', () {
-    expect(resolver.resolve(descriptors: const [_bear, _thunder]), {'power': 13});
-  });
-
-  test('descriptors on different axes are separate keys', () {
+  test('descriptors sharing an axis sum; other axes stay separate', () {
     expect(
-      resolver.resolve(descriptors: const [_bear, _swift]),
-      {'power': 6, 'speed': 5},
+      resolver.resolve(const [_bear, _thunder, _swift]),
+      {'power': 13, 'speed': 4},
     );
   });
 
-  test('negative magnitude subtracts', () {
-    expect(
-      resolver.resolve(descriptors: const [_swift, _drag]),
-      {'speed': 3},
-    );
-  });
-
-  test('style centre is the additive base', () {
-    expect(
-      resolver.resolve(
-        descriptors: const [_bear],
-        styleCentre: const {'power': 2, 'endurance': 1},
-      ),
-      {'power': 8, 'endurance': 1},
-    );
+  test('resolve takes descriptors only — no styleCentre argument', () {
+    // Compile-time guarantee (rule 2): this call has exactly one positional
+    // arg. If a styleCentre param is ever added, this file stops compiling.
+    final profile = resolver.resolve(const [_bear]);
+    expect(profile['power'], 6);
   });
 
   test('deterministic — identical inputs, identical output', () {
-    final a = resolver.resolve(descriptors: const [_bear, _swift, _thunder]);
-    final b = resolver.resolve(descriptors: const [_bear, _swift, _thunder]);
-    expect(a, b);
+    expect(
+      resolver.resolve(const [_bear, _swift, _thunder]),
+      resolver.resolve(const [_bear, _swift, _thunder]),
+    );
+  });
+
+  group('composeAxisProfile', () {
+    test('empty base → contribution unchanged', () {
+      expect(composeAxisProfile(const {}, const {'power': 3}), {'power': 3});
+    });
+    test('empty contribution → base unchanged', () {
+      expect(composeAxisProfile(const {'speed': 2}, const {}), {'speed': 2});
+    });
+    test('overlapping axes add; disjoint axes union', () {
+      expect(
+        composeAxisProfile(const {'power': 2, 'endurance': 1}, const {'power': 6}),
+        {'power': 8, 'endurance': 1},
+      );
+    });
+    test('deterministic', () {
+      expect(
+        composeAxisProfile(const {'power': 2}, const {'speed': 1}),
+        composeAxisProfile(const {'power': 2}, const {'speed': 1}),
+      );
+    });
   });
 }
 ```
@@ -494,7 +525,7 @@ void main() {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `dart test test/plugins/technique/technique_variant_resolver_test.dart`
-Expected: FAIL — `TechniqueVariantResolver` undefined.
+Expected: FAIL — `TechniqueVariantResolver` / `composeAxisProfile` undefined.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -502,32 +533,43 @@ Expected: FAIL — `TechniqueVariantResolver` undefined.
 // lib/src/plugins/technique/technique_variant_resolver.dart
 import 'technique_descriptor.dart';
 
-/// Pure. A descriptor set (plus an optional style centre) → an axis
-/// profile. Mirrors `BuildResolver` / `ModifierResolver`'s "function, no
-/// storage" shape.
+/// Pure. Sums every descriptor's `axes` map. **Descriptors only** — no
+/// style, no base (rule 2). Mirrors `BuildResolver` / `ModifierResolver`'s
+/// "function, no storage" shape.
 class TechniqueVariantResolver {
   const TechniqueVariantResolver();
 
-  /// Sums each descriptor's `(axis, magnitude)` onto a copy of
-  /// [styleCentre]. Additive and commutative, so the result is
-  /// deterministic regardless of iteration order.
-  Map<String, num> resolve({
-    required Iterable<TechniqueDescriptor> descriptors,
-    Map<String, num> styleCentre = const {},
-  }) {
-    final profile = <String, num>{...styleCentre};
+  Map<String, num> resolve(Iterable<TechniqueDescriptor> descriptors) {
+    final profile = <String, num>{};
     for (final d in descriptors) {
-      profile[d.axis] = (profile[d.axis] ?? 0) + d.magnitude;
+      d.axes.forEach((axis, mag) {
+        profile[axis] = (profile[axis] ?? 0) + mag;
+      });
     }
     return profile;
   }
+}
+
+/// Pure. `base ⊕ contribution`, per axis, additive. The one place style
+/// seed / centre meets the descriptor profile — kept out of the resolver
+/// (rule 3). `mintTechniqueVariant` calls
+/// `composeAxisProfile(styleCentre, resolver.resolve(descriptors))`.
+Map<String, num> composeAxisProfile(
+  Map<String, num> base,
+  Map<String, num> contribution,
+) {
+  final out = <String, num>{...base};
+  contribution.forEach((axis, value) {
+    out[axis] = (out[axis] ?? 0) + value;
+  });
+  return out;
 }
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `dart test test/plugins/technique/technique_variant_resolver_test.dart`
-Expected: PASS (7 tests).
+Expected: PASS (all tests in the file).
 
 - [ ] **Step 5: Run the full technique suite + analyze**
 
@@ -725,16 +767,18 @@ void main() {
     owner = context.entities.create();
   });
 
-  test('mint creates a live instance with a resolved axis profile', () {
+  test('mint creates a live instance, owner-stamped, with a composed profile', () {
     final id = mintTechniqueVariant(
       owner, 'basic_punch', {'bear', 'thunder'}, context,
       styleId: 'wing_chun',
     );
     expect(context.entities.isAlive(id), isTrue);
     final v = context.components.get<TechniqueVariant>(id)!;
+    expect(v.owner, owner);                         // rule 5
     expect(v.baseFamilyId, 'basic_punch');
     expect(v.descriptorIds, {'bear', 'thunder'});
-    expect(v.axisProfile['power'], 13); // bear 6 + thunder 7
+    expect(v.axisProfile['power'], 13);             // bear 6 + thunder 7
+    expect(v.axisProfile['speed'], -1);            // bear's secondary axis (rule 1)
     expect(v.styleId, 'wing_chun');
   });
 
@@ -797,10 +841,11 @@ import 'technique_vocabulary.dart';
 export 'technique_descriptor.dart' show UnknownTechniqueDescriptorException;
 
 /// Mints one technique-variant instance for [owner]: a fresh entity
-/// carrying a [TechniqueVariant] whose [TechniqueVariant.axisProfile] is
-/// [descriptorIds] (+ [styleCentre]) resolved once, now. Registers a
-/// per-instance `MasteryDefinition` on the shared
-/// [techniqueMasteryThresholds] curve and publishes
+/// carrying a [TechniqueVariant] whose `axisProfile` is
+/// `composeAxisProfile(styleCentre, resolver.resolve(descriptors))` —
+/// computed once, now (rules 2 + 3). Stamps [owner] on the component
+/// (rule 5), registers a per-instance `MasteryDefinition` on the shared
+/// [techniqueMasteryThresholds] curve, and publishes
 /// [TechniqueVariantMinted].
 ///
 /// SP0a does not decide *which* descriptors or *what* style centre —
@@ -818,13 +863,18 @@ EntityId mintTechniqueVariant(
   final descriptors = [
     for (final id in descriptorIds) techniqueDescriptor(id, context),
   ];
-  final axisProfile = const TechniqueVariantResolver()
-      .resolve(descriptors: descriptors, styleCentre: styleCentre);
+  // rule 2: resolver sees descriptors only. rule 3: compose style centre
+  // outside the resolver.
+  final axisProfile = composeAxisProfile(
+    styleCentre,
+    const TechniqueVariantResolver().resolve(descriptors),
+  );
 
   final instance = context.entities.create();
   context.components.add<TechniqueVariant>(
     instance,
     TechniqueVariant(
+      owner: owner,              // rule 5: authoritative ownership
       baseFamilyId: baseFamilyId,
       descriptorIds: descriptorIds,
       axisProfile: axisProfile,
@@ -847,7 +897,7 @@ EntityId mintTechniqueVariant(
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `dart test test/plugins/technique/technique_variant_lifecycle_test.dart`
-Expected: PASS (6 tests).
+Expected: PASS (all tests in the file).
 
 - [ ] **Step 5: Run the full technique suite + analyze**
 
@@ -872,7 +922,7 @@ git commit -m "feat(technique): mintTechniqueVariant"
 **Interfaces:**
 - Consumes: `mintTechniqueVariant` (T6); `techniqueDefinition` + `isTechniqueLearned` + `TechniqueNotLearnedException` + `techniqueReferenceType` (existing, `technique_content.dart` / `technique_lifecycle.dart` / `technique_vocabulary.dart`); `context.tome.insert`; `context.components.get<TechniqueVariant>`.
 - Produces:
-  - `void hangTechniqueVariant(EntityId owner, SlotId slot, EntityId instanceId, PluginContext context)`
+  - `void hangTechniqueVariant(SlotId slot, EntityId instanceId, PluginContext context)` — the owner is read from `TechniqueVariant.owner` (rule 5), not passed.
   - `class TechniqueVariantNotFoundException implements Exception { const TechniqueVariantNotFoundException(EntityId instanceId); final EntityId instanceId; }`
 
 - [ ] **Step 1: Write the failing test**
@@ -898,18 +948,18 @@ import 'package:build_engine/src/plugins/technique/technique_lifecycle.dart';
       final id = mintTechniqueVariant(
           owner, 'basic_punch', {'bear'}, context, styleId: 'wing_chun');
 
-      hangTechniqueVariant(owner, const SlotId('r0c0'), id, context);
+      hangTechniqueVariant(const SlotId('r0c0'), id, context);
 
       final placements = context.tome.inspect(owner);
       expect(placements, hasLength(1));
       expect(placements.single.buildComponentRef.contentId, 'basic_punch');
-      expect(placements.single.buildComponentRef.instanceEntityId, id);
+      expect(placements.single.buildComponentRef.instanceEntityId, id); // rule 4
     });
 
     test('a basic variant is gated on the family being learned', () {
       final id = mintTechniqueVariant(owner, 'basic_punch', const {}, context);
       expect(
-        () => hangTechniqueVariant(owner, const SlotId('r0c0'), id, context),
+        () => hangTechniqueVariant(const SlotId('r0c0'), id, context),
         throwsA(isA<TechniqueNotLearnedException>()),
       );
 
@@ -917,14 +967,13 @@ import 'package:build_engine/src/plugins/technique/technique_lifecycle.dart';
       discoverTechnique(owner, family, context);
       attemptToLearnTechnique(owner, family, 10, context);
 
-      hangTechniqueVariant(owner, const SlotId('r0c0'), id, context);
+      hangTechniqueVariant(const SlotId('r0c0'), id, context);
       expect(context.tome.inspect(owner), hasLength(1));
     });
 
     test('hanging an unknown instance id throws', () {
       expect(
-        () => hangTechniqueVariant(
-            owner, const SlotId('r0c0'), const EntityId(999), context),
+        () => hangTechniqueVariant(const SlotId('r0c0'), const EntityId(999), context),
         throwsA(isA<TechniqueVariantNotFoundException>()),
       );
     });
@@ -934,7 +983,7 @@ import 'package:build_engine/src/plugins/technique/technique_lifecycle.dart';
       context.events.subscribe<TechniqueAddedToTome>((e) => seen = e);
       final id = mintTechniqueVariant(owner, 'basic_slash', {'iron'}, context,
           styleId: 'boxing');
-      hangTechniqueVariant(owner, const SlotId('r0c0'), id, context);
+      hangTechniqueVariant(const SlotId('r0c0'), id, context);
       expect(seen?.instanceId, id);
     });
   });
@@ -964,16 +1013,17 @@ class TechniqueVariantNotFoundException implements Exception {
   String toString() => 'No technique variant for instance $instanceId';
 }
 
-/// Hangs the variant instance [instanceId] in [owner]'s Tome [slot].
+/// Hangs the variant instance [instanceId] in its owner's Tome [slot].
+/// The owner is read from `TechniqueVariant.owner` (rule 5) — not passed,
+/// so a mismatched owner is impossible by construction.
 ///
 /// A **basic** variant (no descriptors, no style) is gated on the base
 /// family being `isTechniqueLearned` — the same rule `addTechniqueToTome`
 /// enforces. A **derived** variant has no learning gate (mirrors "evolved
 /// branches are never learned separately"). The written `BuildComponentRef`
-/// carries `instanceEntityId: instanceId`, and [TechniqueAddedToTome] is
-/// published with that instance.
+/// carries a non-null `instanceEntityId` (rule 4), and [TechniqueAddedToTome]
+/// is published with that instance.
 void hangTechniqueVariant(
-  EntityId owner,
   SlotId slot,
   EntityId instanceId,
   PluginContext context,
@@ -982,6 +1032,7 @@ void hangTechniqueVariant(
   if (variant == null) {
     throw TechniqueVariantNotFoundException(instanceId);
   }
+  final owner = variant.owner;
   final isBasic = variant.styleId == null && variant.descriptorIds.isEmpty;
   if (isBasic) {
     final family = techniqueDefinition(variant.baseFamilyId, context);
@@ -1030,63 +1081,85 @@ git commit -m "feat(technique): hangTechniqueVariant (instance-carrying Tome ref
 
 ---
 
-## Task 8: Per-instance mastery helpers
+## Task 8: `ownedTechniqueVariants` + per-instance mastery helpers
 
 **Files:**
 - Modify: `lib/src/plugins/technique/technique_variant_lifecycle.dart`
 - Test: append to `test/plugins/technique/technique_variant_lifecycle_test.dart`
 
 **Interfaces:**
-- Consumes: `techniqueInstanceSubject` (T5); `context.mastery.increase` / `.levelOf`.
-- Produces:
-  - `void trainTechniqueVariantMastery(EntityId owner, EntityId instanceId, num amount, PluginContext context)`
-  - `int techniqueVariantMasteryLevel(EntityId owner, EntityId instanceId, PluginContext context)`
+- Consumes: `techniqueInstanceSubject` (T5); `TechniqueVariant.owner` (T3); `context.mastery.increase` / `.levelOf`; `context.components.entitiesWith<TechniqueVariant>` / `.get<TechniqueVariant>`.
+- Produces (owner is derived from the component, per rule 5 — not a parameter):
+  - `List<EntityId> ownedTechniqueVariants(EntityId owner, PluginContext context)`
+  - `void trainTechniqueVariantMastery(EntityId instanceId, num amount, PluginContext context)`
+  - `int techniqueVariantMasteryLevel(EntityId instanceId, PluginContext context)`
 
 - [ ] **Step 1: Write the failing test**
 
 ```dart
 // append to test/plugins/technique/technique_variant_lifecycle_test.dart
-  group('per-instance mastery', () {
+  group('ownership + per-instance mastery', () {
+    test('ownedTechniqueVariants returns exactly this owner\'s instances', () {
+      final other = context.entities.create();
+      final a = mintTechniqueVariant(owner, 'basic_punch', {'bear'}, context,
+          styleId: 's');
+      final b = mintTechniqueVariant(owner, 'basic_kick', const {}, context);
+      final theirs = mintTechniqueVariant(other, 'basic_slash', {'iron'}, context,
+          styleId: 's');
+
+      final owned = ownedTechniqueVariants(owner, context);
+      expect(owned, containsAll(<EntityId>[a, b]));
+      expect(owned, isNot(contains(theirs)));   // rule 5
+    });
+
     test('two instances of the same base master independently', () {
       final a = mintTechniqueVariant(owner, 'basic_punch', {'bear'}, context,
           styleId: 's');
       final b = mintTechniqueVariant(owner, 'basic_punch', {'swift'}, context,
           styleId: 's');
 
-      trainTechniqueVariantMastery(owner, a, 20, context);
+      trainTechniqueVariantMastery(a, 20, context); // no owner arg (rule 5)
 
-      expect(techniqueVariantMasteryLevel(owner, a, context), greaterThan(0));
-      expect(techniqueVariantMasteryLevel(owner, b, context), 0);
+      expect(techniqueVariantMasteryLevel(a, context), greaterThan(0));
+      expect(techniqueVariantMasteryLevel(b, context), 0);
     });
   });
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `dart test test/plugins/technique/technique_variant_lifecycle_test.dart -N "per-instance mastery"`
+Run: `dart test test/plugins/technique/technique_variant_lifecycle_test.dart -N "ownership + per-instance mastery"`
 Expected: FAIL — helpers undefined.
 
 - [ ] **Step 3: Write minimal implementation** (add to `technique_variant_lifecycle.dart`)
 
 ```dart
+/// Every technique-variant instance whose `TechniqueVariant.owner` is
+/// [owner] — the single authoritative "owner has this" query (rule 5).
+/// Includes hung and loose (owned-but-unplaced) instances alike.
+List<EntityId> ownedTechniqueVariants(EntityId owner, PluginContext context) => [
+      for (final e in context.components.entitiesWith<TechniqueVariant>())
+        if (context.components.get<TechniqueVariant>(e)!.owner == owner) e,
+    ];
+
 /// Adds [amount] proficiency to the per-instance MASTERY of variant
-/// [instanceId]. Keyed by [techniqueInstanceSubject], so it never moves
-/// the base family's own mastery.
+/// [instanceId]. Keyed by [techniqueInstanceSubject]; the owner is read
+/// from the instance's `TechniqueVariant.owner` (rule 5). Never moves the
+/// base family's own mastery.
 void trainTechniqueVariantMastery(
-  EntityId owner,
   EntityId instanceId,
   num amount,
   PluginContext context,
-) =>
-    context.mastery.increase(owner, techniqueInstanceSubject(instanceId), amount);
+) {
+  final owner = context.components.get<TechniqueVariant>(instanceId)!.owner;
+  context.mastery.increase(owner, techniqueInstanceSubject(instanceId), amount);
+}
 
 /// Variant [instanceId]'s current MASTERY level — `0` if never trained.
-int techniqueVariantMasteryLevel(
-  EntityId owner,
-  EntityId instanceId,
-  PluginContext context,
-) =>
-    context.mastery.levelOf(owner, techniqueInstanceSubject(instanceId));
+int techniqueVariantMasteryLevel(EntityId instanceId, PluginContext context) {
+  final owner = context.components.get<TechniqueVariant>(instanceId)!.owner;
+  return context.mastery.levelOf(owner, techniqueInstanceSubject(instanceId));
+}
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -1103,7 +1176,7 @@ Expected: green.
 
 ```bash
 git add lib/src/plugins/technique/technique_variant_lifecycle.dart test/plugins/technique/technique_variant_lifecycle_test.dart
-git commit -m "feat(technique): per-instance variant mastery helpers"
+git commit -m "feat(technique): ownedTechniqueVariants + per-instance mastery helpers"
 ```
 
 ---
@@ -1115,9 +1188,9 @@ git commit -m "feat(technique): per-instance variant mastery helpers"
 - Test: append to `test/plugins/technique/technique_variant_lifecycle_test.dart`
 
 **Interfaces:**
-- Consumes: `context.tome.inspect` / `.remove`; `context.components.get<MasteryComponent>` / `.remove<TechniqueVariant>`; `context.entities.destroy`; `TechniqueVariantRemoved` (T5); `techniqueInstanceSubject` (T5).
+- Consumes: `TechniqueVariant.owner` (T3); `context.tome.inspect` / `.remove`; `context.components.get<MasteryComponent>` / `.remove<TechniqueVariant>`; `context.entities.destroy`; `TechniqueVariantRemoved` (T5); `techniqueInstanceSubject` (T5).
 - Produces:
-  - `void removeTechniqueVariant(EntityId owner, EntityId instanceId, PluginContext context)`
+  - `void removeTechniqueVariant(EntityId instanceId, PluginContext context)` — owner is read from `TechniqueVariant.owner` (rule 5), not passed.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1139,10 +1212,10 @@ git commit -m "feat(technique): per-instance variant mastery helpers"
     test('removes the placement, the progress, the component, and the entity', () {
       final id = mintTechniqueVariant(owner, 'basic_punch', {'bear'}, context,
           styleId: 'wing_chun');
-      hangTechniqueVariant(owner, const SlotId('r0c0'), id, context);
-      trainTechniqueVariantMastery(owner, id, 10, context);
+      hangTechniqueVariant(const SlotId('r0c0'), id, context);
+      trainTechniqueVariantMastery(id, 10, context);
 
-      removeTechniqueVariant(owner, id, context);
+      removeTechniqueVariant(id, context);
 
       expect(context.tome.inspect(owner), isEmpty);
       expect(context.components.get<TechniqueVariant>(id), isNull);
@@ -1157,13 +1230,13 @@ git commit -m "feat(technique): per-instance variant mastery helpers"
       TechniqueVariantRemoved? seen;
       context.events.subscribe<TechniqueVariantRemoved>((e) => seen = e);
       final id = mintTechniqueVariant(owner, 'basic_kick', const {}, context);
-      removeTechniqueVariant(owner, id, context);
+      removeTechniqueVariant(id, context);
       expect(seen?.instanceId, id);
     });
 
     test('removing an unknown instance throws', () {
       expect(
-        () => removeTechniqueVariant(owner, const EntityId(999), context),
+        () => removeTechniqueVariant(const EntityId(999), context),
         throwsA(isA<TechniqueVariantNotFoundException>()),
       );
     });
@@ -1178,7 +1251,8 @@ Expected: FAIL — `removeTechniqueVariant` undefined.
 - [ ] **Step 3: Write minimal implementation** (add to `technique_variant_lifecycle.dart`)
 
 ```dart
-/// Fully removes variant instance [instanceId] for [owner]:
+/// Fully removes variant instance [instanceId]. The owner is read from
+/// its `TechniqueVariant.owner` (rule 5).
 ///   1. drop any Tome placement holding it,
 ///   2. clear its per-instance mastery progress (the `MasteryDefinition`
 ///      stays — `MasteryTracker` has no undefine; a definition with no
@@ -1191,13 +1265,14 @@ Expected: FAIL — `removeTechniqueVariant` undefined.
 /// Throws [TechniqueVariantNotFoundException] if [instanceId] has no
 /// variant component.
 void removeTechniqueVariant(
-  EntityId owner,
   EntityId instanceId,
   PluginContext context,
 ) {
-  if (context.components.get<TechniqueVariant>(instanceId) == null) {
+  final variant = context.components.get<TechniqueVariant>(instanceId);
+  if (variant == null) {
     throw TechniqueVariantNotFoundException(instanceId);
   }
+  final owner = variant.owner;
 
   for (final placement in context.tome.inspect(owner)) {
     if (placement.buildComponentRef.instanceEntityId == instanceId) {
@@ -1287,14 +1362,14 @@ void main() {
     final context = _newContext();
     TechniquePlugin().initialize(context);
     final d = techniqueDescriptor('bear', context);
-    expect(d.axis, 'power');
+    expect(d.axes['power'], 6);
   });
 
   test('initialize twice on one context does not double-load', () {
     final context = _newContext();
     final plugin = TechniquePlugin()..initialize(context);
     plugin.initialize(context); // must not throw ContentDuplicateIdException
-    expect(techniqueDescriptor('swift', context).axis, 'speed');
+    expect(techniqueDescriptor('swift', context).axes['speed'], 5);
   });
 
   test('variant API is exported from the plugin barrel', () {
@@ -1383,8 +1458,9 @@ git commit -m "feat(technique): register descriptor content + export variant API
       final v = context.components.get<TechniqueVariant>(id)!;
       expect(v.baseFamilyId, TechniqueIds.basicPunch);
       expect(v.descriptorIds, contains('strong'));
-      // profile matches the resolver over the mapped descriptors
-      final expected = const TechniqueVariantResolver().resolve(descriptors: [
+      // profile matches the resolver over the mapped descriptors (no style
+      // centre passed, so composeAxisProfile({}, ...) == the resolver output)
+      final expected = const TechniqueVariantResolver().resolve([
         for (final d in v.descriptorIds) techniqueDescriptor(d, context),
       ]);
       expect(v.axisProfile, expected);
@@ -1510,19 +1586,31 @@ Add an entry under the current unreleased/next section, matching the file's exis
 
 ```markdown
 ### Added — Technique instancing (SP0a)
-- `TechniqueDescriptor` content type (`type: 'technique_descriptor'`), launch
-  descriptor set, and `TechniqueAxes` (`power`/`speed`/`endurance`/`precision`).
-- `TechniqueVariant` component: `baseFamilyId`, `descriptorIds`, resolved
-  `axisProfile`, `styleId`.
-- `TechniqueVariantResolver` — pure descriptors (+ style centre) → axis profile.
-- `mintTechniqueVariant` / `hangTechniqueVariant` / `removeTechniqueVariant`;
-  `trainTechniqueVariantMastery` / `techniqueVariantMasteryLevel`;
+- `TechniqueDescriptor` content type (`type: 'technique_descriptor'`) with a
+  multi-axis `axes: {axisKey → magnitude}` map; launch descriptor set;
+  `TechniqueAxes` (`power`/`speed`/`endurance`/`precision`).
+- `TechniqueVariant` component: `owner`, `baseFamilyId`, `descriptorIds`,
+  composed `axisProfile`, `styleId`.
+- `TechniqueVariantResolver.resolve(descriptors)` — pure, descriptors only;
+  `composeAxisProfile(base, contribution)` — pure additive merge (style-centre
+  composition, kept out of the resolver).
+- `mintTechniqueVariant(owner, family, descriptorIds, context, {styleId,
+  styleCentre})`; `hangTechniqueVariant(slot, instanceId, context)`;
+  `removeTechniqueVariant(instanceId, context)`; `ownedTechniqueVariants(owner,
+  context)`; `trainTechniqueVariantMastery(instanceId, amount, context)` /
+  `techniqueVariantMasteryLevel(instanceId, context)`;
   `mintVariantForLegacyEvolvedId`.
 - `techniqueInstanceSubject(EntityId)` — per-instance Mastery subject.
 - Events: `TechniqueVariantMinted`, `TechniqueVariantRemoved`; optional
   `instanceId` on `TechniqueAddedToTome`.
 
 ### Notes
+- Ownership is authoritative on `TechniqueVariant.owner` (like
+  `ItemInstance.owner`); "hung" is derived from Tome placements. Lifecycle
+  functions other than `mint` read the owner off the component.
+- Every technique `BuildComponentRef` the plugin writes carries a non-null
+  `instanceEntityId`; a null one is a pre-SP0a placement readers treat as the
+  bare base.
 - Additive: `EvolutionResolver` and the hand-authored evolved ids are
   unchanged; per-instance `MasteryDefinition`s are not unregistered on removal
   (no `MasteryTracker.undefine`) — a run's fresh `PluginContext` resets them.
@@ -1536,18 +1624,26 @@ In the Technique plugin section, add a subsection after the existing description
 ### Technique instancing (SP0a)
 
 A technique the player holds is a **variant instance** — a minted `EntityId`
-carrying a `TechniqueVariant` component (`baseFamilyId`, `descriptorIds`,
-resolved `axisProfile`, `styleId`), referenced from the Tome via the
-already-optional `BuildComponentRef.instanceEntityId`. Multiple variants of one
-base family coexist; a **basic** technique is a variant with an empty descriptor
-set.
+carrying a `TechniqueVariant` component (`owner`, `baseFamilyId`,
+`descriptorIds`, composed `axisProfile`, `styleId`), referenced from the Tome
+via the already-optional `BuildComponentRef.instanceEntityId`. Multiple variants
+of one base family coexist; a **basic** technique is a variant with an empty
+descriptor set.
 
-Variety is data: a `TechniqueDescriptor` (`{id, axis, magnitude}`, content type
-`technique_descriptor`) names a thematic modifier — `bear → power`, `hawkseye →
-precision`. `TechniqueVariantResolver` (pure, additive) sums a descriptor set
-plus a per-family style centre into the stored `axisProfile`. Axes are an open
-string set; `power`/`speed`/`endurance`/`precision` ship at launch. Nothing
-reads `axisProfile` into a calculation yet — SP1 maps it to an `EffectProfile`.
+Variety is data: a `TechniqueDescriptor` (content type `technique_descriptor`)
+carries `axes: {axisKey → magnitude}` — one `bear` can be `{power: 6, speed:
+-1}`. `TechniqueVariantResolver.resolve(descriptors)` is pure and sees
+descriptors only; a separate pure `composeAxisProfile(styleCentre,
+descriptorProfile)` folds in the style seed, and only `mintTechniqueVariant`
+calls it. Axes are an open string set; `power`/`speed`/`endurance`/`precision`
+ship at launch. Nothing reads `axisProfile` into a calculation yet — SP1 maps
+it to an `EffectProfile`.
+
+Ownership is authoritative on `TechniqueVariant.owner` (mirroring
+`ItemInstance.owner`): `ownedTechniqueVariants(owner)` is the single "owner has
+this" query, and "hung" is derived from Tome placements referencing an owned
+instance. Every technique ref the plugin writes carries a non-null
+`instanceEntityId`; a null one is a pre-SP0a placement, read as the bare base.
 
 Mastery is **per instance**: `techniqueInstanceSubject(EntityId)` keys the
 existing `MasteryTracker` on the shared `techniqueMasteryThresholds` curve.
@@ -1585,8 +1681,8 @@ git commit -m "docs: technique instancing (SP0a) — CHANGELOG + ARCHITECTURE"
 
 ## Self-Review (completed by plan author)
 
-**1. Spec coverage.** Spec §4.1 base/instance split → T3, T6. §4.2 `TechniqueVariant` → T3. §4.3 descriptors → T1, T2. §4.4 axes → T2. §4.5 resolver → T4. §5 per-instance mastery → T5, T8; cleanup deviation (no `undefine`) captured in Global Constraints + T9. §6 lifecycle (mint/hang/remove) → T6, T7, T9; `TechniqueAddedToTome.instanceId` + new events → T5. §7 coexistence → T11. §11 files → all tasks; barrel + docs → T10, T12. §12 open questions Q2/Q3/Q4/Q5 are design-time decisions, not build items — Q3 (angle/rhythm as descriptors) is realized by T2's one-axis-per-descriptor rule; Q4 (style centre in `martial_arts`) is out of SP0a (mint takes `styleCentre` as a param, caller supplies it). No spec section is unimplemented.
+**1. Spec coverage.** Spec §1.3 five rules: rule 1 (multi-axis descriptor) → T1, T2; rule 2 (resolver = descriptors only) → T4; rule 3 (`composeAxisProfile` outside resolver) → T4, T6; rule 4 (non-null `instanceEntityId` invariant) → T5, T7 (+ readers noted for SP1); rule 5 (`owner` authoritative, hung derived) → T3, T7, T8, T9. §4.1 base/instance split → T3, T6. §4.2 `TechniqueVariant` (+`owner`) → T3. §4.3 descriptors → T1, T2. §4.4 axes → T2. §4.5 resolver + compose → T4. §5 per-instance mastery → T5, T8; no-`undefine` deviation captured in Global Constraints + T9. §6 lifecycle → T6, T7, T9; §6.1 invariant → T7; §6.2 ownership → T8. §7 coexistence → T11. §11 files → all tasks; barrel + docs → T10, T12. §12 open questions Q2/Q4/Q5 are design-time decisions, not build items (Q3 resolved by rule 1). No spec section is unimplemented.
 
-**2. Placeholder scan.** No "TBD"/"handle errors"/"similar to". Every code step has full source. Two flagged verification points (does `_parse` accept an unknown `type`; exact `TomeDefinition`/`Container.grid` arg names) are written as "match the API in `lib/src/...`" with the file named — these are lookups the executor does, not gaps in intent.
+**2. Placeholder scan.** No "TBD"/"handle errors"/"similar to". Every code step has full source. Two flagged verification points (does `_parse` accept an unknown `type`; exact `TomeDefinition`/`Container.grid` arg names) are written as "match the API in `lib/src/...`" with the file named — lookups the executor does, not gaps in intent.
 
-**3. Type consistency.** `mintTechniqueVariant(owner, baseFamilyId, descriptorIds, context, {styleId, styleCentre})` — same arg order in T6, T7, T8, T9, T11 tests. `techniqueInstanceSubject(EntityId)` — T5 def, used T6/T8/T9. `TechniqueVariant` field names (`baseFamilyId`/`descriptorIds`/`axisProfile`/`styleId`) — consistent T3 → T6/T7/T9/T11. `techniqueDescriptor(id, context)` throws `UnknownTechniqueDescriptorException` — T1 def, asserted T6. `removeTechniqueVariant` / `hangTechniqueVariant` throw `TechniqueVariantNotFoundException` — T7 def, reused T9.
+**3. Type consistency.** `mintTechniqueVariant(owner, baseFamilyId, descriptorIds, context, {styleId, styleCentre})` — same shape in T6, T7, T8, T9, T11. `hangTechniqueVariant(slot, instanceId, context)` / `removeTechniqueVariant(instanceId, context)` / `trainTechniqueVariantMastery(instanceId, amount, context)` / `techniqueVariantMasteryLevel(instanceId, context)` — **no `owner` parameter**, owner derived from `TechniqueVariant.owner` (rule 5); consistent across T7/T8/T9 defs and their tests. `TechniqueDescriptor.axes` (Map) — T1 def, used T2/T4/T11. `TechniqueVariant` fields (`owner`/`baseFamilyId`/`descriptorIds`/`axisProfile`/`styleId`) — consistent T3 → T6/T7/T8/T9/T11. `TechniqueVariantResolver.resolve(Iterable<TechniqueDescriptor>)` — single positional arg, no `styleCentre` (rule 2); `composeAxisProfile(base, contribution)` — T4 def, used T6. `techniqueInstanceSubject(EntityId)` — T5 def, used T6/T8/T9. Exceptions: `UnknownTechniqueDescriptorException` (T1, asserted T6), `TechniqueVariantNotFoundException` (T7 def, reused T9).

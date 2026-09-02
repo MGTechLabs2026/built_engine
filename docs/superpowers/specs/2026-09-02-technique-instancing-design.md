@@ -41,6 +41,31 @@ personal variants, and (SP0b) new variants can be generated from play.
 
 Build order: **SP0a → SP0b → SP1 → SP2/3/4.**
 
+### 1.3 Five design rules
+
+These keep SP0a a clean, single-direction layer that SP0b and SP1 can
+build on without reaching back in:
+
+1. **`TechniqueDescriptor` carries a map `axes: {axis → magnitude}`** —
+   one descriptor can touch several axes (`bear`: `power +6, speed −1`).
+2. **`TechniqueVariantResolver` is purely `descriptors → axisProfile`** —
+   no style, no base, no `styleCentre` parameter.
+3. **Style seed / centre composition lives outside the resolver** — a
+   separate pure `composeAxisProfile(base, contribution)`; `mint` calls it.
+4. **Explicit `instanceEntityId` compatibility invariant** — post-SP0a
+   every technique Tome ref written by the plugin is non-null; a null one
+   is a pre-SP0a placement readers must tolerate as the bare base (§6.1).
+5. **Ownership is one authoritative relationship** — `TechniqueVariant.owner`
+   (like `ItemInstance.owner`); "hung" is derived from the Tome, never a
+   second stored list (§6.2).
+
+The resulting pipeline:
+
+```
+CONTENT → TechniqueDescriptor → TechniqueVariantResolver → axisProfile
+        → TechniqueVariant → EntityId → BuildComponentRef → Tome
+```
+
 ---
 
 ## 2. Scope
@@ -49,13 +74,17 @@ Build order: **SP0a → SP0b → SP1 → SP2/3/4.**
 
 - A **technique instance** entity minted per variant a player holds,
   referenced from the Tome via `BuildComponentRef.instanceEntityId`.
-- A plugin component `TechniqueVariant` holding the instance's
-  **descriptor set** and its resolved **axis profile**.
-- **Descriptors** as content data: `{id, axis, magnitude}` (`bear → power
-  +N`, `hawkseye → precision +N`). Many descriptors, few axes.
+- A plugin component `TechniqueVariant` holding the instance's `owner`,
+  **descriptor set**, and composed **axis profile**.
+- **Descriptors** as content data: `{id, axes: {axisKey → magnitude}, tags}`
+  — one `bear` can be `{power: 6, speed: -1}` (rule 1). Many descriptors,
+  few axes.
 - **Axes** as an open, string-keyed set. Launch content: `power`,
   `speed`, `endurance`, `precision`.
-- A pure resolver: descriptor set (+ a style centre) → axis profile.
+- A pure resolver `descriptors → axisProfile` (rule 2), plus a separate
+  pure `composeAxisProfile(styleCentre, descriptorProfile)` (rule 3).
+- **Ownership** stamped on `TechniqueVariant.owner` as the single
+  authoritative relationship (rule 5); "hung" is derived from the Tome.
 - **Per-instance mastery**: mastery keyed by the instance's own subject
   id, sharing one threshold curve, via the existing `MasteryTracker`.
 - **Basic vs derived**: the 6 bases stay universal and keep the LEARNING
@@ -89,10 +118,10 @@ Build order: **SP0a → SP0b → SP1 → SP2/3/4.**
 | Rule | Compliance |
 |------|-----------|
 | *Core provides verbs; plugins provide nouns.* | Every new type (`TechniqueVariant`, descriptor, axis) is in `lib/src/plugins/technique/`. Core gains nothing. "power"/"bear"/"jab" never enter core. |
-| *No giant classes (Player, Sword, Potion).* | `TechniqueVariant` is a small component: a descriptor id list + a `Map<String, num>` axis profile. No behaviour. |
+| *No giant classes (Player, Sword, Potion).* | `TechniqueVariant` is a small component: `owner`, `baseFamilyId`, a descriptor id set, a `Map<String, num>` axis profile, `styleId`. No behaviour. |
 | *No speculative abstraction.* | Instances, descriptors, and per-instance mastery each have an immediate use (personal variants now; SP0b/SP1 consume them next). Axes launch with exactly the 4 the content needs. |
-| *Smallest stable API.* | One component type, one content shape (descriptor), one pure resolver. Reuses `MasteryTracker`, `BuildComponentRef.instanceEntityId`, `ContentRegistry` unchanged. |
-| *Composition over inheritance; pure functions; explicit deps.* | `TechniqueVariant` is composed onto an instance entity. The descriptor→axis resolver is pure, like `BuildResolver`. No new `PluginContext`/`RuleContext` wiring. |
+| *Smallest stable API.* | One component type, one content shape (descriptor with an `axes` map), two pure functions (`resolve`, `composeAxisProfile`). Reuses `MasteryTracker`, `BuildComponentRef.instanceEntityId`, `ContentRegistry` unchanged. |
+| *Composition over inheritance; pure functions; explicit deps.* | `TechniqueVariant` is composed onto an instance entity. `resolve` and `composeAxisProfile` are pure, like `BuildResolver`. Style composition is not folded into the resolver (rule 3). No new `PluginContext`/`RuleContext` wiring. |
 | *Each plugin picks its own subject-id namespace; core never interprets it.* | Per-instance mastery keys on `technique:instance:<entityValue>` — a plugin-chosen string; `MasteryTracker` treats it like any other subject. |
 
 **Engine footprint of SP0a: effectively zero core change.** It is a
@@ -122,16 +151,18 @@ empty descriptor set and a zero axis profile.
 ### 4.2 `TechniqueVariant` component
 
 ```dart
-/// Per-instance variant state for one technique the owner holds.
+/// Per-instance variant state for one technique an owner holds.
 /// Pure data — no behaviour.
 class TechniqueVariant {
   const TechniqueVariant({
+    required this.owner,            // AUTHORITATIVE ownership (see §6.2)
     required this.baseFamilyId,     // e.g. 'basic_punch'
     required this.descriptorIds,    // e.g. {'bear', 'thunder'}
-    required this.axisProfile,      // resolved: {'power': 6, 'speed': -1}
+    required this.axisProfile,      // composed: {'power': 6, 'speed': -1}
     this.styleId,                   // null for a basic; set for a derived
   });
 
+  final EntityId owner;
   final String baseFamilyId;
   final Set<String> descriptorIds;
   final Map<String, num> axisProfile;
@@ -139,37 +170,48 @@ class TechniqueVariant {
 }
 ```
 
-`axisProfile` is **stored**, not recomputed on read — it is the resolved
-result of `descriptorIds` (+ style centre) at mint time, so a later
-content change to a descriptor does not silently restat every existing
-instance. Re-resolving is an explicit operation.
+- `owner` — the single authoritative "this owner has this instance"
+  relationship (rule 5, §6.2). Mirrors `ItemInstance.owner`.
+- `axisProfile` is **stored**, not recomputed on read — the composed
+  result of the pure descriptor sum plus the style centre, fixed at mint
+  time, so a later content change to a descriptor does not silently
+  restat existing instances. Re-resolving is an explicit operation.
 
 ### 4.3 Descriptors (content data)
+
+**Rule 1 — a descriptor carries a *map* of axis → magnitude, not a single
+axis.** One `bear` can be `power +6, speed −1` in a single entry.
 
 ```dart
 /// A thematic modifier a variant can carry. Content, loaded via
 /// ContentRegistry like TechniqueDefinition.properties already is.
 class TechniqueDescriptor {
   const TechniqueDescriptor({
-    required this.id,        // 'bear', 'thunder', 'hawkseye', ...
-    required this.axis,      // 'power', 'speed', 'endurance', 'precision'
-    required this.magnitude, // signed num
-    this.tags = const {},    // free thematic tags for SP0b matching
+    required this.id,       // 'bear', 'thunder', 'hawkseye', ...
+    required this.axes,     // {'power': 6, 'speed': -1}  — signed
+    this.tags = const {},   // free thematic tags for SP0b matching
   });
+
+  final String id;
+  final Map<String, num> axes;
+  final Set<String> tags;
 }
 ```
 
+Content shape: `{'id': 'bear', 'type': 'technique_descriptor',
+'tags': [...], 'axes': {'power': 6, 'speed': -1}}`.
+
 Launch content (illustrative, final list set during implementation):
 
-| Axis | Descriptors |
-|------|-------------|
-| `power` | bear, elephant, strong, destruction, thunder, iron, mountain-fist |
+| Axis | Descriptors (primary) |
+|------|-----------------------|
+| `power` | bear, elephant, strong, destruction, thunder, iron |
 | `speed` | swift, fast, lightning, light, flash |
 | `endurance` | immortal, wall, mountain, undead, rooted |
-| `precision` | bullseye, hawkseye, one-hit, needle, focused |
+| `precision` | bullseye, hawkseye, one_hit, needle, focused |
 
-A descriptor may be **negative on another axis** (e.g. `bear`: power +6,
-speed −1) — authored per descriptor, not derived.
+Any descriptor may also carry a secondary, usually-negative axis in the
+same `axes` map (`bear`: `{power: 6, speed: -1}`).
 
 ### 4.4 Axes
 
@@ -177,25 +219,37 @@ Open, string-keyed — `power`, `speed`, `endurance`, `precision` to start.
 The plugin owns the list; adding one is a content change, no code change.
 Core never sees them.
 
-### 4.5 The resolver
+### 4.5 The resolver + style composition
+
+**Rule 2 — `TechniqueVariantResolver` is purely `descriptors → axisProfile`.**
+No style, no base, no `styleCentre` parameter.
 
 ```dart
-/// Pure. descriptor set (+ optional style centre) -> axis profile.
+/// Pure. Sums every descriptor's axis map. Nothing else.
 class TechniqueVariantResolver {
   const TechniqueVariantResolver();
 
-  /// Sums each descriptor's (axis, magnitude) onto `styleCentre`
-  /// (a per-family baseline axis profile, empty for a basic).
-  Map<String, num> resolve({
-    required Iterable<TechniqueDescriptor> descriptors,
-    Map<String, num> styleCentre = const {},
-  });
+  Map<String, num> resolve(Iterable<TechniqueDescriptor> descriptors);
 }
 ```
 
-Additive, commutative, deterministic. SP0b decides *which* descriptors and
-*what* style centre; SP0a just needs `resolve` and a way to call it at
-mint time.
+**Rule 3 — style seed / centre composition lives *outside* the resolver.**
+A separate pure helper merges a base profile (the style centre) with the
+resolver's descriptor profile:
+
+```dart
+/// base ⊕ contribution, per axis, additive. Pure.
+Map<String, num> composeAxisProfile(
+  Map<String, num> base,
+  Map<String, num> contribution,
+);
+```
+
+`mintTechniqueVariant` calls `composeAxisProfile(styleCentre,
+resolver.resolve(descriptors))` and stores the result. The resolver never
+sees `styleCentre`; SP0b and style-seed code supply it to `mint`.
+
+All three functions are additive, commutative, deterministic, RNG-free.
 
 ---
 
@@ -207,8 +261,11 @@ mint time.
 - On mint, register a `MasteryDefinition(subject: <that>, thresholds:
   techniqueMasteryThresholds)` — the existing `[5, 15, 30]` curve, one
   shared curve, one `define` call per instance.
-- `trainTechniqueMastery` / `techniqueMasteryLevel` gain instance-aware
-  overloads (or a parallel pair) that key on the instance subject.
+- New instance-keyed helpers `trainTechniqueVariantMastery(instanceId,
+  amount, context)` / `techniqueVariantMasteryLevel(instanceId, context)`
+  — the owner is read from the instance's `TechniqueVariant.owner`
+  (rule 5), not passed. The existing `trainTechniqueMastery` /
+  `techniqueMasteryLevel` (base-family keyed) are untouched.
 - The base-family Mastery subject (`technique:<familyId>`) is retained for
   "how good is this fighter at punches in general" if any consumer wants
   it, but per-instance is the axis that matters for a variant's strength.
@@ -229,33 +286,76 @@ subject-id namespace."
 ## 6. Lifecycle
 
 ```
-mintTechniqueVariant(owner, baseFamilyId, descriptorIds, {styleId, styleCentre})
-  -> EntityId
+mintTechniqueVariant(owner, baseFamilyId, descriptorIds, context,
+                     {styleId, styleCentre})  -> EntityId
      - create entity
-     - resolve axisProfile via TechniqueVariantResolver
-     - attach TechniqueVariant component
+     - axisProfile = composeAxisProfile(styleCentre,
+                        TechniqueVariantResolver().resolve(descriptors))
+     - attach TechniqueVariant{owner, baseFamilyId, descriptorIds,
+                               axisProfile, styleId}
      - register per-instance MasteryDefinition
      - publish TechniqueVariantMinted(owner, instanceId, baseFamilyId)
 
-hangTechniqueVariant(owner, slot, instanceId)
+hangTechniqueVariant(slot, instanceId, context)          // owner from component
      - isTechniqueLearned(baseFamily) gate for a basic;
        derived variants have no learning gate (mirrors evolved branches)
      - tome.insert(owner, slot,
          BuildComponentRef(referenceType: 'technique',
                            contentId: baseFamilyId,
-                           instanceEntityId: instanceId))
-     - publish TechniqueAddedToTome (existing event, now carries an instance)
+                           instanceEntityId: instanceId))   // NEVER null — §6.1
+     - publish TechniqueAddedToTome(owner, baseFamilyId, slot,
+                                    instanceId: instanceId)
 
-removeTechniqueVariant(owner, instanceId)
-     - tome.remove any slot holding it
-     - clear + unregister its mastery subject
-     - destroy the entity
-     - publish TechniqueVariantRemoved
+removeTechniqueVariant(instanceId, context)              // owner from component
+     - tome.remove any slot whose ref.instanceEntityId == instanceId
+     - clear the instance's MasteryComponent progress entry
+       (MasteryDefinition stays — no undefine; §5)
+     - components.remove<TechniqueVariant>(instanceId)
+     - entities.destroy(instanceId)
+     - publish TechniqueVariantRemoved(owner, instanceId)
 ```
 
 `TechniqueAddedToTome` / `technique_events.dart` gain an optional
 `instanceId` field (additive, like `BuildComponentRef.instanceEntityId`
 was).
+
+### 6.1 `instanceEntityId` compatibility invariant (rule 4)
+
+For a `BuildComponentRef` with `referenceType == 'technique'`:
+
+- **Post-SP0a, a technique ref written by this plugin ALWAYS carries a
+  non-null `instanceEntityId`.** `mintTechniqueVariant` mints an instance
+  for *every* technique, basics included; `hangTechniqueVariant` is the
+  only sanctioned placement path and always sets it. Its target instance
+  entity is alive and carries a `TechniqueVariant`.
+- **A null `instanceEntityId` on a technique ref means a pre-SP0a
+  placement** — an old save, or a call to the legacy
+  `addTechniqueToTome`. Every reader (the SP1 interpreter, SP4 UI) MUST
+  tolerate null: treat it as the bare base definition — empty
+  `axisProfile`, no per-instance mastery.
+- `addTechniqueToTome` is retained for backward compatibility and is now
+  **deprecated** in favour of `hangTechniqueVariant`. A later pass may
+  migrate legacy placements (`mintVariantForLegacyEvolvedId` + re-hang).
+- A non-null `instanceEntityId` pointing to a destroyed or
+  `TechniqueVariant`-less entity is a caller bug — `assert` in debug;
+  readers fall back to the null behaviour in release.
+
+### 6.2 Ownership is one authoritative relationship (rule 5)
+
+There is exactly **one** source of truth for "owner *has* this
+component": the instance entity.
+
+- **Owned** — an owner owns instance `X` iff `X` carries a
+  `TechniqueVariant` (or, for items, an `ItemInstance`) whose `owner`
+  field is that owner. `ownedTechniqueVariants(owner, context)` =
+  `components.entitiesWith<TechniqueVariant>()` filtered by `.owner`.
+- **Hung / contained** — derived, never stored independently: instance
+  `X` is hung iff some Tome placement's `ref.instanceEntityId == X` (and
+  `X` is owned — guaranteed by 6.1). "On the roster but not hung" = an
+  owned instance no placement references. There is no separate roster
+  list to drift.
+- Consequently `hung ⊆ owned` by construction, which is the exact
+  precondition SP1's `EffectProfileResolver` documents.
 
 ---
 
@@ -282,21 +382,37 @@ breaks.
 ## 8. Data flow
 
 ```
-style seed / SP0b            content
-  descriptorIds  ─┐        TechniqueDescriptor{axis,magnitude}
-                  ├─► TechniqueVariantResolver.resolve ─► axisProfile
-  styleCentre  ───┘              (pure)                      │
-                                                             ▼
-                          entity + TechniqueVariant{baseFamilyId,
-                                     descriptorIds, axisProfile, styleId}
-                                                             │
-                          register MasteryDefinition(technique:instance:<id>)
-                                                             │
-                    Tome slot ◄── BuildComponentRef{contentId: baseFamilyId,
-                                                    instanceEntityId: <id>}
-                                                             │
-                             (SP1) interpreter reads TechniqueVariant
-                                   -> EffectProfile -> combat calc
+   CONTENT
+      │
+  TechniqueDescriptor{id, axes: {axis: mag, ...}, tags}
+      │
+      ▼
+  TechniqueVariantResolver.resolve(descriptors)   ── pure, descriptors only
+      │
+      ▼
+  descriptorProfile ──┐
+                      ├─► composeAxisProfile(styleCentre, descriptorProfile)
+  styleCentre ────────┘        (pure, outside the resolver — rule 3)
+                      │
+                      ▼
+                  axisProfile
+                      │
+                      ▼
+  entity + TechniqueVariant{owner, baseFamilyId, descriptorIds,
+                            axisProfile, styleId}
+                      │
+                  register MasteryDefinition(technique:instance:<id>)
+                      │
+                  EntityId  ── the one authoritative handle (owner rides on it)
+                      │
+                      ▼
+  BuildComponentRef{contentId: baseFamilyId, instanceEntityId: <id>}  ── never null
+                      │
+                      ▼
+                    Tome
+                      │
+             (SP1) interpreter reads TechniqueVariant.axisProfile
+                   -> EffectProfile -> ModifierResolver -> Combat
 ```
 
 ---
@@ -305,10 +421,13 @@ style seed / SP0b            content
 
 | Case | Behaviour |
 |------|-----------|
-| Basic technique | Instance with `descriptorIds = {}`, `axisProfile = {}`, `styleId = null`. Still an instance, still hangable, still has a (flat) per-instance mastery track. |
-| Two variants, same base + same descriptors | Two distinct instances, two mastery subjects. Allowed — they may diverge in mastery. (SP0b decides whether to *offer* a duplicate; SP0a permits it.) |
+| Basic technique | Instance with `descriptorIds = {}`, `axisProfile = {}` (empty style centre + empty descriptor sum), `styleId = null`. Still an instance, still hangable, still has a per-instance mastery track. `instanceEntityId` is still set (rule 4). |
+| Two variants, same base + same descriptors | Two distinct instances, two `owner`-stamped components, two mastery subjects. Allowed — they may diverge in mastery. (SP0b decides whether to *offer* a duplicate; SP0a permits it.) |
 | Descriptor unknown at mint | `mintTechniqueVariant` throws `UnknownTechniqueDescriptorException` (mirrors `UnknownContentFactoryException`). No silent drop. |
+| Descriptor touches multiple axes | Each axis in the descriptor's `axes` map is summed onto the profile independently (rule 1). |
 | Conflicting descriptors on one axis | Summed additively; net may be negative. No conflict resolution — content's responsibility. |
+| Legacy technique placement (null `instanceEntityId`) | Readers treat it as the bare base definition: empty `axisProfile`, no per-instance mastery (rule 4). |
+| `hangTechniqueVariant` for an instance owned by someone else | `TechniqueVariant.owner` is read as the placing owner — a caller passing a mismatched owner is impossible by construction (owner is not a parameter). |
 | Instance removed while hung | `removeTechniqueVariant` removes the Tome placement first, then clears the mastery-subject progress, then removes the `TechniqueVariant` component, then `entities.destroy` — symmetric, no dangling ref. `EntityRegistry.destroy` does **not** cascade component cleanup (documented), so the component removal is explicit. |
 | Content changes a descriptor's magnitude later | Existing instances keep their stored `axisProfile`. A future explicit `reresolveVariant(instanceId)` is the only way to pick up the change. Not built in SP0a. |
 | Determinism | `resolve` is pure additive; mint publishes events in a fixed order; no RNG in SP0a (the roll lives in SP0b). |
@@ -319,32 +438,41 @@ style seed / SP0b            content
 
 Per `claude.md`'s per-plugin requirements.
 
-### 10.1 `TechniqueVariantResolver`
+### 10.1 `TechniqueVariantResolver` + `composeAxisProfile`
 
-- empty descriptors + empty centre → empty profile.
-- one descriptor → its `{axis: magnitude}`.
-- multiple descriptors on the same axis → sum.
-- negative magnitude subtracts.
-- style centre is the additive base.
-- determinism: two runs, identical inputs, equal profile.
+- resolver: empty descriptors → empty profile.
+- resolver: one descriptor with a multi-axis `axes` map → every axis
+  present (rule 1).
+- resolver: descriptors sharing an axis → summed; negative magnitude
+  subtracts.
+- resolver: no `styleCentre` parameter exists (rule 2) — compile-checked
+  by the call sites.
+- `composeAxisProfile(base, contribution)`: additive per-axis union;
+  either side empty is identity; determinism (two runs equal).
 
 ### 10.2 `TechniqueVariant` component
 
 - construction, immutability, stored `axisProfile` independent of a later
-  descriptor-content change.
+  descriptor-content change, `owner` field present.
 
 ### 10.3 Lifecycle
 
-- `mintTechniqueVariant` creates an entity, attaches `TechniqueVariant`,
-  registers a per-instance `MasteryDefinition`, publishes
+- `mintTechniqueVariant` creates an entity, attaches `TechniqueVariant`
+  with `owner` stamped, composes `axisProfile` from style centre +
+  descriptor sum, registers a per-instance `MasteryDefinition`, publishes
   `TechniqueVariantMinted`.
-- `hangTechniqueVariant` writes a `BuildComponentRef` with
-  `instanceEntityId` set; basic gate enforced, derived not gated.
-- `removeTechniqueVariant` clears the Tome slot, drops mastery progress,
-  unregisters the definition, destroys the entity — asserted no dangling
-  `MasteryComponent` entry, no `TomePlacement`, no live entity.
+- `hangTechniqueVariant` writes a `BuildComponentRef` with a non-null
+  `instanceEntityId` (rule 4); owner is read from the component; basic
+  gate enforced, derived not gated.
+- `removeTechniqueVariant` clears the Tome slot, drops the mastery
+  progress entry, removes the `TechniqueVariant` component, destroys the
+  entity — asserted no dangling `MasteryComponent` entry, no
+  `TomePlacement`, no live entity.
+- `ownedTechniqueVariants(owner)` returns exactly the instances stamped
+  with that owner; a hung instance and a loose (owned, unplaced) instance
+  both appear; another owner's instance does not (rule 5).
 - per-instance mastery: two instances of the same base, train one,
-  `techniqueMasteryLevel` diverges.
+  `techniqueVariantMasteryLevel` diverges.
 
 ### 10.4 Coexistence
 
@@ -365,13 +493,15 @@ Per `claude.md`'s per-plugin requirements.
 
 **New**
 
-- `lib/src/plugins/technique/technique_variant.dart` — the component.
-- `lib/src/plugins/technique/technique_descriptor.dart` — content type +
-  ContentRegistry factory.
+- `lib/src/plugins/technique/technique_variant.dart` — the component
+  (`owner`, `baseFamilyId`, `descriptorIds`, `axisProfile`, `styleId`).
+- `lib/src/plugins/technique/technique_descriptor.dart` — content type
+  (`axes: Map<String, num>`) + ContentRegistry factory.
 - `lib/src/plugins/technique/technique_variant_resolver.dart` — pure
-  resolver.
+  `resolve(descriptors)` + pure `composeAxisProfile(base, contribution)`.
 - `lib/src/plugins/technique/technique_variant_lifecycle.dart` — mint /
-  hang / remove.
+  hang / remove / `ownedTechniqueVariants` / variant-mastery helpers /
+  legacy shim.
 - `lib/src/plugins/technique/technique_descriptor_content.dart` — launch
   descriptor set.
 - barrel additions in `lib/technique_plugin.dart`.
@@ -381,9 +511,10 @@ Per `claude.md`'s per-plugin requirements.
 
 - `lib/src/plugins/technique/technique_vocabulary.dart` —
   `techniqueInstanceSubject`, retain existing subjects.
-- `lib/src/plugins/technique/technique_lifecycle.dart` — instance-aware
-  `trainTechniqueMastery` / `techniqueMasteryLevel`; `addTechniqueToTome`
-  learns to carry an `instanceEntityId`.
+- `lib/src/plugins/technique/technique_lifecycle.dart` — none required;
+  the existing `trainTechniqueMastery` / `techniqueMasteryLevel` /
+  `addTechniqueToTome` are untouched (`addTechniqueToTome` is the
+  deprecated legacy path, §6.1).
 - `lib/src/plugins/technique/technique_events.dart` — optional
   `instanceId` on `TechniqueAddedToTome`; new `TechniqueVariantMinted` /
   `TechniqueVariantRemoved`.
@@ -405,13 +536,14 @@ Per `claude.md`'s per-plugin requirements.
    6 bases (minimal churn); drop the hand-authored evolved definitions
    over time. Decide in planning.
 3. **Angle / rhythm / count** ("straight vs hook vs diagonal", "single vs
-   continuous vs triple") — descriptor axes like power/speed, or a
-   separate structural field on `TechniqueVariant`? Proposal: descriptors
-   (`{hooking, precision -1, power +1}`, `{continuous, speed +2, power
-   -1}`) so the model stays one-dimensional. Confirm.
-4. **Style centre** — where authored? A `MartialStyle` → per-family
-   `Map<String,num>` table in the `martial_arts` plugin. Confirm it
-   belongs there and not in `technique`.
+   continuous vs triple") — **resolved by rule 1**: these are ordinary
+   descriptors with multi-axis `axes` maps (`hook`: `{precision: -1,
+   power: 2}`; `triple`: `{speed: 3, power: -2}`). No structural field.
+4. **Style centre** — where authored, and how does it reach `mint`? A
+   `MartialStyle` → per-family `Map<String,num>` table, most likely in
+   the `martial_arts` plugin, passed as `mintTechniqueVariant`'s
+   `styleCentre` argument by the style-seed / SP0b caller (rule 3 keeps
+   it out of the resolver). Confirm the table's home in planning.
 5. **How many descriptors may one instance carry?** A cap (e.g. 3) keeps
    variants legible and bounds `axisProfile`. Set in SP0b, or here?
 6. **Mastery-subject cleanup on run end.** `removeTechniqueVariant` clears
