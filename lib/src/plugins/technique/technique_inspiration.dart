@@ -2,7 +2,17 @@ import 'dart:math' show sqrt;
 
 import 'package:build_engine/build_engine.dart';
 
+import 'technique_definition.dart' show TechniqueDefinition;
 import 'technique_descriptor.dart';
+import 'technique_events.dart';
+import 'technique_usage.dart' show techniqueVariantUsage;
+import 'technique_variant_lifecycle.dart'
+    show
+        mintTechniqueVariant,
+        ownedTechniqueVariants,
+        requireTechniqueVariant,
+        techniqueFamilyOf,
+        techniqueVariantMasteryLevel;
 import 'technique_vocabulary.dart';
 
 /// One of an owner's technique-variant instances, offered to
@@ -247,3 +257,77 @@ List<EntityId> _attribute(
 
 bool _setEquals(Set<String> a, Set<String> b) =>
     a.length == b.length && a.every(b.contains);
+
+/// The one authoritative "did this training session inspire a new
+/// variant?" step — call once after a training session, parallel to
+/// `resolveTechniqueEvolutionAfterTraining`. [styleCentre] is the trained
+/// family's axis nudge for the character's style; the caller supplies it
+/// (the technique plugin never imports `martial_arts`).
+///
+/// Gathers [owner]'s variant instances as [Inspirer]s (mastery + usage
+/// from this plugin's own trackers — a newly minted variant has
+/// `masteryLevel 0` / `usage 0` and so cannot inspire), runs
+/// [TechniqueInspirationResolver] exactly once, and on a hit:
+///   * `mintTechniqueVariant(owner, familyId, descriptorIds, context,
+///      styleId: styleId, styleCentre: styleCentre)` — owned but loose,
+///   * publishes [TechniqueVariantInspired] exactly once, carrying the
+///     result's `descriptorIds` and `inspirerInstanceIds` verbatim (the
+///     latter is already narrowed to the actually-contributing sources by
+///     spec §6.2 step 9 — the hook does no further filtering).
+/// One call → one discovery-probability roll → at most one mint and one
+/// event. No cooldown, no discovery-lock component, no mutable state.
+/// Returns the [InspirationResult]; the caller owns telemetry / UI. The
+/// inspirers are never touched.
+InspirationResult resolveTechniqueInspirationAfterTraining(
+  EntityId owner,
+  TechniqueDefinition trainedTechnique,
+  Map<String, num> styleCentre,
+  PluginContext context, {
+  String? styleId,
+}) {
+  final familyId = techniqueFamilyOf(trainedTechnique.id, context);
+
+  final inspirers = <Inspirer>[];
+  final exclude = <Set<String>>{};
+  for (final e in ownedTechniqueVariants(owner, context)) {
+    final v = requireTechniqueVariant(e, context);
+    inspirers.add(Inspirer(
+      instanceId: e,
+      axisProfile: v.axisProfile,
+      masteryLevel: techniqueVariantMasteryLevel(e, context),
+      usage: techniqueVariantUsage(e, context),
+    ));
+    if (v.baseFamilyId == familyId) exclude.add(v.descriptorIds);
+  }
+
+  final pool = [
+    for (final def in context.content.allOfType('technique_descriptor'))
+      techniqueDescriptorFromContent(def),
+  ];
+
+  final result = const TechniqueInspirationResolver().resolve(
+    trainedFamilyId: familyId,
+    inspirers: inspirers,
+    descriptorPool: pool,
+    rng: context.rng,
+    exclude: exclude,
+  );
+  if (!result.discovered) return result;
+
+  final instance = mintTechniqueVariant(
+    owner,
+    familyId,
+    result.descriptorIds,
+    context,
+    styleId: styleId,
+    styleCentre: styleCentre,
+  );
+  context.events.publish(TechniqueVariantInspired(
+    owner: owner,
+    instanceId: instance,
+    familyId: familyId,
+    descriptorIds: result.descriptorIds,
+    inspirerInstanceIds: result.inspirerInstanceIds,
+  ));
+  return result;
+}
