@@ -13,8 +13,6 @@ import 'technique_vocabulary.dart'
         techniqueInstanceSubject,
         techniqueReferenceType;
 
-export 'technique_descriptor.dart' show UnknownTechniqueDescriptorException;
-
 /// Mints one technique-variant instance for [owner]: a fresh entity
 /// carrying a [TechniqueVariant] whose `axisProfile` is
 /// `composeAxisProfile(styleCentre, resolver.resolve(descriptors))` —
@@ -35,6 +33,11 @@ EntityId mintTechniqueVariant(
   String? styleId,
   Map<String, num> styleCentre = const {},
 }) {
+  // Fail fast on a typo'd family: resolve the base definition now (throws a
+  // clean content-not-found error) rather than letting it surface later at
+  // hang time, and only for basics.
+  techniqueDefinition(baseFamilyId, context);
+
   final descriptors = [
     for (final id in descriptorIds) techniqueDescriptor(id, context),
   ];
@@ -51,7 +54,9 @@ EntityId mintTechniqueVariant(
     TechniqueVariant(
       owner: owner,              // rule 5: authoritative ownership
       baseFamilyId: baseFamilyId,
-      descriptorIds: descriptorIds,
+      // Freeze the caller's set: a later mutation of it must not desync the
+      // stored `descriptorIds` from the never-recomputed `axisProfile`.
+      descriptorIds: Set.unmodifiable(descriptorIds),
       axisProfile: axisProfile,
       styleId: styleId,
     ),
@@ -77,6 +82,16 @@ class TechniqueVariantNotFoundException implements Exception {
   String toString() => 'No technique variant for instance $instanceId';
 }
 
+/// The [TechniqueVariant] component on [instanceId], or a
+/// [TechniqueVariantNotFoundException] if the entity carries none — the
+/// single lookup every post-`mint` lifecycle function shares, so a bad
+/// instance id always fails the same clean way.
+TechniqueVariant _requireVariant(EntityId instanceId, PluginContext context) {
+  final v = context.components.get<TechniqueVariant>(instanceId);
+  if (v == null) throw TechniqueVariantNotFoundException(instanceId);
+  return v;
+}
+
 /// Hangs the variant instance [instanceId] in its owner's Tome [slot].
 /// The owner is read from `TechniqueVariant.owner` (rule 5) — not passed,
 /// so a mismatched owner is impossible by construction.
@@ -92,10 +107,7 @@ void hangTechniqueVariant(
   EntityId instanceId,
   PluginContext context,
 ) {
-  final variant = context.components.get<TechniqueVariant>(instanceId);
-  if (variant == null) {
-    throw TechniqueVariantNotFoundException(instanceId);
-  }
+  final variant = _requireVariant(instanceId, context);
   final owner = variant.owner;
   final isBasic = variant.styleId == null && variant.descriptorIds.isEmpty;
   if (isBasic) {
@@ -136,13 +148,13 @@ void trainTechniqueVariantMastery(
   num amount,
   PluginContext context,
 ) {
-  final owner = context.components.get<TechniqueVariant>(instanceId)!.owner;
+  final owner = _requireVariant(instanceId, context).owner;
   context.mastery.increase(owner, techniqueInstanceSubject(instanceId), amount);
 }
 
 /// Variant [instanceId]'s current MASTERY level — `0` if never trained.
 int techniqueVariantMasteryLevel(EntityId instanceId, PluginContext context) {
-  final owner = context.components.get<TechniqueVariant>(instanceId)!.owner;
+  final owner = _requireVariant(instanceId, context).owner;
   return context.mastery.levelOf(owner, techniqueInstanceSubject(instanceId));
 }
 
@@ -163,10 +175,7 @@ void removeTechniqueVariant(
   EntityId instanceId,
   PluginContext context,
 ) {
-  final variant = context.components.get<TechniqueVariant>(instanceId);
-  if (variant == null) {
-    throw TechniqueVariantNotFoundException(instanceId);
-  }
+  final variant = _requireVariant(instanceId, context);
   final owner = variant.owner;
 
   for (final placement in context.tome.inspect(owner)) {
@@ -183,7 +192,8 @@ void removeTechniqueVariant(
   }
 
   context.components.remove<TechniqueVariant>(instanceId);
-  context.entities.destroy(instanceId);
+  // `EntityRegistry.destroy` throws `StateError` on an already-dead entity.
+  if (context.entities.isAlive(instanceId)) context.entities.destroy(instanceId);
   context.events.publish(TechniqueVariantRemoved(owner, instanceId));
 }
 
@@ -231,7 +241,11 @@ String _familyOf(String legacyId, PluginContext context) {
   return legacyId; // already a base, or unknown — mint against itself
 }
 
-/// Mints an instanced variant equivalent to a hand-authored evolved id.
+/// Mints an instanced variant that approximates a hand-authored evolved id.
+/// An id NOT in [_legacyEvolvedDescriptors] mints a descriptor-less,
+/// style-less variant, which [hangTechniqueVariant] then treats as a
+/// **basic** (learning-gated on the base family; the evolved identity is
+/// not preserved).
 /// Additive: the legacy definition still resolves via `techniqueDefinition`
 /// and nothing calls this unless a caller opts in.
 EntityId mintVariantForLegacyEvolvedId(

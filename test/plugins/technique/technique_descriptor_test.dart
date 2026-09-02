@@ -34,7 +34,7 @@ void main() {
     registry.loadAll(const [
       {
         'id': 'bear',
-        'type': 'technique',
+        'type': 'technique_descriptor',
         'tags': ['technique_descriptor', 'beast'],
         'axes': {'power': 6, 'speed': -1},
       },
@@ -50,7 +50,7 @@ void main() {
     context.content.loadAll(const [
       {
         'id': 'bear',
-        'type': 'technique',
+        'type': 'technique_descriptor',
         'tags': ['technique_descriptor', 'beast'],
         'axes': {'power': 6, 'speed': -1},
       },

@@ -54,12 +54,21 @@ bumping the pin. Newest first.
 - Ownership is authoritative on `TechniqueVariant.owner` (like
   `ItemInstance.owner`); "hung" is derived from Tome placements. Lifecycle
   functions other than `mint` read the owner off the component.
-- Every technique `BuildComponentRef` the plugin writes carries a non-null
-  `instanceEntityId`; a null one is a pre-SP0a placement readers treat as the
-  bare base.
+- Every `BuildComponentRef` written by **`hangTechniqueVariant`** carries a
+  non-null `instanceEntityId`; `addTechniqueToTome` remains the legacy path and
+  writes null, as do pre-SP0a saves — readers tolerate null as the bare base.
+- `addTechniqueToTome` is now the documented **legacy** Tome path — new code
+  hangs a variant instance via `hangTechniqueVariant`.
 - Additive: `EvolutionResolver` and the hand-authored evolved ids are
   unchanged; per-instance `MasteryDefinition`s are not unregistered on removal
   (no `MasteryTracker.undefine`) — a run's fresh `PluginContext` resets them.
+- Spec open-question #6 (per-instance `MasteryDefinition` accumulation) is
+  closed: `MasteryTracker` has no `undefine`, so per-instance definitions are
+  never removed; the reference harness (`runGame`) builds a fresh
+  `PluginContext`/`MasteryTracker` per run, so accumulation is strictly
+  per-run and bounded by the variants minted that run. A client holding one
+  long-lived `PluginContext` across runs accumulates one small definition per
+  variant — correctness is unaffected, since entity ids are never recycled.
 
 ### Changed — public barrels
 

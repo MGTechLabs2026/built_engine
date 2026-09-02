@@ -44,6 +44,9 @@ void main() {
   setUp(() {
     context = _newContext();
     context.content.loadAll(techniqueDescriptorContentDefinitions);
+    // F2 validates the base family at mint time, so every test needs the
+    // technique content loaded — not just the ones that hang / remove.
+    context.content.loadAll(techniqueContentDefinitions);
     owner = context.entities.create();
   });
 
@@ -101,7 +104,6 @@ void main() {
 
   group('hangTechniqueVariant', () {
     setUp(() {
-      context.content.loadAll(techniqueContentDefinitions);
       context.progression.define(const ProgressionDefinition(
           subject: 'technique:basic_punch:knowledge', thresholds: [10]));
       for (final def in techniqueContentDefinitions) {
@@ -188,7 +190,6 @@ void main() {
 
   group('removeTechniqueVariant', () {
     setUp(() {
-      context.content.loadAll(techniqueContentDefinitions);
       for (final def in techniqueContentDefinitions) {
         context.mastery.define(MasteryDefinition(
             subject: 'technique:${def['id']}', thresholds: const [5, 15, 30]));
@@ -213,6 +214,12 @@ void main() {
         context.mastery.progressOf(owner, techniqueInstanceSubject(id)),
         0,
       );
+      // T7: the per-instance MasteryDefinition is deliberately NOT
+      // unregistered (MasteryTracker has no undefine) — it survives removal.
+      expect(
+        context.mastery.definitionOf(techniqueInstanceSubject(id)),
+        isNotNull,
+      );
     });
 
     test('publishes TechniqueVariantRemoved', () {
@@ -232,14 +239,13 @@ void main() {
   });
 
   group('legacy coexistence', () {
-    setUp(() => context.content.loadAll(techniqueContentDefinitions));
-
     test('mints a variant for a legacy evolved id with mapped descriptors', () {
       final id = mintVariantForLegacyEvolvedId(
           owner, TechniqueIds.heavyPunch, context, styleId: 'boxing');
       final v = context.components.get<TechniqueVariant>(id)!;
       expect(v.baseFamilyId, TechniqueIds.basicPunch);
       expect(v.descriptorIds, contains('strong'));
+      expect(v.styleId, 'boxing'); // T6: legacy shim forwards styleId
       // profile matches the resolver over the mapped descriptors (no style
       // centre passed, so composeAxisProfile({}, ...) == the resolver output)
       final expected = const TechniqueVariantResolver().resolve([
@@ -259,6 +265,86 @@ void main() {
       final id = mintVariantForLegacyEvolvedId(
           owner, TechniqueIds.basicSlash, context);
       expect(context.components.get<TechniqueVariant>(id)!.descriptorIds, isEmpty);
+    });
+  });
+
+  group('whole-branch review hardening', () {
+    // T2: the full hand-authored evolved-id set that the legacy shim maps.
+    const mappedEvolvedIds = <String>[
+      TechniqueIds.heavyPunch,
+      TechniqueIds.fastPunch,
+      TechniqueIds.lightPunch,
+      TechniqueIds.hammerBlow,
+      TechniqueIds.mountainBreaker,
+      TechniqueIds.lightningJab,
+      TechniqueIds.flashStrike,
+      TechniqueIds.thunderFlash,
+      TechniqueIds.heavySlash,
+      TechniqueIds.quickSlash,
+      TechniqueIds.lightningSlash,
+      TechniqueIds.mountainCleave,
+      TechniqueIds.ironPalm,
+      TechniqueIds.thunderPalm,
+      TechniqueIds.lightningFinger,
+      TechniqueIds.needleFinger,
+      TechniqueIds.piercingFinger,
+      TechniqueIds.thrustKick,
+      TechniqueIds.spinningKick,
+      TechniqueIds.whirlwindKick,
+    ];
+
+    test('T2: every legacy mapping mints a real base family with resolvable '
+        'descriptors', () {
+      for (final legacyId in mappedEvolvedIds) {
+        final id = mintVariantForLegacyEvolvedId(owner, legacyId, context);
+        final v = context.components.get<TechniqueVariant>(id)!;
+        expect(TechniqueIds.bases, contains(v.baseFamilyId),
+            reason: '$legacyId mapped to non-base ${v.baseFamilyId}');
+        for (final d in v.descriptorIds) {
+          expect(() => techniqueDescriptor(d, context), returnsNormally,
+              reason: '$legacyId references unknown descriptor $d');
+        }
+      }
+    });
+
+    test('T3: an unmapped evolved id collapses to a basic', () {
+      context.progression.define(const ProgressionDefinition(
+          subject: 'technique:basic_punch:knowledge', thresholds: [10]));
+      context.tome.defineTome(TomeDefinition.namedSlots(
+          id: 'sp0a_tome', slotIds: ['s0', 's1']));
+      context.tome.createTome(owner, 'sp0a_tome');
+
+      // counter_punch is an evolved id NOT in _legacyEvolvedDescriptors.
+      final id = mintVariantForLegacyEvolvedId(
+          owner, TechniqueIds.counterPunch, context);
+      final v = context.components.get<TechniqueVariant>(id)!;
+      expect(v.descriptorIds, isEmpty);
+      expect(v.styleId, isNull);
+      // Documented behaviour: with no descriptors and no style it is a basic,
+      // so hanging it is learning-gated (the evolved identity is not kept).
+      expect(
+        () => hangTechniqueVariant(const SlotId('s0'), id, context),
+        throwsA(isA<TechniqueNotLearnedException>()),
+      );
+    });
+
+    test('T4: _requireVariant guards train / level against a bad instance id',
+        () {
+      expect(
+        () => trainTechniqueVariantMastery(const EntityId(999), 5, context),
+        throwsA(isA<TechniqueVariantNotFoundException>()),
+      );
+      expect(
+        () => techniqueVariantMasteryLevel(const EntityId(999), context),
+        throwsA(isA<TechniqueVariantNotFoundException>()),
+      );
+    });
+
+    test('T5: mint with a bad baseFamilyId throws content-not-found', () {
+      expect(
+        () => mintTechniqueVariant(owner, 'no_such_family', const {}, context),
+        throwsA(isA<ContentNotFoundException>()),
+      );
     });
   });
 }

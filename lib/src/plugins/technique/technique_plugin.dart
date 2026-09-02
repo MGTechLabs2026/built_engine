@@ -48,6 +48,7 @@ class TechniquePlugin extends GamePlugin {
 
     final firstDescriptorId =
         techniqueDescriptorContentDefinitions.first['id'] as String;
+    // Same idempotency guard as the technique batch above.
     if (context.content.find(firstDescriptorId) == null) {
       sdk.registerContentBatch(techniqueDescriptorContentDefinitions);
     }

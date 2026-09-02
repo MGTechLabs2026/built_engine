@@ -129,6 +129,13 @@ int techniqueMasteryLevel(
 /// (leaving the Tome untouched) otherwise; on success, publishes
 /// [TechniqueAddedToTome]. Mirrors `ItemPlugin.addItemToTome` exactly —
 /// same reasoning for gating here rather than inside `TomeService`.
+///
+/// This is the **legacy path** — prefer `hangTechniqueVariant` (SP0a) for
+/// new code. It writes a `BuildComponentRef` with a **null
+/// `instanceEntityId`**; pre-SP0a saves are the other source of a null
+/// `instanceEntityId`, and readers tolerate null as the bare base. Not
+/// marked `@Deprecated`: that would light up `tome_manager.dart` on every
+/// headless run.
 void addTechniqueToTome(
   EntityId owner,
   SlotId slot,

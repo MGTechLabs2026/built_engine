@@ -458,17 +458,18 @@ descriptor set.
 Variety is data: a `TechniqueDescriptor` (content type `technique_descriptor`)
 carries `axes: {axisKey → magnitude}` — one `bear` can be `{power: 6, speed:
 -1}`. `TechniqueVariantResolver.resolve(descriptors)` is pure and sees
-descriptors only; a separate pure `composeAxisProfile(styleCentre,
-descriptorProfile)` folds in the style seed, and only `mintTechniqueVariant`
-calls it. Axes are an open string set; `power`/`speed`/`endurance`/`precision`
+descriptors only; a separate pure `composeAxisProfile(base, contribution)`
+folds the style-centre base into the resolved descriptor profile (its
+`contribution`), and only `mintTechniqueVariant` calls it. Axes are an open string set; `power`/`speed`/`endurance`/`precision`
 ship at launch. Nothing reads `axisProfile` into a calculation yet — SP1 maps
 it to an `EffectProfile`.
 
 Ownership is authoritative on `TechniqueVariant.owner` (mirroring
 `ItemInstance.owner`): `ownedTechniqueVariants(owner)` is the single "owner has
 this" query, and "hung" is derived from Tome placements referencing an owned
-instance. Every technique ref the plugin writes carries a non-null
-`instanceEntityId`; a null one is a pre-SP0a placement, read as the bare base.
+instance. Every `BuildComponentRef` written by `hangTechniqueVariant` carries a
+non-null `instanceEntityId`; `addTechniqueToTome` remains the legacy path and
+writes null, as do pre-SP0a saves — readers tolerate null as the bare base.
 
 Mastery is **per instance**: `techniqueInstanceSubject(EntityId)` keys the
 existing `MasteryTracker` on the shared `techniqueMasteryThresholds` curve.

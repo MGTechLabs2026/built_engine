@@ -6,6 +6,8 @@ import 'technique_descriptor.dart';
 class TechniqueVariantResolver {
   const TechniqueVariantResolver();
 
+  /// The pure per-axis sum of every descriptor's `axes` map — no style, no
+  /// base (rule 2).
   Map<String, num> resolve(Iterable<TechniqueDescriptor> descriptors) {
     final profile = <String, num>{};
     for (final d in descriptors) {
