@@ -29,6 +29,38 @@ bumping the pin. Newest first.
   run composition/sequencing/presentation and the engine owns the domain
   rules both consume.
 
+### Added — Technique instancing (SP0a)
+
+- `TechniqueDescriptor` content type (`type: 'technique_descriptor'`) with a
+  multi-axis `axes: {axisKey → magnitude}` map; launch descriptor set;
+  `TechniqueAxes` (`power`/`speed`/`endurance`/`precision`).
+- `TechniqueVariant` component: `owner`, `baseFamilyId`, `descriptorIds`,
+  composed `axisProfile`, `styleId`.
+- `TechniqueVariantResolver.resolve(descriptors)` — pure, descriptors only;
+  `composeAxisProfile(base, contribution)` — pure additive merge (style-centre
+  composition, kept out of the resolver).
+- `mintTechniqueVariant(owner, baseFamilyId, descriptorIds, context,
+  {styleId, styleCentre})`; `hangTechniqueVariant(slot, instanceId, context)`;
+  `removeTechniqueVariant(instanceId, context)`; `ownedTechniqueVariants(owner,
+  context)`; `trainTechniqueVariantMastery(instanceId, amount, context)` /
+  `techniqueVariantMasteryLevel(instanceId, context)`;
+  `mintVariantForLegacyEvolvedId`.
+- `techniqueInstanceSubject(EntityId)` — per-instance Mastery subject.
+- Events: `TechniqueVariantMinted`, `TechniqueVariantRemoved`; optional
+  `instanceId` on `TechniqueAddedToTome`.
+
+#### Notes
+
+- Ownership is authoritative on `TechniqueVariant.owner` (like
+  `ItemInstance.owner`); "hung" is derived from Tome placements. Lifecycle
+  functions other than `mint` read the owner off the component.
+- Every technique `BuildComponentRef` the plugin writes carries a non-null
+  `instanceEntityId`; a null one is a pre-SP0a placement readers treat as the
+  bare base.
+- Additive: `EvolutionResolver` and the hand-authored evolved ids are
+  unchanged; per-instance `MasteryDefinition`s are not unregistered on removal
+  (no `MasteryTracker.undefine`) — a run's fresh `PluginContext` resets them.
+
 ### Changed — public barrels
 
 - **`TechniqueEvolved` moved to the Technique plugin.** It was defined in

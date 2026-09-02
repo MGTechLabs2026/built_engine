@@ -446,6 +446,40 @@ job — and any persistence of an evolution tree itself (a plugin's own
 content registry owns that, the same way `targetId` lookup is already
 the caller's responsibility).
 
+## Technique instancing (SP0a) (`lib/src/plugins/technique/`)
+
+A technique the player holds is a **variant instance** — a minted `EntityId`
+carrying a `TechniqueVariant` component (`owner`, `baseFamilyId`,
+`descriptorIds`, composed `axisProfile`, `styleId`), referenced from the Tome
+via the already-optional `BuildComponentRef.instanceEntityId`. Multiple variants
+of one base family coexist; a **basic** technique is a variant with an empty
+descriptor set.
+
+Variety is data: a `TechniqueDescriptor` (content type `technique_descriptor`)
+carries `axes: {axisKey → magnitude}` — one `bear` can be `{power: 6, speed:
+-1}`. `TechniqueVariantResolver.resolve(descriptors)` is pure and sees
+descriptors only; a separate pure `composeAxisProfile(styleCentre,
+descriptorProfile)` folds in the style seed, and only `mintTechniqueVariant`
+calls it. Axes are an open string set; `power`/`speed`/`endurance`/`precision`
+ship at launch. Nothing reads `axisProfile` into a calculation yet — SP1 maps
+it to an `EffectProfile`.
+
+Ownership is authoritative on `TechniqueVariant.owner` (mirroring
+`ItemInstance.owner`): `ownedTechniqueVariants(owner)` is the single "owner has
+this" query, and "hung" is derived from Tome placements referencing an owned
+instance. Every technique ref the plugin writes carries a non-null
+`instanceEntityId`; a null one is a pre-SP0a placement, read as the bare base.
+
+Mastery is **per instance**: `techniqueInstanceSubject(EntityId)` keys the
+existing `MasteryTracker` on the shared `techniqueMasteryThresholds` curve.
+`MasteryTracker` has no `undefine`, so `removeTechniqueVariant` clears only the
+progress entry; a run's fresh `PluginContext` discards the registry.
+
+Zero core change: instances use `EntityRegistry`/`ComponentStore`, mastery uses
+`MasteryTracker`, the Tome ref field already existed. The hand-authored
+evolution path (`EvolutionResolver`, evolved ids) is untouched;
+`mintVariantForLegacyEvolvedId` bridges an old id to a variant on demand.
+
 ## Reward/Loot system (`lib/src/reward/`)
 
 Reward *generation*, not a specific loot table — no `MartialLootTable`/
