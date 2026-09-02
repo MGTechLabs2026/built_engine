@@ -12,6 +12,7 @@ export 'src/plugins/technique/technique_events.dart';
 export 'src/plugins/technique/technique_lifecycle.dart';
 export 'src/plugins/technique/technique_plugin.dart';
 export 'src/plugins/technique/technique_training_weights.dart';
+export 'src/plugins/technique/technique_usage.dart';
 export 'src/plugins/technique/technique_variant.dart';
 export 'src/plugins/technique/technique_variant_lifecycle.dart';
 export 'src/plugins/technique/technique_variant_resolver.dart';

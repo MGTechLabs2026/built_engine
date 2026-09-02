@@ -4,6 +4,7 @@ import 'technique_content.dart' show techniqueDefinition;
 import 'technique_descriptor.dart';
 import 'technique_events.dart';
 import 'technique_lifecycle.dart' show isTechniqueLearned, TechniqueNotLearnedException;
+import 'technique_usage.dart' show forgetTechniqueVariantUsage;
 import 'technique_variant.dart';
 import 'technique_variant_resolver.dart';
 import 'technique_vocabulary.dart'
@@ -166,6 +167,9 @@ int techniqueVariantMasteryLevel(EntityId instanceId, PluginContext context) {
 ///   2. clear its per-instance mastery progress (the `MasteryDefinition`
 ///      stays — `MasteryTracker` has no undefine; a definition with no
 ///      progress reads level 0 and is inert),
+///   2b. drop any per-instance combat-usage tally from the owner's
+///      `TechniqueUsageComponent` (done while the variant still exists so
+///      the owner is still resolvable),
 ///   3. remove the `TechniqueVariant` component (entity destroy does not
 ///      cascade — documented),
 ///   4. destroy the entity,
@@ -192,6 +196,8 @@ void removeTechniqueVariant(
     final trimmed = Map<String, num>.of(mastery.progress)..remove(subject);
     context.components.add<MasteryComponent>(owner, MasteryComponent(trimmed));
   }
+
+  forgetTechniqueVariantUsage(instanceId, context);
 
   context.components.remove<TechniqueVariant>(instanceId);
   // `EntityRegistry.destroy` throws `StateError` on an already-dead entity.
