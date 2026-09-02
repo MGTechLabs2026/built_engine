@@ -197,10 +197,28 @@ void removeTechniqueVariant(
   context.events.publish(TechniqueVariantRemoved(owner, instanceId));
 }
 
+/// Thrown by [mintVariantForLegacyEvolvedId] when [legacyId] resolves to a
+/// hand-authored **evolved** technique with no entry in
+/// [_legacyEvolvedDescriptors]. An unmapped evolved id fails loudly here
+/// rather than silently degrading into a descriptor-less, basic-like
+/// variant. A base technique id and a completely unknown id are both
+/// handled elsewhere and never reach this exception.
+class LegacyTechniqueMigrationException implements Exception {
+  const LegacyTechniqueMigrationException(this.legacyId);
+
+  final String legacyId;
+
+  @override
+  String toString() =>
+      'No technique-variant migration mapping exists for legacy technique: '
+      '$legacyId';
+}
+
 /// Descriptor sets for the hand-authored evolved ids, so save data / SP4
 /// / SP0b can turn a legacy id into an instanced variant. Only the ids
-/// with an obvious thematic reading are mapped; anything absent mints a
-/// plain (descriptor-less) variant of its base family.
+/// with an explicit thematic mapping migrate; an evolved id absent from
+/// this map is **rejected** ([LegacyTechniqueMigrationException]), never
+/// silently degraded.
 const _legacyEvolvedDescriptors = <String, Set<String>>{
   TechniqueIds.heavyPunch: {'strong'},
   TechniqueIds.fastPunch: {'fast'},
@@ -241,23 +259,58 @@ String _familyOf(String legacyId, PluginContext context) {
   return legacyId; // already a base, or unknown — mint against itself
 }
 
-/// Mints an instanced variant that approximates a hand-authored evolved id.
-/// An id NOT in [_legacyEvolvedDescriptors] mints a descriptor-less,
-/// style-less variant, which [hangTechniqueVariant] then treats as a
-/// **basic** (learning-gated on the base family; the evolved identity is
-/// not preserved).
+/// Migrates a hand-authored technique id to an instanced variant. The id
+/// is classified against content already in the plugin — never inferred
+/// from the presence or absence of a descriptor mapping:
+///
+/// - **Base technique** ([TechniqueIds.bases]): not an evolved migration
+///   at all. Minted straight through the normal SP0a path — a base is
+///   legitimately descriptor-less.
+/// - **Evolved technique with a mapping**: minted with the mapped
+///   descriptors on its family. The mapping approximates the legacy
+///   identity as far as SP0a can represent it; it does not reproduce the
+///   old combat behaviour.
+/// - **Evolved technique with no mapping**: rejected with
+///   [LegacyTechniqueMigrationException] — never silently degraded to a
+///   descriptor-less basic-like variant.
+/// - **Completely unknown id**: fails first in `techniqueDefinition` with
+///   the existing content-not-found error, before any classification.
+///
 /// Additive: the legacy definition still resolves via `techniqueDefinition`
-/// and nothing calls this unless a caller opts in.
+/// and nothing calls this unless a caller opts in. On any failure no
+/// entity, component, mastery state, or event is left behind (the mint
+/// validates everything before `entities.create()`).
 EntityId mintVariantForLegacyEvolvedId(
   EntityId owner,
   String legacyId,
   PluginContext context, {
   String? styleId,
-}) =>
-    mintTechniqueVariant(
-      owner,
-      _familyOf(legacyId, context),
-      _legacyEvolvedDescriptors[legacyId] ?? const {},
-      context,
-      styleId: styleId,
-    );
+}) {
+  // Resolve the content first: a completely unknown id fails here with the
+  // existing `ContentNotFoundException`, never a migration exception.
+  techniqueDefinition(legacyId, context);
+
+  // A base family (the six ids with an independent LEARNING axis) is not an
+  // evolved-technique migration; it maps to itself and is legitimately
+  // descriptor-less.
+  if (TechniqueIds.bases.contains(legacyId)) {
+    return mintTechniqueVariant(owner, legacyId, const {}, context,
+        styleId: styleId);
+  }
+
+  // Everything else that resolved as content is an evolved branch. It MUST
+  // carry an explicit descriptor mapping — absence is a loud failure, not a
+  // silent downgrade.
+  final descriptors = _legacyEvolvedDescriptors[legacyId];
+  if (descriptors == null) {
+    throw LegacyTechniqueMigrationException(legacyId);
+  }
+
+  return mintTechniqueVariant(
+    owner,
+    _familyOf(legacyId, context),
+    descriptors,
+    context,
+    styleId: styleId,
+  );
+}

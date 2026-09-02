@@ -90,11 +90,14 @@ void main() {
     expect(seen!.baseFamilyId, 'basic_slash');
   });
 
-  test('mint with an unknown descriptor throws', () {
+  test('mint with an unknown descriptor throws and creates no entity', () {
+    final before = context.entities.all.length;
     expect(
       () => mintTechniqueVariant(owner, 'basic_punch', {'nonsense'}, context),
       throwsA(isA<UnknownTechniqueDescriptorException>()),
     );
+    expect(context.entities.all.length, before);
+    expect(context.components.entitiesWith<TechniqueVariant>(), isEmpty);
   });
 
   test('a basic variant mints with an empty profile', () {
@@ -252,6 +255,10 @@ void main() {
         for (final d in v.descriptorIds) techniqueDescriptor(d, context),
       ]);
       expect(v.axisProfile, expected);
+      // Test A: the migrated instance carries its own per-instance mastery
+      // subject, not the base family's.
+      expect(context.mastery.definitionOf(techniqueInstanceSubject(id)),
+          isNotNull);
     });
 
     test('legacy ids still resolve as plain definitions (nothing broke)', () {
@@ -261,10 +268,21 @@ void main() {
       );
     });
 
-    test('an unmapped legacy id mints a plain (descriptor-less) variant', () {
+    test('Test D: a base id through the legacy shim mints a plain variant', () {
+      // A base family is not an evolved-technique migration — it legitimately
+      // has no descriptors and is not rejected.
       final id = mintVariantForLegacyEvolvedId(
           owner, TechniqueIds.basicSlash, context);
       expect(context.components.get<TechniqueVariant>(id)!.descriptorIds, isEmpty);
+    });
+
+    test('Test C: a completely unknown id fails with content-not-found, '
+        'not a migration exception', () {
+      expect(
+        () => mintVariantForLegacyEvolvedId(
+            owner, 'no_such_technique_at_all', context),
+        throwsA(isA<ContentNotFoundException>()),
+      );
     });
   });
 
@@ -307,25 +325,20 @@ void main() {
       }
     });
 
-    test('T3: an unmapped evolved id collapses to a basic', () {
-      context.progression.define(const ProgressionDefinition(
-          subject: 'technique:basic_punch:knowledge', thresholds: [10]));
-      context.tome.defineTome(TomeDefinition.namedSlots(
-          id: 'sp0a_tome', slotIds: ['s0', 's1']));
-      context.tome.createTome(owner, 'sp0a_tome');
-
-      // counter_punch is an evolved id NOT in _legacyEvolvedDescriptors.
-      final id = mintVariantForLegacyEvolvedId(
-          owner, TechniqueIds.counterPunch, context);
-      final v = context.components.get<TechniqueVariant>(id)!;
-      expect(v.descriptorIds, isEmpty);
-      expect(v.styleId, isNull);
-      // Documented behaviour: with no descriptors and no style it is a basic,
-      // so hanging it is learning-gated (the evolved identity is not kept).
+    test('Test B: an unmapped evolved id is rejected, not collapsed to a basic',
+        () {
+      final before = context.entities.all.length;
+      // counter_punch is an evolved id (tier intermediate) with no entry in
+      // _legacyEvolvedDescriptors — it must fail loudly.
       expect(
-        () => hangTechniqueVariant(const SlotId('s0'), id, context),
-        throwsA(isA<TechniqueNotLearnedException>()),
+        () => mintVariantForLegacyEvolvedId(
+            owner, TechniqueIds.counterPunch, context),
+        throwsA(isA<LegacyTechniqueMigrationException>()),
       );
+      // Test E: the failed migration left no orphan entity and no variant
+      // component behind.
+      expect(context.entities.all.length, before);
+      expect(context.components.entitiesWith<TechniqueVariant>(), isEmpty);
     });
 
     test('T4: _requireVariant guards train / level against a bad instance id',

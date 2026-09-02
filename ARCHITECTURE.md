@@ -479,7 +479,13 @@ progress entry; a run's fresh `PluginContext` discards the registry.
 Zero core change: instances use `EntityRegistry`/`ComponentStore`, mastery uses
 `MasteryTracker`, the Tome ref field already existed. The hand-authored
 evolution path (`EvolutionResolver`, evolved ids) is untouched;
-`mintVariantForLegacyEvolvedId` bridges an old id to a variant on demand.
+`mintVariantForLegacyEvolvedId` bridges an old id to a variant on demand. It
+classifies the id against existing content — a base family mints a plain
+variant, a mapped evolved id mints its descriptor blend, and an **unmapped
+evolved id is rejected** (`LegacyTechniqueMigrationException`), never silently
+degraded to a descriptor-less basic-like variant. Every legacy evolved
+technique that becomes a `TechniqueVariant` therefore has an explicit
+migration mapping.
 
 ## Reward/Loot system (`lib/src/reward/`)
 

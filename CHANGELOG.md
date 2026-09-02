@@ -45,6 +45,11 @@ bumping the pin. Newest first.
   context)`; `trainTechniqueVariantMastery(instanceId, amount, context)` /
   `techniqueVariantMasteryLevel(instanceId, context)`;
   `mintVariantForLegacyEvolvedId`.
+- `mintVariantForLegacyEvolvedId` rejects an **unmapped evolved** technique
+  id with the new `LegacyTechniqueMigrationException` rather than silently
+  minting a descriptor-less, basic-like variant. A base technique id still
+  mints a plain variant; a completely unknown id still fails with
+  `ContentNotFoundException`.
 - `techniqueInstanceSubject(EntityId)` — per-instance Mastery subject.
 - Events: `TechniqueVariantMinted`, `TechniqueVariantRemoved`; optional
   `instanceId` on `TechniqueAddedToTome`.
