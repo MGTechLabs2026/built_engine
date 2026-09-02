@@ -1,7 +1,9 @@
 // test/plugins/technique/technique_variant_lifecycle_test.dart
 import 'package:build_engine/build_engine.dart';
+import 'package:build_engine/src/plugins/technique/technique_content.dart';
 import 'package:build_engine/src/plugins/technique/technique_descriptor_content.dart';
 import 'package:build_engine/src/plugins/technique/technique_events.dart';
+import 'package:build_engine/src/plugins/technique/technique_lifecycle.dart';
 import 'package:build_engine/src/plugins/technique/technique_variant.dart';
 import 'package:build_engine/src/plugins/technique/technique_variant_lifecycle.dart';
 import 'package:build_engine/src/plugins/technique/technique_vocabulary.dart';
@@ -92,5 +94,65 @@ void main() {
   test('a basic variant mints with an empty profile', () {
     final id = mintTechniqueVariant(owner, 'basic_guard', const {}, context);
     expect(context.components.get<TechniqueVariant>(id)!.axisProfile, isEmpty);
+  });
+
+  group('hangTechniqueVariant', () {
+    setUp(() {
+      context.content.loadAll(techniqueContentDefinitions);
+      context.progression.define(const ProgressionDefinition(
+          subject: 'technique:basic_punch:knowledge', thresholds: [10]));
+      for (final def in techniqueContentDefinitions) {
+        context.mastery.define(MasteryDefinition(
+            subject: 'technique:${def['id']}', thresholds: const [5, 15, 30]));
+      }
+      context.tome.defineTome(
+        TomeDefinition.namedSlots(
+            id: 'sp0a_tome', slotIds: ['s0', 's1', 's2', 's3', 's4']),
+      );
+      context.tome.createTome(owner, 'sp0a_tome');
+    });
+
+    test('a derived variant hangs without a learning gate, ref carries the instance', () {
+      final id = mintTechniqueVariant(
+          owner, 'basic_punch', {'bear'}, context, styleId: 'wing_chun');
+
+      hangTechniqueVariant(const SlotId('s0'), id, context);
+
+      final placements = context.tome.inspect(owner);
+      expect(placements, hasLength(1));
+      expect(placements.single.buildComponentRef.contentId, 'basic_punch');
+      expect(placements.single.buildComponentRef.instanceEntityId, id); // rule 4
+    });
+
+    test('a basic variant is gated on the family being learned', () {
+      final id = mintTechniqueVariant(owner, 'basic_punch', const {}, context);
+      expect(
+        () => hangTechniqueVariant(const SlotId('s0'), id, context),
+        throwsA(isA<TechniqueNotLearnedException>()),
+      );
+
+      final family = techniqueDefinition('basic_punch', context);
+      discoverTechnique(owner, family, context);
+      attemptToLearnTechnique(owner, family, 10, context);
+
+      hangTechniqueVariant(const SlotId('s0'), id, context);
+      expect(context.tome.inspect(owner), hasLength(1));
+    });
+
+    test('hanging an unknown instance id throws', () {
+      expect(
+        () => hangTechniqueVariant(const SlotId('s0'), const EntityId(999), context),
+        throwsA(isA<TechniqueVariantNotFoundException>()),
+      );
+    });
+
+    test('hang publishes TechniqueAddedToTome with the instance id', () {
+      TechniqueAddedToTome? seen;
+      context.events.subscribe<TechniqueAddedToTome>((e) => seen = e);
+      final id = mintTechniqueVariant(owner, 'basic_slash', {'iron'}, context,
+          styleId: 'boxing');
+      hangTechniqueVariant(const SlotId('s0'), id, context);
+      expect(seen?.instanceId, id);
+    });
   });
 }
