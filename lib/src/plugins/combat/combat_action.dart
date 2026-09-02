@@ -29,6 +29,16 @@ abstract class CombatAction {
   /// `0`, so no existing `CombatAction` implementation needs to change.
   num get priority => 0;
 
+  /// The build component this action was interpreted from, if any — set
+  /// by the build-interpretation layer (`TechniqueActionInterpreter`).
+  /// Carries `referenceType` + `contentId` + `instanceEntityId`. `null`
+  /// for an action with no build origin (a bare-handed fallback strike, a
+  /// rule-spawned action). Consumers: SP0b per-variant usage, SP1 active
+  /// tier. Never read by `CombatSystem` — behaviour-neutral, exactly like
+  /// [priority]. Defaults to `null` so no existing `CombatAction`
+  /// implementation needs to change.
+  BuildComponentRef? get sourceRef => null;
+
   /// Applied once for each entry in [targets] if [conditions] all pass.
   /// [context] is the owning `PluginContext` — passed in at call time
   /// (rather than resolved once at construction) so an action can read
@@ -51,6 +61,7 @@ class AttackAction extends CombatAction {
     required this.damageStat,
     this.conditions = const [],
     this.costEffects = const [],
+    this.sourceRef,
   });
 
   @override
@@ -70,6 +81,9 @@ class AttackAction extends CombatAction {
   final List<Condition> conditions;
   @override
   final List<Effect> costEffects;
+
+  @override
+  final BuildComponentRef? sourceRef;
 
   @override
   List<Effect> effectsFor(EntityId target, PluginContext context) {
