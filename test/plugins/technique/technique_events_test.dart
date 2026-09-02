@@ -2,7 +2,8 @@
 // reachable from `package:build_engine/technique_plugin.dart` (never an
 // `src/plugins/game/...` internal path), and `TechniqueEvolved` is
 // published exactly once per successful evolution and never otherwise.
-import 'package:build_engine/build_engine.dart' show EventBus;
+import 'package:build_engine/build_engine.dart'
+    show EventBus, EntityId, SlotId;
 import 'package:build_engine/game.dart' show runGame;
 import 'package:build_engine/technique_plugin.dart';
 import 'package:test/test.dart';
@@ -69,6 +70,30 @@ void main() {
           reason: 'some sampled run evolves a technique and fires the event');
       expect(anyNotEvolved, isTrue,
           reason: 'some sampled run evolves nothing and fires no event');
+    });
+  });
+
+  group('instance mastery subject + variant events', () {
+    test('techniqueInstanceSubject is instance-scoped and stable', () {
+      const a = EntityId(7);
+      const b = EntityId(8);
+      expect(techniqueInstanceSubject(a), 'technique:instance:7');
+      expect(techniqueInstanceSubject(a), techniqueInstanceSubject(a));
+      expect(techniqueInstanceSubject(a) == techniqueInstanceSubject(b), isFalse);
+    });
+
+    test('TechniqueAddedToTome can carry an instance id', () {
+      const e = TechniqueAddedToTome(EntityId(1), 'basic_punch', SlotId('r0c0'),
+          instanceId: EntityId(42));
+      expect(e.instanceId, const EntityId(42));
+    });
+
+    test('variant mint / remove events carry owner + instance', () {
+      const minted = TechniqueVariantMinted(EntityId(1), EntityId(42), 'basic_punch');
+      const removed = TechniqueVariantRemoved(EntityId(1), EntityId(42));
+      expect(minted.instanceId, const EntityId(42));
+      expect(minted.baseFamilyId, 'basic_punch');
+      expect(removed.instanceId, const EntityId(42));
     });
   });
 }

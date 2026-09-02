@@ -5,11 +5,16 @@ import 'package:build_engine/build_engine.dart';
 /// the same reason `ItemAddedToTome` was: `TomeService` has no `EventBus`
 /// of its own to hook a "was inserted" event onto otherwise.
 class TechniqueAddedToTome {
-  const TechniqueAddedToTome(this.owner, this.definitionId, this.slot);
+  const TechniqueAddedToTome(this.owner, this.definitionId, this.slot,
+      {this.instanceId});
 
   final EntityId owner;
   final String definitionId;
   final SlotId slot;
+
+  /// The technique-variant instance that was hung, if this placement
+  /// carries one (SP0a onwards). `null` for a pre-instancing placement.
+  final EntityId? instanceId;
 }
 
 /// One technique successfully evolved into another — the terminal step of
@@ -33,4 +38,22 @@ class TechniqueEvolved {
 
   /// The definition id of the evolved technique it became.
   final String toId;
+}
+
+/// Published by `mintTechniqueVariant` once a new technique-variant
+/// instance entity exists for [owner]. Mirrors `ItemAddedToTome`'s
+/// "TomeService has no EventBus of its own" reasoning for living here.
+class TechniqueVariantMinted {
+  const TechniqueVariantMinted(this.owner, this.instanceId, this.baseFamilyId);
+  final EntityId owner;
+  final EntityId instanceId;
+  final String baseFamilyId;
+}
+
+/// Published by `removeTechniqueVariant` once the instance entity and its
+/// per-instance state are gone.
+class TechniqueVariantRemoved {
+  const TechniqueVariantRemoved(this.owner, this.instanceId);
+  final EntityId owner;
+  final EntityId instanceId;
 }

@@ -1,3 +1,5 @@
+import 'package:build_engine/build_engine.dart';
+
 /// Stable content ids for the Technique plugin's set
 /// (`technique_content.dart`). Content Expansion V1 deepened the three
 /// original families to `master` and added three new base families
@@ -86,6 +88,14 @@ String techniqueSubject(String definitionId) => 'technique:$definitionId';
 /// what this milestone forbids ("Discovery != Learning != Mastery").
 String techniqueKnowledgeSubject(String definitionId) =>
     'technique:$definitionId:knowledge';
+
+/// The per-instance Mastery subject for a technique variant entity —
+/// `'technique:instance:<entityValue>'`. Distinct from
+/// [techniqueSubject] (the base-family subject) so each variant a player
+/// holds is drilled independently. `MasteryTracker` treats it like any
+/// other subject string; it registers/reads it, never interprets it.
+String techniqueInstanceSubject(EntityId instance) =>
+    'technique:instance:${instance.value}';
 
 /// The `BuildComponentRef.referenceType` every technique occupies a Tome
 /// slot under — the canonical replacement for the bare `'technique'`
