@@ -113,3 +113,30 @@ void hangTechniqueVariant(
         instanceId: instanceId),
   );
 }
+
+/// Every technique-variant instance whose `TechniqueVariant.owner` is
+/// [owner] — the single authoritative "owner has this" query (rule 5).
+/// Includes hung and loose (owned-but-unplaced) instances alike.
+List<EntityId> ownedTechniqueVariants(EntityId owner, PluginContext context) => [
+      for (final e in context.components.entitiesWith<TechniqueVariant>())
+        if (context.components.get<TechniqueVariant>(e)!.owner == owner) e,
+    ];
+
+/// Adds [amount] proficiency to the per-instance MASTERY of variant
+/// [instanceId]. Keyed by [techniqueInstanceSubject]; the owner is read
+/// from the instance's `TechniqueVariant.owner` (rule 5). Never moves the
+/// base family's own mastery.
+void trainTechniqueVariantMastery(
+  EntityId instanceId,
+  num amount,
+  PluginContext context,
+) {
+  final owner = context.components.get<TechniqueVariant>(instanceId)!.owner;
+  context.mastery.increase(owner, techniqueInstanceSubject(instanceId), amount);
+}
+
+/// Variant [instanceId]'s current MASTERY level — `0` if never trained.
+int techniqueVariantMasteryLevel(EntityId instanceId, PluginContext context) {
+  final owner = context.components.get<TechniqueVariant>(instanceId)!.owner;
+  return context.mastery.levelOf(owner, techniqueInstanceSubject(instanceId));
+}

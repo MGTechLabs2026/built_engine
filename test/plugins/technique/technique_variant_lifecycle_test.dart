@@ -155,4 +155,31 @@ void main() {
       expect(seen?.instanceId, id);
     });
   });
+
+  group('ownership + per-instance mastery', () {
+    test('ownedTechniqueVariants returns exactly this owner\'s instances', () {
+      final other = context.entities.create();
+      final a = mintTechniqueVariant(owner, 'basic_punch', {'bear'}, context,
+          styleId: 's');
+      final b = mintTechniqueVariant(owner, 'basic_kick', const {}, context);
+      final theirs = mintTechniqueVariant(other, 'basic_slash', {'iron'}, context,
+          styleId: 's');
+
+      final owned = ownedTechniqueVariants(owner, context);
+      expect(owned, containsAll(<EntityId>[a, b]));
+      expect(owned, isNot(contains(theirs)));   // rule 5
+    });
+
+    test('two instances of the same base master independently', () {
+      final a = mintTechniqueVariant(owner, 'basic_punch', {'bear'}, context,
+          styleId: 's');
+      final b = mintTechniqueVariant(owner, 'basic_punch', {'swift'}, context,
+          styleId: 's');
+
+      trainTechniqueVariantMastery(a, 20, context); // no owner arg (rule 5)
+
+      expect(techniqueVariantMasteryLevel(a, context), greaterThan(0));
+      expect(techniqueVariantMasteryLevel(b, context), 0);
+    });
+  });
 }
