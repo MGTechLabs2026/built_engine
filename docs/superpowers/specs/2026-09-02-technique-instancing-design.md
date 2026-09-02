@@ -212,10 +212,14 @@ mint time.
 - The base-family Mastery subject (`technique:<familyId>`) is retained for
   "how good is this fighter at punches in general" if any consumer wants
   it, but per-instance is the axis that matters for a variant's strength.
-- On instance removal (§6), the mastery subject's progress is cleared
-  (`MasteryComponent` entry dropped) and its `MasteryDefinition`
-  unregistered — full symmetric cleanup, the same discipline
-  `TomeService.remove` and `CharacterService` already follow.
+- On instance removal (§6), the mastery subject's **progress** is cleared
+  — rebuild `MasteryComponent` without that subject's entry. The
+  `MasteryDefinition` stays registered: `MasteryTracker` has no `undefine`
+  (adding one would be a core change SP0a avoids), a definition with no
+  progress reads level `0` and is inert, and a run uses a fresh
+  `PluginContext` whose `MasteryTracker._definitions` starts empty — so
+  the leak is per-run and bounded by the number of variants minted in one
+  run.
 
 No `MasteryTracker` change. This is exactly "each plugin picks its own
 subject-id namespace."
@@ -305,7 +309,7 @@ style seed / SP0b            content
 | Two variants, same base + same descriptors | Two distinct instances, two mastery subjects. Allowed — they may diverge in mastery. (SP0b decides whether to *offer* a duplicate; SP0a permits it.) |
 | Descriptor unknown at mint | `mintTechniqueVariant` throws `UnknownTechniqueDescriptorException` (mirrors `UnknownContentFactoryException`). No silent drop. |
 | Conflicting descriptors on one axis | Summed additively; net may be negative. No conflict resolution — content's responsibility. |
-| Instance removed while hung | `removeTechniqueVariant` removes the Tome placement first, then cleans mastery, then destroys — symmetric, no dangling ref. |
+| Instance removed while hung | `removeTechniqueVariant` removes the Tome placement first, then clears the mastery-subject progress, then removes the `TechniqueVariant` component, then `entities.destroy` — symmetric, no dangling ref. `EntityRegistry.destroy` does **not** cascade component cleanup (documented), so the component removal is explicit. |
 | Content changes a descriptor's magnitude later | Existing instances keep their stored `axisProfile`. A future explicit `reresolveVariant(instanceId)` is the only way to pick up the change. Not built in SP0a. |
 | Determinism | `resolve` is pure additive; mint publishes events in a fixed order; no RNG in SP0a (the roll lives in SP0b). |
 
@@ -410,6 +414,8 @@ Per `claude.md`'s per-plugin requirements.
    belongs there and not in `technique`.
 5. **How many descriptors may one instance carry?** A cap (e.g. 3) keeps
    variants legible and bounds `axisProfile`. Set in SP0b, or here?
-6. **Mastery-subject cleanup on run end.** A run discards all instances;
-   confirm the batch-cleanup path (iterate owner's variant entities) vs.
-   relying on a fresh `PluginContext` per run.
+6. **Mastery-subject cleanup on run end.** `removeTechniqueVariant` clears
+   per-instance progress but cannot unregister the `MasteryDefinition`
+   (no `undefine`). A run uses a fresh `PluginContext`, so `_definitions`
+   resets between runs regardless; confirm no long-lived context reuses a
+   `MasteryTracker` across runs.
