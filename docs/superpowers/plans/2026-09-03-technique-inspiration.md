@@ -19,7 +19,7 @@
 - **Negative axes are preserved:** the resolver's emphasis/selection math uses positive axis contributions only, but the minted variant's `axisProfile` (built by `TechniqueVariantResolver` over the drawn descriptors) keeps every axis, negatives included. SP0b strips nothing.
 - **New variants start `masteryLevel 0` / `usage 0`** and therefore cannot inspire until they independently cross the thresholds — no `canInspire` flag; the behaviour falls out of the eligibility filter.
 - **At most one discovery per training session** — enforced by the single resolver roll in the one hook call; no cooldown, no discovery-lock component on the fighter, no persistent state.
-- **One RNG draw total.** `resolve` draws `rng.nextDouble()` exactly once (the discovery roll, spec §6.2 step 4), plus the weighted `weightedPick` draws for step 7. Step 0 returns *before* any draw. Step 9 attribution adds **no** draw. Do not add a second discovery roll or an attribution roll.
+- **Exactly one discovery-probability roll; multiple RNG draws overall.** `resolve` draws `rng.nextDouble()` **once** for the pass/fail discovery decision (spec §6.2 step 4), then **once per descriptor pick** in step 7's `weightedPick`, then **again per exclusion retry** in step 8. All draws come from the one injected `RngService`, so a seed reproduces the whole result. Step 0 returns *before* any draw. Step 9 attribution adds **no** draw. Do not add a *second discovery roll*, do not add an attribution roll, and do not try to satisfy the whole resolver from a single random value.
 - **Single-source concentration is not special-cased.** `c = maxWeight / totalWeight` yields `1.0` for one eligible inspirer automatically. No `if (eligible.length == 1)` branch anywhere.
 - **Descriptor count `k` (spec §6.2 step 6), chosen before the weighted draw:** `k = 1` if `eligible.length == 1`; `k = 3` if `eligible.length >= 2 && meanEligibleMastery >= kInspirationStrongMasteryBar && ΣweightedW >= kInspirationStrongWeightBar`; `k = 2` otherwise (`eligible.length >= 2`, not strong). Then `k = min(k, 3)` and `k = min(k, compatible.length)`.
 - **`inspirerInstanceIds` = actual contributors** (spec §6.2 step 9): per drawn descriptor, the eligible inspirer with the greatest `support_i(d) = Σ_{axis ∈ positiveAxes(d)} w_i * max(0, axisProfile_i[axis])`; tie → lowest index in the resolver's `eligible` list; union across descriptors, ascending index, deduplicated. It is a **subset** of the eligible set — an eligible inspirer that shaped no drawn descriptor is omitted. Never emit "all eligible".
@@ -1994,9 +1994,9 @@ import 'technique_variant_lifecycle.dart'
 ///   * `mintTechniqueVariant(owner, familyId, descriptorIds, context,
 ///      styleId: styleId, styleCentre: styleCentre)` — owned but loose,
 ///   * publishes [TechniqueVariantInspired] exactly once.
-/// One call → one roll → at most one mint and one event. No cooldown, no
-/// mutable state. Returns the [InspirationResult]; the caller owns
-/// telemetry / UI. The inspirers are never touched.
+/// One call → one discovery-probability roll → at most one mint and one
+/// event. No cooldown, no mutable state. Returns the [InspirationResult];
+/// the caller owns telemetry / UI. The inspirers are never touched.
 InspirationResult resolveTechniqueInspirationAfterTraining(
   EntityId owner,
   TechniqueDefinition trainedTechnique,
@@ -2509,7 +2509,7 @@ git commit -m "test(technique): lock SP0b discovery invariants; wire harness usa
 | §5.2 `ActionCompleted` → usage bridge (composition layer) | Task 4 (reducer) + Task 10 (bridge) |
 | §5.3 `techniqueVariantUsage` + `removeTechniqueVariant` cleanup | Task 4 |
 | §6.1 `Inspirer` / `InspirationResult` (attributed-subset semantics) / resolver signature | Task 5 + Task 6 |
-| §6.2 steps 0–4 (eligibility, weights, **√-damping table**, emphasis, **single-source c==1.0**, single roll) | Task 6 |
+| §6.2 steps 0–4 (eligibility, weights, **√-damping table**, emphasis, **single-source c==1.0**, one discovery-probability roll) | Task 6 |
 | §6.2 step 5 (compatibility — valid-family assumption) | Task 6 impl + Task 7 lock |
 | §6.2 step 6 (exact descriptor-count formula, chosen pre-draw) | Task 6 impl + Task 7 lock |
 | §6.2 steps 7–8 (weighted draw, exact-duplicate exclusion) | Task 6 impl + Task 7 lock |
@@ -2521,7 +2521,7 @@ git commit -m "test(technique): lock SP0b discovery invariants; wire harness usa
 | §9 `styleCentre` table | Task 9 |
 | §10 coexistence with evolution | Task 10 (call placement) + Task 8 flow test |
 | §11 newborn cannot chain (emergent from eligibility) | Task 8 flow test |
-| §11 one discovery per call (single roll, no discovery-lock component) | Task 8 flow test |
+| §11 one discovery per call (one discovery-probability roll, no discovery-lock component) | Task 8 flow test |
 | §12 edge cases (incl. invalid `family:` ref = content error, non-contributor omitted, tie-break) | Task 3 (§14.0), Task 6/7/8 test lists |
 | §13 files | File Structure section |
 | §14.0 descriptor family-reference validation (content) | Task 3 step 5 |

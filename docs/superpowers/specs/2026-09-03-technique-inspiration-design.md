@@ -37,7 +37,7 @@ high-mastery variants you actually use are the seed.
 
 | Question | Answer |
 |---|---|
-| **Trigger** | After a training session — a parallel hook to today's `resolveTechniqueEvolutionAfterTraining`. **Exactly one** discovery roll per call; **at most one** new variant per training session. No cooldown, no discovery-lock component — the single roll is the whole cap (§8). |
+| **Trigger** | After a training session — a parallel hook to today's `resolveTechniqueEvolutionAfterTraining`. **Exactly one** discovery-probability roll per call; **at most one** new variant per training session. No cooldown, no discovery-lock component — that one pass/fail roll is the whole cap (§8). (The resolver makes further `RngService` draws for descriptor selection — see §6.2 step 4.) |
 | **Usage signal** | A variant instance *performed a combat action* (hung **and** it struck / guarded in a resolved fight), counted from `ActionCompleted`. |
 | **Inspirers** | `0` eligible → no discovery. `1` eligible → **focused** inspiration (a single well-practiced technique alone can inspire); concentration `== 1.0` by construction (§6.2 step 3), which is exactly right — one source *is* maximally focused behaviour. `2+` → **blended**. |
 | **Weighting** | `w = masteryLevel × √usage` — mastery is the linear proficiency signal, usage the recent-behaviour signal with **diminishing returns**; `mastery 0` or `usage 0` → `w == 0` (§6.2 step 1). |
@@ -360,14 +360,21 @@ focused behaviour, so it earns the maximum discovery probability
 (`p == 0.60` with the shipped constants). Do not add a `case
 eligible.length == 1` anywhere.
 
-**Step 4 — discovery roll (the one and only roll).**
+**Step 4 — discovery-probability roll (the single pass/fail decision).**
 `p = clamp(kInspirationBaseChance + kInspirationConcentrationGain * c,
 0, 1)` — monotonic in `c`, bounded `[0, 1]`. With the shipped constants
 (`0.05`, `0.55`): `c == 0 → p == 0.05`, `c == 1 → p == 0.60`. Draw
-`rng.nextDouble()` **once**; if `>= p` → `InspirationResult.none`. This is
-the single roll that gives §8's one-discovery-per-training guarantee — no
-second roll anywhere in the resolver, no roll added for event
-attribution (§6.2 step 9).
+`rng.nextDouble()` **once** here; if `>= p` → `InspirationResult.none`.
+
+This is the resolver's **one discovery-probability roll** — the pass/fail
+gate that gives §8's *one-discovery-per-training* guarantee. It is **not**
+the resolver's only RNG draw: step 7 draws once per descriptor pick
+(`weightedPick`), and step 8 draws again on each exclusion retry. All of
+those come from the same injected `RngService`, so a seed still
+reproduces the whole result exactly. What the implementer must **not** do
+is try to satisfy the whole resolver from a single random value — draw
+from `rng` at each point the algorithm says to. Step 9 (attribution) adds
+**no** draw.
 
 **Step 5 — compatible descriptor pool.**
 `compatible = descriptorPool where descriptorCompatibleWithFamily(d,
@@ -468,9 +475,12 @@ drawn descriptor is correctly **omitted**).
 trainedFamilyId, descriptorIds: {the drawn ids}, inspirerInstanceIds:
 [attributed source ids, ascending eligible-index order])`.
 
-Every step is pure arithmetic over `num` plus a single `rng` draw. Same
-`rng` state + same inputs → identical `discovered`, `descriptorIds`,
-**and** `inspirerInstanceIds` — a two-runs-equal test locks all three.
+Every step is pure arithmetic over `num` plus deterministic RNG draws
+from the injected `RngService`; **exactly one** RNG draw is used for the
+discovery-probability decision (step 4), with further draws in steps 7–8
+for descriptor selection and retries. Same `rng` state + same inputs →
+identical `discovered`, `descriptorIds`, **and** `inspirerInstanceIds` —
+a two-runs-equal test locks all three.
 
 ### 6.3 Tuning constants (`technique_vocabulary.dart`)
 
@@ -512,9 +522,12 @@ are the *only* eligibility gate (no `canInspire` state).
 ///     result's `descriptorIds` and `inspirerInstanceIds` **verbatim**
 ///     (the latter is already narrowed to the actually-contributing
 ///     sources by §6.2 step 9 — the hook does no further filtering).
-/// Exactly one call → one resolver roll → **at most one** minted variant
-/// and **at most one** event. No cooldown, no discovery-lock component,
-/// no mutable state of any kind; the single roll is the entire cap (§8).
+/// Exactly one call → one discovery-probability roll → **at most one**
+/// minted variant and **at most one** event. No cooldown, no
+/// discovery-lock component, no mutable state of any kind; that one
+/// pass/fail roll is the entire cap (§8). (The resolver draws from `rng`
+/// again for descriptor selection — those draws never mint a *second*
+/// variant.)
 /// Returns the [InspirationResult] snapshot; the caller owns telemetry / UI.
 InspirationResult resolveTechniqueInspirationAfterTraining(
   EntityId owner,
@@ -679,7 +692,7 @@ the evolution function.
    per-instance mastery (SP0a) ─────────────────────────┘    ├─ TechniqueInspirationResolver.resolve(..., rng, exclude) → InspirationResult
                                                              │        eligible: 0 → none | 1 → focused | 2+ → blended
                                                              │        w_i = mastery × √usage  → emphasis E (positive axes only)
-                                                             │        c = max(w_i) / Σ(w_i)   → p = base + gain·c → one roll
+                                                             │        c = max(w_i) / Σ(w_i)   → p = base + gain·c → discovery-probability roll
                                                              │        compatibility filter → k (source count + blend strength, 1..3, pre-draw)
                                                              │        weighted draw → exact-duplicate exclusion (bounded retry)
                                                              │        attribution: per-descriptor argmax support_i → inspirerInstanceIds (no roll)
@@ -714,7 +727,7 @@ the evolution function.
 | `removeTechniqueVariant` on an instance with a usage entry | The entry is dropped alongside the mastery-progress trim. |
 | Same seed, same owner state, same trained technique | Identical `InspirationResult` — no wall-clock, no hidden state, one `RngService`. |
 | Combat outcome with `sourceRef` populated vs not | Identical — `sourceRef` never enters damage / modifier / ordering / RNG. |
-| Two `resolveTechniqueInspirationAfterTraining` calls in one training session | Not the plugin's concern — each call is one roll / ≤ one mint. Callers make exactly one call per session. |
+| Two `resolveTechniqueInspirationAfterTraining` calls in one training session | Not the plugin's concern — each call is one discovery-probability roll / ≤ one mint. Callers make exactly one call per session. |
 
 ---
 
