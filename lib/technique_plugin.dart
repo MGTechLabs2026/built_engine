@@ -9,6 +9,7 @@ export 'src/plugins/technique/technique_descriptor.dart';
 export 'src/plugins/technique/technique_descriptor_content.dart';
 export 'src/plugins/technique/technique_evolution.dart';
 export 'src/plugins/technique/technique_events.dart';
+export 'src/plugins/technique/technique_inspiration.dart';
 export 'src/plugins/technique/technique_lifecycle.dart';
 export 'src/plugins/technique/technique_plugin.dart';
 export 'src/plugins/technique/technique_training_weights.dart';
