@@ -39,7 +39,7 @@ class TechniqueActionInterpreter implements BuildActionInterpreter {
       final definition = context.content.find(ref.contentId);
       if (definition == null) continue; // unknown/invalid technique -> no action, not a crash
       final technique = techniqueDefinitionFromContent(definition);
-      final action = _actionFor(technique, actor, targets);
+      final action = _actionFor(technique, actor, targets, ref);
       if (action != null) actions.add(action);
     }
     return actions;
@@ -49,11 +49,13 @@ class TechniqueActionInterpreter implements BuildActionInterpreter {
     TechniqueDefinition technique,
     EntityId actor,
     List<EntityId> targets,
+    BuildComponentRef ref,
   ) {
     if (technique.tags.contains('guard')) {
       return SelfEffectAction(
         actor: actor,
         selfEffects: [ApplyStatus('status:guard:${technique.id}')],
+        sourceRef: ref,
       );
     }
     final damage = technique.properties['damage'];
@@ -63,6 +65,7 @@ class TechniqueActionInterpreter implements BuildActionInterpreter {
       targets: targets,
       baseDamage: damage,
       damageStat: _damageStatFor(technique),
+      sourceRef: ref,
     );
   }
 
