@@ -102,3 +102,36 @@ String techniqueInstanceSubject(EntityId instance) =>
 /// string literal already used ad hoc across test fixtures (e.g.
 /// `test/tome/tome_service_test.dart`, `vertical_slice_runner.dart`).
 const techniqueReferenceType = 'technique';
+
+// ── SP0b: technique inspiration / discovery tuning ───────────────────
+// Placeholder magnitudes — tuned against `game_run` balance sweeps; each
+// is a named constant, never inlined in the resolver.
+
+/// Discovery probability at zero usage concentration.
+const kInspirationBaseChance = 0.05;
+
+/// How much a fully concentrated usage pattern (one dominant inspirer)
+/// adds to the discovery probability. `p` tops out near `0.60` at `c == 1`.
+const kInspirationConcentrationGain = 0.55;
+
+/// An inspirer must be at least this per-instance mastery level.
+const kMinMasteryToInspire = 1;
+
+/// ...and must have performed at least this many combat actions this run.
+const kMinUsageToInspire = 3;
+
+/// The weighted draw re-rolls past an already-owned descriptor set at
+/// most this many times before giving up.
+const kInspirationExcludeRetries = 3;
+
+/// Mean eligible-inspirer mastery at or above this makes a multi-source
+/// blend "strong" (a candidate for a 3rd descriptor).
+const kInspirationStrongMasteryBar = 2;
+
+/// ...and the summed damped inspirer weight must also reach this.
+const kInspirationStrongWeightBar = 6.0;
+
+/// Descriptor tag prefix that restricts a descriptor to one base family,
+/// e.g. `family:basic_kick`. A descriptor with no such tag is universal.
+/// The suffix is the full base id (matches `techniqueFamilyOf`'s return).
+const techniqueFamilyTagPrefix = 'family:';

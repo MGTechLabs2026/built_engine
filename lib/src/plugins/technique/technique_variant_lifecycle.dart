@@ -86,7 +86,9 @@ class TechniqueVariantNotFoundException implements Exception {
 /// [TechniqueVariantNotFoundException] if the entity carries none — the
 /// single lookup every post-`mint` lifecycle function shares, so a bad
 /// instance id always fails the same clean way.
-TechniqueVariant _requireVariant(EntityId instanceId, PluginContext context) {
+///
+/// Public function `requireTechniqueVariant`.
+TechniqueVariant requireTechniqueVariant(EntityId instanceId, PluginContext context) {
   final v = context.components.get<TechniqueVariant>(instanceId);
   if (v == null) throw TechniqueVariantNotFoundException(instanceId);
   return v;
@@ -107,7 +109,7 @@ void hangTechniqueVariant(
   EntityId instanceId,
   PluginContext context,
 ) {
-  final variant = _requireVariant(instanceId, context);
+  final variant = requireTechniqueVariant(instanceId, context);
   final owner = variant.owner;
   final isBasic = variant.styleId == null && variant.descriptorIds.isEmpty;
   if (isBasic) {
@@ -148,13 +150,13 @@ void trainTechniqueVariantMastery(
   num amount,
   PluginContext context,
 ) {
-  final owner = _requireVariant(instanceId, context).owner;
+  final owner = requireTechniqueVariant(instanceId, context).owner;
   context.mastery.increase(owner, techniqueInstanceSubject(instanceId), amount);
 }
 
 /// Variant [instanceId]'s current MASTERY level — `0` if never trained.
 int techniqueVariantMasteryLevel(EntityId instanceId, PluginContext context) {
-  final owner = _requireVariant(instanceId, context).owner;
+  final owner = requireTechniqueVariant(instanceId, context).owner;
   return context.mastery.levelOf(owner, techniqueInstanceSubject(instanceId));
 }
 
@@ -175,7 +177,7 @@ void removeTechniqueVariant(
   EntityId instanceId,
   PluginContext context,
 ) {
-  final variant = _requireVariant(instanceId, context);
+  final variant = requireTechniqueVariant(instanceId, context);
   final owner = variant.owner;
 
   for (final placement in context.tome.inspect(owner)) {
@@ -243,7 +245,8 @@ const _legacyEvolvedDescriptors = <String, Set<String>>{
 };
 
 /// The base family for [legacyId], read from its content's family tag.
-String _familyOf(String legacyId, PluginContext context) {
+/// Public function `techniqueFamilyOf` so SP0b's inspiration hook can reuse it.
+String techniqueFamilyOf(String legacyId, PluginContext context) {
   final tags = techniqueDefinition(legacyId, context).tags;
   const familyTagToBase = {
     'fist': TechniqueIds.basicPunch,
@@ -308,7 +311,7 @@ EntityId mintVariantForLegacyEvolvedId(
 
   return mintTechniqueVariant(
     owner,
-    _familyOf(legacyId, context),
+    techniqueFamilyOf(legacyId, context),
     descriptors,
     context,
     styleId: styleId,
