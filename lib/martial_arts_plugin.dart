@@ -17,3 +17,4 @@ export 'src/plugins/martial_arts/martial_technique_action.dart';
 export 'src/plugins/martial_arts/martial_technique_content.dart';
 export 'src/plugins/martial_arts/martial_vocabulary.dart';
 export 'src/plugins/martial_arts/style_combat.dart';
+export 'src/plugins/martial_arts/style_centre.dart';
