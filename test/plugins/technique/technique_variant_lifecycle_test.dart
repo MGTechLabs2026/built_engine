@@ -1,12 +1,15 @@
 // test/plugins/technique/technique_variant_lifecycle_test.dart
 import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/src/plugins/technique/technique_content.dart';
+import 'package:build_engine/src/plugins/technique/technique_descriptor.dart';
 import 'package:build_engine/src/plugins/technique/technique_descriptor_content.dart';
 import 'package:build_engine/src/plugins/technique/technique_events.dart';
 import 'package:build_engine/src/plugins/technique/technique_lifecycle.dart';
 import 'package:build_engine/src/plugins/technique/technique_variant.dart';
 import 'package:build_engine/src/plugins/technique/technique_variant_lifecycle.dart';
-import 'package:build_engine/src/plugins/technique/technique_vocabulary.dart';
+import 'package:build_engine/src/plugins/technique/technique_variant_resolver.dart';
+import 'package:build_engine/src/plugins/technique/technique_vocabulary.dart'
+    show TechniqueIds, techniqueInstanceSubject;
 import 'package:test/test.dart';
 
 PluginContext _newContext() {
@@ -225,6 +228,37 @@ void main() {
         () => removeTechniqueVariant(const EntityId(999), context),
         throwsA(isA<TechniqueVariantNotFoundException>()),
       );
+    });
+  });
+
+  group('legacy coexistence', () {
+    setUp(() => context.content.loadAll(techniqueContentDefinitions));
+
+    test('mints a variant for a legacy evolved id with mapped descriptors', () {
+      final id = mintVariantForLegacyEvolvedId(
+          owner, TechniqueIds.heavyPunch, context, styleId: 'boxing');
+      final v = context.components.get<TechniqueVariant>(id)!;
+      expect(v.baseFamilyId, TechniqueIds.basicPunch);
+      expect(v.descriptorIds, contains('strong'));
+      // profile matches the resolver over the mapped descriptors (no style
+      // centre passed, so composeAxisProfile({}, ...) == the resolver output)
+      final expected = const TechniqueVariantResolver().resolve([
+        for (final d in v.descriptorIds) techniqueDescriptor(d, context),
+      ]);
+      expect(v.axisProfile, expected);
+    });
+
+    test('legacy ids still resolve as plain definitions (nothing broke)', () {
+      expect(
+        techniqueDefinition(TechniqueIds.lightningJab, context).id,
+        TechniqueIds.lightningJab,
+      );
+    });
+
+    test('an unmapped legacy id mints a plain (descriptor-less) variant', () {
+      final id = mintVariantForLegacyEvolvedId(
+          owner, TechniqueIds.basicSlash, context);
+      expect(context.components.get<TechniqueVariant>(id)!.descriptorIds, isEmpty);
     });
   });
 }

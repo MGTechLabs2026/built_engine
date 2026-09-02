@@ -6,7 +6,12 @@ import 'technique_events.dart';
 import 'technique_lifecycle.dart' show isTechniqueLearned, TechniqueNotLearnedException;
 import 'technique_variant.dart';
 import 'technique_variant_resolver.dart';
-import 'technique_vocabulary.dart';
+import 'technique_vocabulary.dart'
+    show
+        TechniqueIds,
+        techniqueMasteryThresholds,
+        techniqueInstanceSubject,
+        techniqueReferenceType;
 
 export 'technique_descriptor.dart' show UnknownTechniqueDescriptorException;
 
@@ -181,3 +186,64 @@ void removeTechniqueVariant(
   context.entities.destroy(instanceId);
   context.events.publish(TechniqueVariantRemoved(owner, instanceId));
 }
+
+/// Descriptor sets for the hand-authored evolved ids, so save data / SP4
+/// / SP0b can turn a legacy id into an instanced variant. Only the ids
+/// with an obvious thematic reading are mapped; anything absent mints a
+/// plain (descriptor-less) variant of its base family.
+const _legacyEvolvedDescriptors = <String, Set<String>>{
+  TechniqueIds.heavyPunch: {'strong'},
+  TechniqueIds.fastPunch: {'fast'},
+  TechniqueIds.lightPunch: {'focused'},
+  TechniqueIds.hammerBlow: {'strong', 'iron'},
+  TechniqueIds.mountainBreaker: {'mountain', 'strong'},
+  TechniqueIds.lightningJab: {'lightning'},
+  TechniqueIds.flashStrike: {'flash'},
+  TechniqueIds.thunderFlash: {'thunder', 'flash'},
+  TechniqueIds.heavySlash: {'strong'},
+  TechniqueIds.quickSlash: {'swift'},
+  TechniqueIds.lightningSlash: {'lightning'},
+  TechniqueIds.mountainCleave: {'mountain', 'strong'},
+  TechniqueIds.ironPalm: {'iron'},
+  TechniqueIds.thunderPalm: {'thunder'},
+  TechniqueIds.lightningFinger: {'lightning'},
+  TechniqueIds.needleFinger: {'needle'},
+  TechniqueIds.piercingFinger: {'needle', 'one_hit'},
+  TechniqueIds.thrustKick: {'strong'},
+  TechniqueIds.spinningKick: {'strong'},
+  TechniqueIds.whirlwindKick: {'swift', 'strong'},
+};
+
+/// The base family for [legacyId], read from its content's family tag.
+String _familyOf(String legacyId, PluginContext context) {
+  final tags = techniqueDefinition(legacyId, context).tags;
+  const familyTagToBase = {
+    'fist': TechniqueIds.basicPunch,
+    'blade': TechniqueIds.basicSlash,
+    'guard': TechniqueIds.basicGuard,
+    'palm': TechniqueIds.basicPalm,
+    'finger': TechniqueIds.basicFinger,
+    'kick': TechniqueIds.basicKick,
+  };
+  for (final entry in familyTagToBase.entries) {
+    if (tags.contains(entry.key)) return entry.value;
+  }
+  return legacyId; // already a base, or unknown — mint against itself
+}
+
+/// Mints an instanced variant equivalent to a hand-authored evolved id.
+/// Additive: the legacy definition still resolves via `techniqueDefinition`
+/// and nothing calls this unless a caller opts in.
+EntityId mintVariantForLegacyEvolvedId(
+  EntityId owner,
+  String legacyId,
+  PluginContext context, {
+  String? styleId,
+}) =>
+    mintTechniqueVariant(
+      owner,
+      _familyOf(legacyId, context),
+      _legacyEvolvedDescriptors[legacyId] ?? const {},
+      context,
+      styleId: styleId,
+    );
