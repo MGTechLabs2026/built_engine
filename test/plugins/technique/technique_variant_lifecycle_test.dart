@@ -182,4 +182,49 @@ void main() {
       expect(techniqueVariantMasteryLevel(b, context), 0);
     });
   });
+
+  group('removeTechniqueVariant', () {
+    setUp(() {
+      context.content.loadAll(techniqueContentDefinitions);
+      for (final def in techniqueContentDefinitions) {
+        context.mastery.define(MasteryDefinition(
+            subject: 'technique:${def['id']}', thresholds: const [5, 15, 30]));
+      }
+      context.tome.defineTome(TomeDefinition.namedSlots(
+          id: 'sp0a_tome', slotIds: ['s0', 's1', 's2', 's3', 's4']));
+      context.tome.createTome(owner, 'sp0a_tome');
+    });
+
+    test('removes the placement, the progress, the component, and the entity', () {
+      final id = mintTechniqueVariant(owner, 'basic_punch', {'bear'}, context,
+          styleId: 'wing_chun');
+      hangTechniqueVariant(const SlotId('s0'), id, context);
+      trainTechniqueVariantMastery(id, 10, context);
+
+      removeTechniqueVariant(id, context);
+
+      expect(context.tome.inspect(owner), isEmpty);
+      expect(context.components.get<TechniqueVariant>(id), isNull);
+      expect(context.entities.isAlive(id), isFalse);
+      expect(
+        context.mastery.progressOf(owner, techniqueInstanceSubject(id)),
+        0,
+      );
+    });
+
+    test('publishes TechniqueVariantRemoved', () {
+      TechniqueVariantRemoved? seen;
+      context.events.subscribe<TechniqueVariantRemoved>((e) => seen = e);
+      final id = mintTechniqueVariant(owner, 'basic_kick', const {}, context);
+      removeTechniqueVariant(id, context);
+      expect(seen?.instanceId, id);
+    });
+
+    test('removing an unknown instance throws', () {
+      expect(
+        () => removeTechniqueVariant(const EntityId(999), context),
+        throwsA(isA<TechniqueVariantNotFoundException>()),
+      );
+    });
+  });
 }

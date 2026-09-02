@@ -140,3 +140,44 @@ int techniqueVariantMasteryLevel(EntityId instanceId, PluginContext context) {
   final owner = context.components.get<TechniqueVariant>(instanceId)!.owner;
   return context.mastery.levelOf(owner, techniqueInstanceSubject(instanceId));
 }
+
+/// Fully removes variant instance [instanceId]. The owner is read from
+/// its `TechniqueVariant.owner` (rule 5).
+///   1. drop any Tome placement holding it,
+///   2. clear its per-instance mastery progress (the `MasteryDefinition`
+///      stays — `MasteryTracker` has no undefine; a definition with no
+///      progress reads level 0 and is inert),
+///   3. remove the `TechniqueVariant` component (entity destroy does not
+///      cascade — documented),
+///   4. destroy the entity,
+///   5. publish [TechniqueVariantRemoved].
+///
+/// Throws [TechniqueVariantNotFoundException] if [instanceId] has no
+/// variant component.
+void removeTechniqueVariant(
+  EntityId instanceId,
+  PluginContext context,
+) {
+  final variant = context.components.get<TechniqueVariant>(instanceId);
+  if (variant == null) {
+    throw TechniqueVariantNotFoundException(instanceId);
+  }
+  final owner = variant.owner;
+
+  for (final placement in context.tome.inspect(owner)) {
+    if (placement.buildComponentRef.instanceEntityId == instanceId) {
+      context.tome.remove(owner, placement.slot);
+    }
+  }
+
+  final subject = techniqueInstanceSubject(instanceId);
+  final mastery = context.components.get<MasteryComponent>(owner);
+  if (mastery != null && mastery.progress.containsKey(subject)) {
+    final trimmed = Map<String, num>.of(mastery.progress)..remove(subject);
+    context.components.add<MasteryComponent>(owner, MasteryComponent(trimmed));
+  }
+
+  context.components.remove<TechniqueVariant>(instanceId);
+  context.entities.destroy(instanceId);
+  context.events.publish(TechniqueVariantRemoved(owner, instanceId));
+}
