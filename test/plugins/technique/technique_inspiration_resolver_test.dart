@@ -118,29 +118,50 @@ void _resolverTests() {
     });
 
     test('usage contributes with diminishing returns (√usage)', () {
-      // inspirer B (usage 1) is below kMinUsageToInspire (3) and is
-      // filtered out at step 0. Only inspirer A stays eligible, so
-      // c == 1.0 by construction → p == 0.05 + 0.55 == 0.60 exactly.
+      // Two eligible power-inspirers, equal mastery, different usage — both
+      // above kMinUsageToInspire (3), so both survive step 0:
+      //   A {power:5} m1 u16 → w = 1*sqrt(16) = 4
+      //   B {power:5} m1 u4  → w = 1*sqrt(4)  = 2   (w(u16)/w(u4) == 2, NOT 4)
+      //   ΣW = 6, c = 4/6 = 0.6667 → p_√ = 0.05 + 0.55*0.6667 ≈ 0.41667
+      // Under LINEAR usage weighting the same inputs give wA=16, wB=4,
+      //   ΣW = 20, c = 0.8 → p_linear = 0.05 + 0.55*0.8 = 0.49.
+      final inspirers = [
+        _insp(1, {'power': 5}, mastery: 1, usage: 16),
+        _insp(2, {'power': 5}, mastery: 1, usage: 4),
+      ];
+      // Three non-overlapping descriptors so k (== 2 here: meanMastery 1 <
+      // kInspirationStrongMasteryBar, so not a strong blend) leaves the
+      // draw meaningful.
+      final pool = [
+        _d('strong', {'power': 4}),
+        _d('swift', {'speed': 5}),
+        _d('iron', {'endurance': 5}),
+      ];
+
+      // Discriminating leg: a first draw in [0.41667, 0.49). Under √ this
+      // is >= p_√ ⇒ MISS. Under linear `usage` weighting p would be ≈0.49
+      // and this same draw would discover — so this assertion FAILS if
+      // `sqrt(usage)` is replaced with linear `usage`.
+      final discriminating = _resolver.resolve(
+        trainedFamilyId: 'basic_punch',
+        inspirers: inspirers,
+        descriptorPool: pool,
+        rng: _seedWithFirstDrawBetween(0.4167, 0.49),
+      );
+      expect(discriminating.discovered, isFalse);
+
+      // Monotone leg: a first draw < p_√ still discovers under √, and the
+      // power-only emphasis routes the weighted draw to `strong` (swift /
+      // iron have zero positive overlap, so the k=2 draw stops early with
+      // one descriptor — a real weighted outcome, not a k-capped tautology).
       final hit = _resolver.resolve(
         trainedFamilyId: 'basic_punch',
-        inspirers: [
-          _insp(1, {'power': 5}, mastery: 1, usage: 4),
-          _insp(2, {'power': 5}, mastery: 1, usage: 1),
-        ],
-        descriptorPool: [_d('strong', {'power': 4})],
-        rng: _seedWithFirstDrawBelow(0.60),
-      );
-      final miss = _resolver.resolve(
-        trainedFamilyId: 'basic_punch',
-        inspirers: [
-          _insp(1, {'power': 5}, mastery: 1, usage: 4),
-          _insp(2, {'power': 5}, mastery: 1, usage: 1),
-        ],
-        descriptorPool: [_d('strong', {'power': 4})],
-        rng: _seedWithFirstDrawAtLeast(0.60),
+        inspirers: inspirers,
+        descriptorPool: pool,
+        rng: _seedWithFirstDrawBelow(0.41),
       );
       expect(hit.discovered, isTrue);
-      expect(miss.discovered, isFalse); // p == 0.60, a draw >= 0.60 misses
+      expect(hit.descriptorIds.contains('strong'), isTrue);
     });
 
     test('usage == 0 contributes nothing; all-zero-usage eligible → none', () {
@@ -390,6 +411,8 @@ void _resolverTests() {
 RngService _seedWithFirstDrawBelow(double bound) => _scanSeed((v) => v < bound);
 RngService _seedWithFirstDrawAtLeast(double bound) =>
     _scanSeed((v) => v >= bound);
+RngService _seedWithFirstDrawBetween(double lo, double hi) =>
+    _scanSeed((v) => v >= lo && v < hi);
 RngService _seedThatDiscoversAndDraws() => _seedWithFirstDrawBelow(0.46);
 
 int _seedIntWithFirstDrawBelow(double bound) {
