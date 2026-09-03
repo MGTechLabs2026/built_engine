@@ -472,9 +472,14 @@ void main() {
       expect(AlmanacState.fromJson(empty.toJson()), equals(empty));
     });
 
-    test('almanacSchemaVersion is 1 and is emitted', () {
+    test('almanacSchemaVersion is 1 and is NOT emitted by toJson', () {
       expect(AlmanacState.almanacSchemaVersion, 1);
-      expect(AlmanacState.empty().toJson()['almanacSchemaVersion'], 1);
+      // The persisted envelope (AlmanacSerialization, Task 2) owns schema
+      // versioning; the model must not carry a second, unread copy.
+      expect(
+        AlmanacState.empty().toJson().containsKey('almanacSchemaVersion'),
+        isFalse,
+      );
     });
 
     test('fully-populated state round-trips to a structurally equal value', () {
@@ -488,6 +493,31 @@ void main() {
       final once = AlmanacState.fromJson(_populatedState().toJson());
       final twice = AlmanacState.fromJson(once.toJson());
       expect(twice, equals(once));
+    });
+
+    test('constructor copies its lists: later source mutation is ignored', () {
+      final seed = _populatedState();
+      final runs = <AlmanacRunRecord>[...seed.runs];
+      final milestones = <AlmanacMilestoneRecord>[...seed.milestones];
+      final state = AlmanacState(runs: runs, milestones: milestones);
+
+      runs.clear();
+      milestones.add(milestones.first);
+
+      expect(state.runs.length, 1);
+      expect(state.milestones.length, 1);
+      expect(state.runs.single, equals(seed.runs.single));
+    });
+
+    test('lists read back off a state are unmodifiable', () {
+      final seed = _populatedState();
+      final state = AlmanacState(runs: [...seed.runs]);
+      expect(() => state.runs.add(state.runs.first), throwsUnsupportedError);
+      // An empty (defaulted) list field is unmodifiable too.
+      expect(
+        () => state.milestones.add(seed.milestones.first),
+        throwsUnsupportedError,
+      );
     });
   });
 

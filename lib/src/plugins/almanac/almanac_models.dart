@@ -474,7 +474,9 @@ class BuildPerformanceSnapshot extends _AlmanacValue {
 }
 
 /// A free-form labelled payload captured with a discovery. [values] holds
-/// JSON-safe scalars/collections only.
+/// JSON-safe scalars/collections only. The constructor freezes only the top
+/// level of [values]; any nested `List`/`Map` inside the payload is frozen by
+/// the recorder's recursive ingress copy (a later task), not here.
 class DiscoverySnapshot extends _AlmanacValue {
   DiscoverySnapshot({required this.label, required Map<String, Object?> values})
     : values = Map<String, Object?>.unmodifiable(values);
@@ -1116,24 +1118,34 @@ class AlmanacMilestoneRecord extends _AlmanacValue {
 // Aggregate root (§4.5)
 // -----------------------------------------------------------------------------
 
-/// The whole persisted Almanac. A `const AlmanacState()` (or
-/// [AlmanacState.empty]) is the starting point; [fromJson] rebuilds every
-/// list as an unmodifiable copy.
+/// The whole persisted Almanac. [AlmanacState.empty] is the starting point;
+/// every list field is copied into an unmodifiable view at construction, so
+/// a caller can neither alias nor grow stored history.
 class AlmanacState extends _AlmanacValue {
-  const AlmanacState({
-    this.runs = const [],
-    this.builds = const [],
-    this.techniques = const [],
-    this.inspirations = const [],
-    this.affixes = const [],
-    this.discoveries = const [],
-    this.milestones = const [],
-  });
+  AlmanacState({
+    List<AlmanacRunRecord> runs = const [],
+    List<AlmanacBuildRecord> builds = const [],
+    List<AlmanacTechniqueRecord> techniques = const [],
+    List<TechniqueInspirationHistory> inspirations = const [],
+    List<AlmanacAffixRecord> affixes = const [],
+    List<AlmanacDiscoveryRecord> discoveries = const [],
+    List<AlmanacMilestoneRecord> milestones = const [],
+  }) : runs = List<AlmanacRunRecord>.unmodifiable(runs),
+       builds = List<AlmanacBuildRecord>.unmodifiable(builds),
+       techniques = List<AlmanacTechniqueRecord>.unmodifiable(techniques),
+       inspirations = List<TechniqueInspirationHistory>.unmodifiable(
+         inspirations,
+       ),
+       affixes = List<AlmanacAffixRecord>.unmodifiable(affixes),
+       discoveries = List<AlmanacDiscoveryRecord>.unmodifiable(discoveries),
+       milestones = List<AlmanacMilestoneRecord>.unmodifiable(milestones);
 
   /// An Almanac with no recorded history.
-  factory AlmanacState.empty() => const AlmanacState();
+  factory AlmanacState.empty() => AlmanacState();
 
-  /// Bumped only on a breaking change to this model's on-disk shape.
+  /// The model's on-disk schema version. Bumped only on a breaking change to
+  /// the shape below; the persisted serialization envelope (Task 2) reads this
+  /// and owns version negotiation — this class does not emit it in `toJson`.
   static const int almanacSchemaVersion = 1;
 
   final List<AlmanacRunRecord> runs;
@@ -1145,7 +1157,6 @@ class AlmanacState extends _AlmanacValue {
   final List<AlmanacMilestoneRecord> milestones;
 
   Map<String, dynamic> toJson() => {
-    'almanacSchemaVersion': almanacSchemaVersion,
     'runs': [for (final record in runs) record.toJson()],
     'builds': [for (final record in builds) record.toJson()],
     'techniques': [for (final record in techniques) record.toJson()],
@@ -1155,35 +1166,36 @@ class AlmanacState extends _AlmanacValue {
     'milestones': [for (final record in milestones) record.toJson()],
   };
 
+  /// The constructor already copies every list into an unmodifiable view.
   factory AlmanacState.fromJson(Map<String, dynamic> json) => AlmanacState(
-    runs: List<AlmanacRunRecord>.unmodifiable([
+    runs: [
       for (final raw in json['runs'] as List<dynamic>)
         AlmanacRunRecord.fromJson(raw as Map<String, dynamic>),
-    ]),
-    builds: List<AlmanacBuildRecord>.unmodifiable([
+    ],
+    builds: [
       for (final raw in json['builds'] as List<dynamic>)
         AlmanacBuildRecord.fromJson(raw as Map<String, dynamic>),
-    ]),
-    techniques: List<AlmanacTechniqueRecord>.unmodifiable([
+    ],
+    techniques: [
       for (final raw in json['techniques'] as List<dynamic>)
         AlmanacTechniqueRecord.fromJson(raw as Map<String, dynamic>),
-    ]),
-    inspirations: List<TechniqueInspirationHistory>.unmodifiable([
+    ],
+    inspirations: [
       for (final raw in json['inspirations'] as List<dynamic>)
         TechniqueInspirationHistory.fromJson(raw as Map<String, dynamic>),
-    ]),
-    affixes: List<AlmanacAffixRecord>.unmodifiable([
+    ],
+    affixes: [
       for (final raw in json['affixes'] as List<dynamic>)
         AlmanacAffixRecord.fromJson(raw as Map<String, dynamic>),
-    ]),
-    discoveries: List<AlmanacDiscoveryRecord>.unmodifiable([
+    ],
+    discoveries: [
       for (final raw in json['discoveries'] as List<dynamic>)
         AlmanacDiscoveryRecord.fromJson(raw as Map<String, dynamic>),
-    ]),
-    milestones: List<AlmanacMilestoneRecord>.unmodifiable([
+    ],
+    milestones: [
       for (final raw in json['milestones'] as List<dynamic>)
         AlmanacMilestoneRecord.fromJson(raw as Map<String, dynamic>),
-    ]),
+    ],
   );
 
   @override
