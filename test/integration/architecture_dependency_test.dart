@@ -33,6 +33,8 @@ const _itemBarrel = 'item_plugin.dart';
 const _techniqueBarrel = 'technique_plugin.dart';
 const _buildInterpretationBarrel = 'build_interpretation.dart';
 const _gameBarrel = 'game.dart';
+const _almanacBarrel = 'almanac.dart';
+const _almanacFileBarrel = 'almanac_file.dart';
 const _pluginBarrels = [
   _combatBarrel,
   _martialArtsBarrel,
@@ -43,6 +45,8 @@ const _pluginBarrels = [
   _techniqueBarrel,
   _buildInterpretationBarrel,
   _gameBarrel,
+  _almanacBarrel,
+  _almanacFileBarrel,
 ];
 
 /// Asserts no `.dart` file under [directoryPath] imports the plugin
