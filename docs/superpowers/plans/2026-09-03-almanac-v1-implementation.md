@@ -1,0 +1,954 @@
+# Almanac v1 Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Add Almanac v1 — a passive, persistent, cross-run player-history subsystem — as a composition-layer module that observes existing domain events and never drives gameplay.
+
+**Architecture:** `Gameplay → composition adapter (HeadlessGameAlmanacBridge / out-of-repo TomeClientAlmanacAdapter) → AlmanacRecorder → AlmanacState → AlmanacRepository / AlmanacQueries`. The recorder takes only primitive/snapshot value objects; adapters build the snapshots from live state. The module imports Core only; the one `dart:io` file lives behind its own barrel so the public Almanac surface stays web-safe, mirroring the existing `lib/console_policy.dart` precedent.
+
+**Tech Stack:** Plain Dart package (`sdk: ^3.7.0`), `package:test`, `dart:convert` for JSON. No new runtime dependencies. `analysis_options.yaml` enforces `strict-casts` / `strict-inference` / `strict-raw-types`.
+
+**Spec:** `docs/superpowers/specs/2026-09-03-almanac-v1-design.md` (reviewed @ `536961e2abcf2b60e9323ea22004cb1e5429e2f8`). The plan argues from that spec; executors read both.
+
+## Global Constraints
+
+- **Core stays generic.** `lib/src/` outside `lib/src/plugins/` must not reference `almanac`. Almanac lives at `lib/src/plugins/almanac/` (a composition module like `build_interpretation/` and `game/`, **not** a `GamePlugin`).
+- **Almanac imports Core only.** `package:build_engine/build_engine.dart` + `dart:convert`, and `dart:io` **only** in `almanac_file_repository.dart`. Never `technique_plugin.dart`, `item_plugin.dart`, `martial_arts_plugin.dart`, `combat_plugin.dart`, `physique_plugin.dart`, `build_interpretation.dart`, `game.dart`, or any `plugins/…` relative path.
+- **`lib/almanac.dart` must not transitively require `dart:io`.** Web-safe surface = models + recorder + queries + repository interface + serialization. Only `JsonFileAlmanacRepository` (behind `lib/almanac_file.dart`) uses `dart:io`.
+- **No Flutter / Flame / Devvit / database / backend / `dart:html` / `dart:ui`.**
+- **All Almanac ids are opaque tokens.** Never `split` / `startsWith` / regex / prefix-parse an id to recover a relationship. Every relationship is a stored explicit field. Enforced by an architecture test.
+- **`runId` ≠ `runNumber` ≠ `seed`.** `runId`/`runNumber` are caller-supplied opaque values; `seed` is optional replay metadata that keys nothing; `runId = "run_<seed>"` is forbidden. The recorder never generates identity and never reads a repository.
+- **Idempotency is identity-keyed.** Keys: run `runId`; fight `fightId` within `runs[runId].fights`; build snapshot `buildId`; technique history `instanceId`; technique-usage `(runId, usageEventId)`; inspiration `resultInstanceId`; discovery `discoveryId`; affix history `affixId`; affix observation `(affixId, affixEventId)`; training `(runId, trainingEventId)`; milestone `milestoneId`. Every key compared by whole-string equality.
+- **Canonical history is identity-stable and monotonic.** Later observations may fill an `UNKNOWN` field, append a new ledger element, or advance `origin` `base`→`inspired`. A conflicting write-once value is retained and raises `AlmanacIntegrityException` — never a silent overwrite, never a merge/recovery system.
+- **Deep immutability.** Every collection stored in a record is a copy that never aliases gameplay state; `AlmanacQueries` returns copies or `List.unmodifiable` / `Map.unmodifiable`. A valid later completion is not a mutation.
+- **SP0b ancestry is stored verbatim** from `TechniqueVariantInspired` — no re-resolution, no re-query, no RNG.
+- **`runGame` behaviour is byte-identical when `almanac == null`.** No `repo.load()` / `repo.save()` inside `runGame`. Existing golden/replay/determinism tests stay green.
+- **Serialization: no second framework.** Module-local `toJson()` / `factory X.fromJson(Map<String, dynamic>)` over plain maps + `jsonEncode`/`jsonDecode`, matching `Container.toJson` (`lib/src/spatial/container.dart:188`) and `CombatantComponent.toJson`.
+- **Do not weaken or delete any existing architecture test.**
+
+---
+
+## 1. Current codebase findings
+
+Verified against the working tree at `536961e` (branch `almanac-v1`).
+
+### 1.1 Package & tooling
+
+- Plain Dart, `pubspec.yaml`: `name: build_engine`, `sdk: ^3.7.0`, `publish_to: none`, dev-deps `lints: ^5.0.0`, `test: ^1.25.0`. **No runtime dependencies** — do not add one.
+- `analysis_options.yaml`: `package:lints/recommended.yaml` + `strict-casts` / `strict-inference` / `strict-raw-types`. Plan code must be strictly typed (no raw `List`/`Map`, no implicit `dynamic`).
+
+### 1.2 Barrels & the `dart:io` precedent
+
+- Core barrel `lib/build_engine.dart` — Core services only.
+- Plugin barrels: `lib/technique_plugin.dart`, `lib/item_plugin.dart`, `lib/martial_arts_plugin.dart`, `lib/combat_plugin.dart`, `lib/physique_plugin.dart`, `lib/elemental_plugin.dart`, `lib/auto_combat_plugin.dart`.
+- Composition barrels: `lib/game.dart` (headless harness), `lib/build_interpretation.dart`.
+- **`lib/console_policy.dart`** — a dedicated barrel whose entire purpose is to keep the one `dart:io` file (`lib/src/plugins/game/console_decision_policy.dart`) **out** of `lib/game.dart`. Its doc comment: *"it is the only part of the engine that imports `dart:io`, and `game.dart` must stay usable from web targets."* **This is the exact pattern Almanac's file repository follows.**
+- **No conditional exports** (`if (dart.library.io)`) anywhere in `lib/`. Use the dedicated-barrel pattern, not conditional exports.
+
+### 1.3 Serialization conventions
+
+- No engine-wide serialization framework. Module-local `Map<String, dynamic> toJson()` + `factory X.fromJson(Map<String, dynamic> json)`.
+- Precedents: `Container.toJson` / `Container.fromJson` (`lib/src/spatial/container.dart:188`, `:214`), `CombatantComponent.toJson` / `.fromJson`, `CombatStateComponent`, `MartialLoadoutComponent`, `ContentRegistry.toJson` (`lib/src/content/content_registry.dart:163`).
+- `dart:convert` (`jsonEncode`/`jsonDecode`) is pure and web-safe — fine for the platform-neutral surface.
+
+### 1.4 Event bus
+
+`lib/src/event/event_bus.dart` — `EventBus`:
+- `EventSubscription subscribe<T>(void Function(T event) handler)` — dispatch by **exact runtime type**. Handler param must be explicitly typed or `T` passed explicitly.
+- `EventSubscription subscribeDynamic(Type type, void Function(Object event) handler)`.
+- `void publish<T>(T event)` — looks up `event.runtimeType`.
+- `EventSubscription.cancel()` removes the handler.
+
+### 1.5 Entity & id representation
+
+`lib/src/entity/entity_id.dart` — `class EntityId { const EntityId(this.value); final int value; }` with value equality. **Almanac stringifies at the boundary: `entityId.value.toString()`.** Almanac models never import `EntityId`.
+
+### 1.6 Tome representation
+
+- `context.tome` is `TomeService` (`lib/src/tome/tome_service.dart`).
+- `List<TomePlacement> inspect(EntityId owner)` → `TomePlacement { SlotId slot; BuildComponentRef buildComponentRef; ItemSize size; Rotation rotation }`.
+- `SlotId { const SlotId(this.id); final String id; }`.
+- `BuildComponentRef { String referenceType; String contentId; EntityId? instanceEntityId; }` (`lib/src/tome/build_component_ref.dart`). `referenceType` values: `techniqueReferenceType == 'technique'` (`lib/src/plugins/technique/technique_vocabulary.dart:104`), `itemReferenceType == 'item'` (`lib/src/plugins/item/item_vocabulary.dart:111`).
+- The headless harness Tome is `TomeDefinition.namedSlots(id: 'run_tome', slotIds: slot_1..slot_999)` — a **named-slot** container, so `TomeLayoutSnapshot.width`/`height` are `null` for harness runs; `occupantKind` derives from `referenceType`.
+
+### 1.7 TechniqueVariant / SP0a / SP0b
+
+- `mintTechniqueVariant(owner, baseFamilyId, Set<String> descriptorIds, context, {String? styleId, Map<String,num> styleCentre})` publishes **`TechniqueVariantMinted(EntityId owner, EntityId instanceId, String baseFamilyId)`** (`lib/src/plugins/technique/technique_variant_lifecycle.dart:71`). Only `owner` + `instanceId` + `baseFamilyId` on the event.
+- `TechniqueVariant` component (`lib/src/plugins/technique/technique_variant.dart`): `{ EntityId owner; String baseFamilyId; Set<String> descriptorIds; Map<String,num> axisProfile; String? styleId; }`. Read via `context.components.get<TechniqueVariant>(instanceId)` — the **bridge** does this (it has `context`); the recorder never does.
+- Per-instance mastery: `MasteryDefinition(subject: techniqueInstanceSubject(instance), …)`. `context.mastery.levelOf(owner, techniqueInstanceSubject(instanceId)) → int`.
+- **`TechniqueVariantInspired`** (`lib/src/plugins/technique/technique_events.dart`): `{ EntityId owner; EntityId instanceId; String familyId; Set<String> descriptorIds; List<EntityId> inspirerInstanceIds; }`. Published **once** from `lib/src/plugins/technique/technique_inspiration.dart:327`, and inspiration calls `mintTechniqueVariant` **first** (line 319) — so at runtime `Minted` precedes `Inspired` for the same `instanceId`. The recorder must still tolerate either order (spec §6).
+- SP0b usage attribution already exists: `lib/src/plugins/game/combat_stage.dart:97-108` subscribes `ActionCompleted` and, when `e.action.sourceRef != null && ref.referenceType == techniqueReferenceType && ref.instanceEntityId != null`, calls `recordTechniqueVariantUsage(ref.instanceEntityId!, context)`. **The bridge reuses this exact predicate** to emit a `TechniqueUsageObservation`.
+- `CombatAction.sourceRef → BuildComponentRef?` (`lib/src/plugins/combat/combat_action.dart:41`), set by `TechniqueActionInterpreter`, `null` for bare-handed fallback.
+
+### 1.8 Run telemetry (`lib/src/plugins/game/run_events.dart`) — no engine run id
+
+- `RunStarted { int seed; String characterName; }` — published at `game_run.dart:143`, **before** physique/style are chosen.
+- `RunEnded { bool won; int encounterCount; }` — near `game_run.dart:249`.
+- `CycleStarted { int cycleNumber; }`.
+- `EncounterStarted { String name; String enemyId; }` / `EncounterResolved { String name; String enemyId; bool won; num playerHealthAfter; }` — **no index / no encounter id**.
+- `RewardSelected { RewardKind chosen; }`.
+- `TrainingStarted { String subject; }` / `TrainingResultRecorded { String subject; TrainingProfile profile; num gain; }` — published per session by `TrainingStage` (`training_stage.dart:83,110`).
+- `TomeChanged { String stepName; List<BuildComponentRef> components; }` — every rebuild, `stepName == 'starting'` for the initial kit.
+- `PhysiqueAssigned { EntityId character; String physiqueId; }` (`lib/src/plugins/physique/physique_events.dart`) — published by `initializePhysique`.
+- **There is no style/tradition event.** `learnStyle` only grants tags. `game_run.dart` holds locals `physiqueId`, `traditionId`, `styleId` (~lines 164-170). `martialTraditionOf(styleId)` (`lib/src/plugins/martial_arts/martial_styles.dart`, barrel `martial_arts_plugin.dart`) → `'western'` / `'eastern'` / `null`.
+
+### 1.9 `runGame` shape (`lib/src/plugins/game/game_run.dart`)
+
+`RunResult runGame(int seed, {String characterName = 'Player', RunDecisionPolicy policy = const DefaultRunDecisionPolicy(), EventBus? eventBus})`. `events` bus created ~line 124; `RunStarted` at 143; plugins initialised; `character` created ~158; physique/style ~164-170; cycle loop; `RunEnded` ~249; returns `RunResult` (immutable, already carries `physiqueId` / `martialTradition` / `styleId` / `tomeHistory`). `runGame` never touches persistence today.
+
+### 1.10 Architecture tests
+
+`test/integration/architecture_dependency_test.dart` (a VM test — it may `import 'dart:io'`):
+- `_assertNoSubstringInDirectory(String forbidden, String dir)` — recursive `.dart` scan.
+- `_pluginBarrels` list + `_assertNoPluginImport(pluginDirName, barrel, dir)`.
+- Group **"H: Core does not import either content plugin"** iterates every `lib/src` subdir except `plugins/` and asserts none references `plugins/` or any barrel in `_pluginBarrels`. **Adding `'almanac.dart'` + `'almanac_file.dart'` to `_pluginBarrels` auto-covers Core-purity for the new barrels.**
+- Group **"audit A1 — the headless harness is top-of-graph"** asserts nothing under `lib/` except `plugins/game/` + `lib/game.dart` imports the harness.
+
+No existing test forbids `dart:io` in `lib/build_engine.dart` / `lib/game.dart` — this plan **adds** that guard for the Almanac neutral surface.
+
+---
+
+## 2. Architecture boundary
+
+```
+Core  (lib/src/*, lib/build_engine.dart)
+  │  provides: EventBus, EntityId, ContentRegistry, MasteryTracker, TomeService types
+  ▼
+Gameplay plugins  (technique, item, combat, martial_arts, physique, …)
+  │  emit: TechniqueVariantMinted/Inspired, ActionCompleted, PhysiqueAssigned, SubjectDiscovered
+  ▼
+Composition layer
+  ├─ lib/src/plugins/game/          headless harness + HeadlessGameAlmanacBridge   ← imports plugins AND almanac
+  └─ <client repo>                  TomeClientAlmanacAdapter                        ← out of scope here
+  ▼
+Almanac  (lib/src/plugins/almanac/*)   ← imports Core only (+ dart:convert; dart:io only in almanac_file_repository.dart)
+  models → serialization → repository interface → recorder → queries → build DNA
+  ▼
+Persistence / read models
+  ├─ InMemoryAlmanacRepository   (neutral)
+  └─ JsonFileAlmanacRepository   (dart:io, behind lib/almanac_file.dart)
+```
+
+Rules restated for enforcement (all become architecture-test assertions — see §13.1 + Phase 8):
+
+| Rule | Mechanism |
+|---|---|
+| Almanac imports Core only | substring scan of `lib/src/plugins/almanac/**` for plugin barrels + `plugins/` |
+| `lib/almanac.dart` neutral surface free of `dart:io` | scan every file `lib/almanac.dart` exports (and their `almanac/` imports) for `import 'dart:io'`; assert `lib/almanac.dart` does not export `almanac_file*` |
+| Core does not import Almanac | `'almanac.dart'` + `'almanac_file.dart'` added to `_pluginBarrels`; existing group H covers it |
+| Gameplay plugins do not import Almanac | new group: scan `lib/src/plugins/{technique,combat,martial_arts,item,physique,elemental,auto_combat}` for `almanac` |
+| Recorder/queries RNG-free | scan for `RngService`, `context.rng`, `Random(`, `math.Random` |
+| No id parsing | scan `almanac_recorder.dart` + `almanac_queries.dart` for `.split(`, `.startsWith(` |
+| No UI/platform deps | scan `almanac/**` for `package:flutter/`, `dart:ui`, `dart:html`, `devvit`, `flame` |
+| Bridge is the only dual-importer in-repo | it lives in `plugins/game/` (already top-of-graph); no new test needed beyond "nothing else imports `plugins/game/`" which audit A1 already enforces |
+
+---
+
+## 3. `dart:io` portability guardrail
+
+**Decision: dedicated-barrel split (the `console_policy.dart` pattern), not conditional exports.**
+
+### 3.1 File layout
+
+| File | `dart:io`? | Exported by |
+|---|---|---|
+| `lib/src/plugins/almanac/almanac_models.dart` | no | `lib/almanac.dart` |
+| `lib/src/plugins/almanac/almanac_serialization.dart` | no (`dart:convert` only) | `lib/almanac.dart` |
+| `lib/src/plugins/almanac/almanac_repository.dart` | no (interface + `InMemoryAlmanacRepository`) | `lib/almanac.dart` |
+| `lib/src/plugins/almanac/almanac_recorder.dart` | no | `lib/almanac.dart` |
+| `lib/src/plugins/almanac/almanac_queries.dart` | no | `lib/almanac.dart` |
+| `lib/src/plugins/almanac/almanac_build_dna.dart` | no | `lib/almanac.dart` |
+| `lib/src/plugins/almanac/almanac_file_repository.dart` | **yes** (`dart:io` + `dart:convert`) | `lib/almanac_file.dart` **only** |
+| `lib/almanac.dart` | no — must not `export` `almanac_file_repository.dart` | — |
+| `lib/almanac_file.dart` | transitively yes | — |
+
+`lib/almanac.dart` doc comment (verbatim intent, mirroring `console_policy.dart`):
+
+```dart
+/// The Almanac's platform-neutral public surface — persistent cross-run
+/// player history. Safe to import from any Dart target, web included:
+/// nothing here requires `dart:io`. The file-backed repository
+/// (`JsonFileAlmanacRepository`) is deliberately kept in the separate
+/// `package:build_engine/almanac_file.dart` barrel so this one stays
+/// web-safe — the same split `console_policy.dart` uses for
+/// `ConsoleDecisionPolicy`.
+library;
+
+export 'src/plugins/almanac/almanac_build_dna.dart';
+export 'src/plugins/almanac/almanac_models.dart';
+export 'src/plugins/almanac/almanac_queries.dart';
+export 'src/plugins/almanac/almanac_recorder.dart';
+export 'src/plugins/almanac/almanac_repository.dart';
+export 'src/plugins/almanac/almanac_serialization.dart';
+```
+
+```dart
+/// `JsonFileAlmanacRepository` — a `dart:io` file-backed `AlmanacRepository`.
+/// Kept out of `package:build_engine/almanac.dart` on purpose: it is the
+/// only Almanac file that imports `dart:io`, and the neutral barrel must
+/// stay usable from web targets. Import this only from a file-capable
+/// host (a CLI tool, a VM test, or a desktop client).
+library;
+
+export 'src/plugins/almanac/almanac_file_repository.dart';
+```
+
+### 3.2 Enforcement test (added in Phase 8)
+
+`test/plugins/almanac/almanac_platform_neutral_test.dart`:
+
+- Assert `lib/almanac.dart` source contains neither `almanac_file` nor `dart:io`.
+- For every path `lib/almanac.dart` exports, and recursively every `import '…'` inside `lib/src/plugins/almanac/` reachable from those (excluding `almanac_file_repository.dart`), assert the file text contains no `import 'dart:io'`.
+- Assert `lib/src/plugins/almanac/almanac_file_repository.dart` **is** the only file under `lib/src/plugins/almanac/` containing `import 'dart:io'`.
+
+## 4. Domain model implementation — `almanac_models.dart`
+
+One file. Every class: all fields `final`, `const` constructor where the fields allow, `Map<String, dynamic> toJson()`, `factory X.fromJson(Map<String, dynamic>)`. Collections copied in the constructor (`List.unmodifiable` / `Map.unmodifiable`) so a caller cannot mutate a stored record. `DateTime` ↔ ISO-8601 via `toIso8601String()` / `DateTime.parse`. All ids are `String`.
+
+### 4.1 Enums
+
+```dart
+enum RunOutcome { won, lost, abandoned }
+enum TechniqueOrigin { base, evolved, inspired }        // only base/inspired produced in v1
+enum BuildPhase { initial, postReward, postTraining, finalBuild }
+enum AlmanacDiscoveryType { technique, techniqueVariant, item, affix, lineage }
+enum MilestoneType {
+  firstRun, firstVictory, firstTechniqueVariant, firstInspiredTechnique,
+  firstAffix, firstWinWithLineage, firstSuccessfulBuild,
+}
+```
+
+Each serialized as `.name`; parsed with a shared `_enumByName<T>(List<T> values, Object? raw)` helper that throws on an unknown name.
+
+### 4.2 Observation records (spec §5.6.1)
+
+```dart
+class TechniqueUsageObservation {
+  const TechniqueUsageObservation({
+    required this.usageEventId, required this.runId,
+    required this.runNumber, required this.instanceId,
+  });
+  final String usageEventId;   // OPAQUE
+  final String runId;          // explicit relation
+  final int runNumber;
+  final String instanceId;
+  // toJson / fromJson
+}
+
+class AffixObservation {
+  const AffixObservation({
+    required this.affixEventId, required this.runId,
+    required this.runNumber, this.lineageId,
+  });
+  final String affixEventId;   // OPAQUE
+  final String runId;
+  final int runNumber;
+  final String? lineageId;
+}
+
+class TrainingObservation {
+  const TrainingObservation({
+    required this.trainingEventId, required this.runId, required this.runNumber,
+  });
+  final String trainingEventId; // OPAQUE
+  final String runId;
+  final int runNumber;
+}
+```
+
+### 4.3 Snapshots
+
+```dart
+class TechniqueInstanceSnapshot {   // instanceId, baseFamilyId, styleId?, descriptorIds:List<String>,
+                                    // axisProfile:Map<String,num>, origin:TechniqueOrigin, masteryAtSnapshot:int
+}
+class ItemInstanceSnapshot {        // definitionId, instanceId?, itemClass:int,
+                                    // statBonuses:Map<String,num>, resolvedProperties:Map<String,num>
+}
+class AffixSnapshot {               // affixId, stat, value:num, category?
+}
+class TomeSlotSnapshot {            // slotId, occupantKind:('technique'|'item'|'empty'),
+                                    // occupantRefId?, instanceId?
+}
+class TomeLayoutSnapshot {          // width:int?, height:int?, slots:List<TomeSlotSnapshot>
+}
+class BuildPerformanceSnapshot {    // fightsWon:int, fightsLost:int, enemiesDefeated:int, avgTurnsUsed:num?
+}
+class DiscoverySnapshot {           // label:String, values:Map<String,Object?>
+}
+class BuildDna {                    // tokens:List<String>, signature:String
+}
+```
+
+### 4.4 Canonical records
+
+```dart
+class AlmanacFightRecord {
+  // fightId (OPAQUE), runId, sequence:int, name, enemyId, won:bool,
+  // playerHealthAfter:num, turnsUsed:int
+}
+
+class AlmanacRunRecord {
+  // runId, runNumber:int, seed:int?, lineageId, physiqueId,
+  // startedAt:DateTime, completedAt:DateTime?, outcome:RunOutcome,
+  // fights:List<AlmanacFightRecord>, discoveryIds:List<String>,
+  // trainingObservations:List<TrainingObservation>, finalBuildId:String?,
+  // enemiesDefeated:int, techniquesUsed:int, trainingSessions:int   // last 3 = projections
+}
+
+class AlmanacBuildRecord {
+  // buildId (OPAQUE), runId, phase:BuildPhase, sequence:int,
+  // lineageId, physiqueId, techniques:List<TechniqueInstanceSnapshot>,
+  // items:List<ItemInstanceSnapshot>, affixes:List<AffixSnapshot>,
+  // tome:TomeLayoutSnapshot, performance:BuildPerformanceSnapshot?, dna:BuildDna
+}
+
+class AlmanacTechniqueRecord {
+  // instanceId, baseFamilyId, styleId?, descriptorIds:List<String>,
+  // axisProfile:Map<String,num>, discoveredRunId:String?, discoveredRunNumber:int?,
+  // masteryAtDiscovery:int?, usageObservations:List<TechniqueUsageObservation>,
+  // totalUsage:int, runsUsed:List<int>, origin:TechniqueOrigin     // totalUsage/runsUsed = projections
+}
+
+class TechniqueInspirationHistory {
+  // resultInstanceId, runId, familyId,
+  // descriptorIds:List<String>, inspirerInstanceIds:List<String>   // verbatim, order-preserving
+}
+
+class AlmanacAffixRecord {
+  // affixId, discoveryObservations:List<AffixObservation>, usageObservations:List<AffixObservation>,
+  // timesDiscovered:int, timesUsed:int, firstDiscoveredRunId:String?,
+  // associatedLineageIds:List<String>, snapshot:AffixSnapshot        // counters/first/lineages = projections
+}
+
+class AlmanacDiscoveryRecord {
+  // discoveryId (OPAQUE), type:AlmanacDiscoveryType, contentId, instanceId?,
+  // runId, runNumber:int, timestamp:DateTime, snapshot:DiscoverySnapshot
+}
+
+class AlmanacMilestoneRecord {
+  // milestoneId (OPAQUE), type:MilestoneType, runId, runNumber:int,
+  // timestamp:DateTime, contextId:String?
+}
+```
+
+### 4.5 Aggregate root
+
+```dart
+class AlmanacState {
+  const AlmanacState({
+    this.runs = const [], this.builds = const [], this.techniques = const [],
+    this.inspirations = const [], this.affixes = const [],
+    this.discoveries = const [], this.milestones = const [],
+  });
+  final List<AlmanacRunRecord> runs;
+  final List<AlmanacBuildRecord> builds;
+  final List<AlmanacTechniqueRecord> techniques;
+  final List<TechniqueInspirationHistory> inspirations;
+  final List<AlmanacAffixRecord> affixes;
+  final List<AlmanacDiscoveryRecord> discoveries;
+  final List<AlmanacMilestoneRecord> milestones;
+}
+```
+
+**Key invariants:** every record round-trips through `toJson`/`fromJson` with structural equality; every collection field is unmodifiable after construction; no field is ever an `EntityId` / component / live handle.
+
+**Tests required (Phase 1):** per-record round-trip; unknown-enum-name throws; passing a mutable list into a constructor then mutating the caller's copy leaves the record unchanged; `List.unmodifiable` on a returned collection throws on `.add`.
+
+---
+
+## 5. Recorder design — `almanac_recorder.dart`
+
+```dart
+class AlmanacIntegrityException implements Exception {
+  AlmanacIntegrityException({
+    required this.record, required this.field,
+    required this.established, required this.rejected,
+  });
+  final String record;      // e.g. "AlmanacTechniqueRecord(instanceId=TV-1)"
+  final String field;       // e.g. "descriptorIds"
+  final Object? established;
+  final Object? rejected;
+  @override
+  String toString() =>
+      'Almanac integrity: $record.$field is already $established; '
+      'refusing to overwrite with $rejected';
+}
+
+class AlmanacRecorder {
+  AlmanacRecorder([AlmanacState initial = const AlmanacState()]);
+
+  AlmanacState get state;   // rebuilt from internal identity-indexed maps, lists in insertion order
+
+  void beginRun({
+    required String runId, required int runNumber, int? seed,
+    required String lineageId, required String physiqueId, required DateTime startedAt,
+  });
+
+  void recordFight({
+    required String runId, required String fightId, required int sequence,
+    required String name, required String enemyId, required bool won,
+    required num playerHealthAfter, required int turnsUsed,
+  });
+
+  void recordBuildSnapshot(AlmanacBuildRecord record);
+
+  void recordTechniqueDiscovered({
+    required String instanceId, required String baseFamilyId, String? styleId,
+    required List<String> descriptorIds, required Map<String, num> axisProfile,
+    required TechniqueOrigin origin, int? masteryAtDiscovery,
+    required String runId, required int runNumber, required DateTime timestamp,
+  });
+
+  void recordTechniqueUsed(TechniqueUsageObservation observation);
+
+  void recordTechniqueInspired({
+    required String resultInstanceId, required String runId, required String familyId,
+    required List<String> descriptorIds, required List<String> inspirerInstanceIds,
+  });
+
+  void recordItemDiscovered({
+    required String definitionId, String? instanceId,
+    required String runId, required int runNumber, required DateTime timestamp,
+    required DiscoverySnapshot snapshot,
+  });
+
+  void recordAffixDiscovered({
+    required String affixId, required AffixObservation observation,
+    required AffixSnapshot snapshot, required DateTime timestamp,
+  });
+  void recordAffixUsed({required String affixId, required AffixObservation observation});
+
+  void recordTrainingSession(TrainingObservation observation);
+
+  void recordDiscovery(AlmanacDiscoveryRecord record);
+
+  void recordMilestone({
+    required MilestoneType type, required String runId, required int runNumber,
+    required DateTime timestamp, String? contextId,
+  });
+  void evaluateStandardMilestones({
+    required String runId, required int runNumber, required RunOutcome outcome,
+    required String lineageId, String? finalBuildId, required DateTime timestamp,
+  });
+
+  void completeRun({
+    required String runId, required DateTime completedAt,
+    required RunOutcome outcome, String? finalBuildId,
+  });
+}
+```
+
+**Internal structure:** `Map<String, _RunBuilder> _runs`, `Map<String, AlmanacTechniqueRecord> _techniques`, `Map<String, TechniqueInspirationHistory> _inspirations`, `Map<String, AlmanacAffixRecord> _affixes`, `Map<String, AlmanacDiscoveryRecord> _discoveries`, `Map<String, AlmanacMilestoneRecord> _milestones`, `Map<String, AlmanacBuildRecord> _builds` (keyed by `buildId`). `state` getter materialises ordered lists.
+
+**Milestone id derivation (never parsed back):** `milestoneId = contextId == null ? type.name : '${type.name}:$contextId'`. `evaluateStandardMilestones` also stores `type` + `contextId` as explicit fields; queries read those, never `split(':')`.
+
+**Discovery id derivation:** the recorder forms `discoveryId` from `type` + `contentId` (or `instanceId` for `techniqueVariant`): `'${type.name}:$contentId'`. Explicit `type`/`contentId`/`instanceId`/`runId` fields on the record are authoritative.
+
+**No RNG. No `dart:io`. No component access. No repository access.**
+
+**Tests required (Phase 4):** every method's happy path; every idempotency key (deliver twice → one effect); `AlmanacIntegrityException` on each write-once conflict; monotonic `origin` (`base` then `inspired` → `inspired`; `inspired` then `base` → stays `inspired`); projections equal a fresh recompute from ledgers after an arbitrary event sequence.
+
+---
+
+## 6. Identity / idempotency design
+
+| Concern | Key (whole-string equality) | Explicit relational fields stored | Behaviour on repeat |
+|---|---|---|---|
+| Run | `runId` | `runNumber`, `seed?` | `beginRun` twice → complete `UNKNOWN` fields only; conflict → `AlmanacIntegrityException` |
+| Fight | `fightId` scoped to `runs[runId].fights` | `runId`, `sequence` | append only if absent; conflicting contents at same `fightId` → exception |
+| Build snapshot | `buildId` | `runId`, `phase`, `sequence` | store if absent; conflicting contents at same `buildId` → exception |
+| Technique history | `instanceId` | — | complete `UNKNOWN` fields; advance `origin` `base`→`inspired`; conflict → exception |
+| Technique-usage observation | `(runId, usageEventId)` | `runId`, `runNumber`, `instanceId` | append only if that pair absent from `usageObservations` |
+| Inspiration ancestry | `resultInstanceId` | `runId` | store if absent; different payload for same key → exception |
+| Discovery (first-seen) | `discoveryId` | `type`, `contentId`, `runId`, `instanceId?` | first write canonical; later encounters add nothing |
+| Affix history | `affixId` | — | upsert |
+| Affix observation | `(affixId, affixEventId)` | `affixId`, `runId`, `runNumber`, `lineageId?` | append only if that pair absent |
+| Training observation | `(runId, trainingEventId)` | `runId`, `runNumber` | append only if that pair absent from `runs[runId].trainingObservations` |
+| Milestone | `milestoneId` | `type`, `contextId?` | first qualifying occurrence canonical; later qualifying events are no-ops |
+
+**Uniqueness domain:** the recorder does **not** assume globally unique `usageEventId` / `affixEventId` / `trainingEventId`. The same opaque string under two `runId`s is two distinct observations. All keys survive a `save`→`load` round-trip because the ledgers are serialized.
+
+---
+
+## 7. Snapshot / deep-immutability design
+
+- **Ingress:** every recorder method that accepts a `List`/`Map` copies it (`List.of` / `Map.of`) before storing, recursively for nested collections. Snapshot value objects copy their own collection fields in their constructors (`this.descriptorIds = List.unmodifiable(descriptorIds)` etc.).
+- **Storage:** the recorder never mutates a stored record; it replaces the map entry with a rebuilt instance when a field completes or a ledger grows.
+- **Egress:** `AlmanacQueries` returns `List.unmodifiable` / `Map.unmodifiable` views or fresh copies; a query consumer cannot reach `AlmanacState`.
+- **Adapters:** `HeadlessGameAlmanacBridge` builds every snapshot from `context` at observation time and passes only value objects — never a `ComponentStore` map, `TomePlacement` list, or `EntityId`.
+- **Round-trip:** `decode(encode(state))` yields structurally-equal, independently-mutable-free collections.
+
+**Tests required (Phase 1 + Phase 4):** mutate the caller's source list after `recordBuildSnapshot` → stored snapshot unchanged; mutate a `getBuild(...)` result list → `AlmanacState` unchanged; `encode`→`decode` then attempt `.add` on a nested list → throws.
+
+---
+
+## 8. Serialization & repository design
+
+### 8.1 Dependency direction (no reverse edges)
+
+```
+almanac_models.dart          (pure value objects, each with toJson/fromJson)
+        ▼
+almanac_serialization.dart   (AlmanacState ↔ Map ↔ JSON string; schema version 1)
+        ▼
+almanac_repository.dart      (abstract AlmanacRepository + InMemoryAlmanacRepository)
+        ▼
+almanac_file_repository.dart (JsonFileAlmanacRepository → dart:io)   ← leaf, nothing imports it back
+```
+
+`almanac_serialization.dart` imports `almanac_models.dart` + `dart:convert`. `almanac_repository.dart` imports `almanac_models.dart` + `almanac_serialization.dart`. `almanac_file_repository.dart` imports all three + `dart:io`. Recorder and queries import `almanac_models.dart` only.
+
+### 8.2 Public serialization API
+
+```dart
+class AlmanacSchemaVersionError implements Exception {
+  AlmanacSchemaVersionError(this.found, this.expected);
+  final Object? found;
+  final int expected;
+  @override
+  String toString() =>
+      'Almanac schema version $found is not supported (expected $expected)';
+}
+
+abstract final class AlmanacSerialization {
+  static const int schemaVersion = 1;
+
+  static Map<String, dynamic> stateToJson(AlmanacState state);   // adds 'almanacSchemaVersion': 1
+  static AlmanacState stateFromJson(Map<String, dynamic> json);  // throws AlmanacSchemaVersionError if != 1
+  static String encode(AlmanacState state);                       // jsonEncode(stateToJson(state))
+  static AlmanacState decode(String text);                        // stateFromJson(jsonDecode(text) as Map<String, dynamic>)
+}
+```
+
+### 8.3 Repository API
+
+```dart
+abstract interface class AlmanacRepository {
+  AlmanacState load();
+  void save(AlmanacState state);
+}
+
+class InMemoryAlmanacRepository implements AlmanacRepository {
+  InMemoryAlmanacRepository([AlmanacState initial = const AlmanacState()]);
+  // load() returns the held state; save() replaces it.
+}
+```
+
+```dart
+// almanac_file_repository.dart
+class JsonFileAlmanacRepository implements AlmanacRepository {
+  JsonFileAlmanacRepository(this._file);
+  final File _file;
+
+  @override
+  AlmanacState load() => _file.existsSync()
+      ? AlmanacSerialization.decode(_file.readAsStringSync())
+      : const AlmanacState();
+
+  @override
+  void save(AlmanacState state) {
+    _file.parent.createSync(recursive: true);
+    _file.writeAsStringSync(AlmanacSerialization.encode(state));
+  }
+}
+```
+
+Missing file → empty state. Malformed JSON → the `jsonDecode` / cast error propagates (fail loud). Schema mismatch → `AlmanacSchemaVersionError` (fail loud).
+
+---
+
+### 8.4 Behaviour summary
+
+`almanacSchemaVersion = 1` written at the top of `stateToJson`. `stateFromJson` reads it first and throws `AlmanacSchemaVersionError(found, 1)` on mismatch — the migration seam. `encode`/`decode` are thin `jsonEncode`/`jsonDecode` wrappers. `InMemoryAlmanacRepository` is the neutral default; `JsonFileAlmanacRepository` (behind `lib/almanac_file.dart`) adds file IO with "missing file → empty state" and `createSync(recursive: true)` on save.
+
+**Tests required (Phase 2 + Phase 3):** `stateToJson`/`stateFromJson` round-trip on a fully-populated state (every record type, every ledger, `seed` present and absent); `encode`/`decode` round-trip; schema-version mismatch throws; `InMemory` save/load; `JsonFile` save/load via a `Directory.systemTemp.createTempSync` file; `JsonFile.load()` on a non-existent path returns `const AlmanacState()`.
+
+---
+
+## 9. Query API — `almanac_queries.dart`
+
+```dart
+class AlmanacQueries {
+  AlmanacQueries(this._state);
+  final AlmanacState _state;
+
+  List<AlmanacRunRecord> getRunHistory();                 // insertion order
+  AlmanacRunRecord? getRun(String runId);
+  List<AlmanacBuildRecord> getBuildHistory();
+  AlmanacBuildRecord? getBuild(String buildId);
+  List<AlmanacRunRecord> getLineageHistory(String lineageId);   // runs with that lineageId
+  AlmanacTechniqueRecord? getTechniqueHistory(String instanceId);
+  List<TechniqueInspirationHistory> getTechniqueInspirations(String instanceId);
+  AlmanacAffixRecord? getAffixHistory(String affixId);
+  List<AlmanacDiscoveryRecord> getDiscoveries();
+  List<AlmanacDiscoveryRecord> getRecentDiscoveries({int limit = 20});   // last N by insertion order
+  List<AlmanacRunRecord> getRunsUsingTechnique(String instanceId);       // runs whose runId appears in the technique's usageObservations
+  List<AlmanacBuildRecord> getBuildsUsingTechnique(String instanceId);   // builds whose techniques[] contains that instanceId
+  List<AlmanacRunRecord> getRunsForLineage(String lineageId);
+  List<AlmanacRunRecord> getRunsForPhysique(String physiqueId);
+
+  LineageStatistics lineageStatistics(String lineageId);   // derived from records only
+  List<MapEntry<String, int>> mostUsedTechniques({int limit = 10});   // (instanceId, totalUsage) desc, id asc tiebreak
+  List<MapEntry<String, int>> mostUsedAffixes({int limit = 10});
+  Map<AlmanacDiscoveryType, DiscoveryCompletion> discoveryCompletion({
+    required Map<AlmanacDiscoveryType, Set<String>> known,
+  });
+}
+```
+
+`LineageStatistics` / `DiscoveryCompletion` are small `const` value objects. All list results are `List.unmodifiable`. Deterministic ordering: insertion order, or an explicit `(runNumber, id)` comparator where re-sorting. **No `.split` / `.startsWith` on any id** — `getRunsUsingTechnique` matches `observation.runId == run.runId`.
+
+**Tests required (Phase 5):** each getter on a hand-built state; `getRunsUsingTechnique` matches on the explicit `runId` field (proved by using an opaque `usageEventId` that does not textually contain the `runId`); determinism (same state → identical list order across two calls); `discoveryCompletion` fractions.
+
+---
+
+## 10. Build DNA — `almanac_build_dna.dart`
+
+```dart
+BuildDna buildDna({
+  required String lineageId,
+  required String physiqueId,
+  required Iterable<String> techniqueFamilies,
+  required Iterable<String> itemIds,
+  required Iterable<String> affixCategories,
+  required Iterable<Map<String, num>> axisProfiles,
+});
+```
+
+1. `tokens = [lineageId.toUpperCase(), physiqueId.toUpperCase(), ...sortedUnique(techniqueFamilies).map(upper), ...sortedUnique(itemIds).map(upper), ...sortedUnique(affixCategories).map(upper), ...topAxes]` where `topAxes` = axis names ordered by `(summedAbsValue desc, name asc)`, first 3, then re-sorted `name asc`, upper-cased.
+2. `signature` = FNV-1a 32-bit hex of `tokens.join('|')` (pure integer arithmetic, no dependency).
+
+`BuildDna` is a **derived projection**: `signature != buildId`, never a dedup key, recomputable from an `AlmanacBuildRecord`'s snapshot. Changing this algorithm reclassifies snapshots but invalidates no `buildId`.
+
+**Tests required (Phase 6):** determinism (same inputs → same `signature`); input reordering → same `signature`; a changed input → different `signature`; `signature != buildId` for a sample build; FNV-1a matches a hand-computed value for a fixed token list.
+
+---
+
+## 11. Headless bridge — `lib/src/plugins/game/almanac_bridge.dart` + `runGame`
+
+### 11.1 Bridge
+
+```dart
+// imports: build_engine.dart, technique_plugin.dart, martial_arts_plugin.dart,
+//          package:build_engine/almanac.dart, and sibling run_events.dart / physique event.
+class HeadlessGameAlmanacBridge {
+  HeadlessGameAlmanacBridge(
+    this._recorder, {
+    required this.runId,     // caller-supplied opaque token — NEVER "run_$seed"
+    required this.runNumber, // caller-supplied
+    this.seed,               // metadata only
+  });
+
+  final AlmanacRecorder _recorder;
+  final String runId;
+  final int runNumber;
+  final int? seed;
+
+  // per-run counters (deterministic for a fixed event stream)
+  int _encounterSeq = 0;
+  final Map<BuildPhase, int> _buildSeq = {};
+  int _usageSeq = 0;
+  int _trainingSeq = 0;
+
+  // deferred until the run profile is known
+  String? _lineageId;
+  String? _physiqueId;
+  bool _begun = false;
+
+  final List<EventSubscription> _subs = [];
+
+  /// Called by runGame immediately after `events` is created.
+  void attach(EventBus events, PluginContext context) { /* subscribe to the events in §11.2 */ }
+
+  /// Called by runGame once physiqueId + styleId are known (~game_run.dart:170),
+  /// BEFORE the cycle loop. Supplies the two facts that have no domain event.
+  void setRunProfile({required String lineageId, required String physiqueId}) {
+    _lineageId = lineageId;
+    _physiqueId = physiqueId;
+    _maybeBeginRun();
+  }
+
+  void _maybeBeginRun() {
+    if (_begun || _lineageId == null || _physiqueId == null) return;
+    _begun = true;
+    _recorder.beginRun(
+      runId: runId, runNumber: runNumber, seed: seed,
+      lineageId: _lineageId!, physiqueId: _physiqueId!, startedAt: DateTime.now(),
+    );
+  }
+
+  /// Called by runGame after the loop / on RunEnded handling completes.
+  void detach() { for (final s in _subs) s.cancel(); }
+}
+```
+
+`setRunProfile` is the **only** new call `runGame` makes into Almanac beyond constructing/attaching the bridge. It is composition wiring, not identity management: `runGame` forwards two values it already holds as locals; it generates no id and reads no repository. Spec §11 explicitly permits `runGame` forwarding `runId`/`runNumber` to the bridge; this extends that to the two profile facts that lack an event (finding §1.8).
+
+### 11.2 Event → recorder map (existing events only)
+
+| Observed | Bridge action |
+|---|---|
+| `RunStarted` | no-op (profile not yet known) |
+| `PhysiqueAssigned` | remember `physiqueId` (redundant safety; `setRunProfile` is authoritative) |
+| `setRunProfile(...)` call from `runGame` | `_maybeBeginRun()` → `recorder.beginRun` |
+| `TomeChanged` with `stepName == 'starting'` | `recorder.recordBuildSnapshot(_buildSnapshot(BuildPhase.initial, context, character))` |
+| `TechniqueVariantMinted` | read `context.components.get<TechniqueVariant>(e.instanceId)`; `recorder.recordTechniqueDiscovered(origin: base, descriptorIds: variant.descriptorIds.toList(), axisProfile: variant.axisProfile, styleId: variant.styleId, masteryAtDiscovery: context.mastery.levelOf(character, techniqueInstanceSubject(e.instanceId)), runId, runNumber, timestamp: now)` |
+| `TechniqueVariantInspired` | `recorder.recordTechniqueInspired(resultInstanceId: e.instanceId.value.toString(), runId, familyId: e.familyId, descriptorIds: e.descriptorIds.toList(), inspirerInstanceIds: [for (final i in e.inspirerInstanceIds) i.value.toString()])` |
+| `SubjectDiscovered` with subject `technique:*` | `recorder.recordDiscovery(AlmanacDiscoveryRecord(type: technique, contentId: <suffix>, …))` — suffix obtained from the **Technique plugin's own** `techniqueSubject` helper inverse, NOT by `subject.split(':')` in Almanac code; the bridge may use plugin helpers since it imports the plugin |
+| `SubjectDiscovered` with subject `item:*` | `recorder.recordDiscovery(type: item, …)` similarly |
+| `ActionCompleted` where `e.action.sourceRef?.referenceType == techniqueReferenceType && e.action.sourceRef?.instanceEntityId != null` | `recorder.recordTechniqueUsed(TechniqueUsageObservation(usageEventId: '$runId:u${_usageSeq++}', runId, runNumber, instanceId: e.action.sourceRef!.instanceEntityId!.value.toString()))` — same predicate as `combat_stage.dart:106` |
+| `EncounterStarted` | `_encounterSeq++` (no recorder call) |
+| `EncounterResolved` | `recorder.recordFight(runId, fightId: '$runId:e${_encounterSeq - 1}', sequence: _encounterSeq - 1, name: e.name, enemyId: e.enemyId, won: e.won, playerHealthAfter: e.playerHealthAfter, turnsUsed: <from EncounterOutcome or 0>)` |
+| `RewardSelected` | `recorder.recordBuildSnapshot(_buildSnapshot(BuildPhase.postReward, …, sequence: _buildSeq.update(postReward, +1)))` |
+| `TrainingResultRecorded` | `recorder.recordTrainingSession(TrainingObservation(trainingEventId: '$runId:t${_trainingSeq++}', runId, runNumber))`; then a `postTraining` build snapshot |
+| `RunEnded` | final `finalBuild` snapshot + DNA; `recorder.completeRun(runId, completedAt: now, outcome: e.won ? RunOutcome.won : RunOutcome.lost, finalBuildId: <that snapshot's buildId>)`; `recorder.evaluateStandardMilestones(runId, runNumber, outcome, lineageId: _lineageId!, finalBuildId, timestamp: now)` |
+
+`_buildSnapshot(phase, context, character)` builds a `TomeLayoutSnapshot` from `context.tome.inspect(character)`:
+- `width`/`height` `null` (named-slot harness Tome).
+- one `TomeSlotSnapshot` per placement: `slotId: p.slot.id`, `occupantKind: p.buildComponentRef.referenceType == techniqueReferenceType ? 'technique' : p.buildComponentRef.referenceType == itemReferenceType ? 'item' : 'empty'`, `occupantRefId: p.buildComponentRef.contentId`, `instanceId: p.buildComponentRef.instanceEntityId?.value.toString()`.
+- `techniques`: for each technique placement with an `instanceEntityId`, a `TechniqueInstanceSnapshot` from the `TechniqueVariant` component + per-instance mastery level.
+- `items`: for each item placement, an `ItemInstanceSnapshot` from `ItemInstance` (via `context.components`) — `resolvedProperties` copied from `statBonuses` at snapshot time.
+- `affixes`: empty in v1 (finding §1: no affix identity).
+- `dna`: `buildDna(lineageId: _lineageId!, physiqueId: _physiqueId!, techniqueFamilies: <baseFamilyIds>, itemIds: <definitionIds>, affixCategories: const [], axisProfiles: <from the technique snapshots>)`.
+
+### 11.3 `runGame` change (Phase 7)
+
+`lib/src/plugins/game/game_run.dart` — new optional parameters, default off:
+
+```dart
+RunResult runGame(
+  int seed, {
+  String characterName = 'Player',
+  RunDecisionPolicy policy = const DefaultRunDecisionPolicy(),
+  EventBus? eventBus,
+  AlmanacRecorder? almanac,   // NEW
+  String? runId,              // NEW — required iff almanac != null
+  int? runNumber,             // NEW — required iff almanac != null
+});
+```
+
+Wiring, all guarded by `if (almanac != null)`:
+1. After `final events = eventBus ?? EventBus();` (~line 124):
+   `assert(runId != null && runNumber != null, 'runGame(almanac:) requires runId + runNumber');`
+   `final _bridge = HeadlessGameAlmanacBridge(almanac, runId: runId!, runNumber: runNumber!, seed: seed);`
+   *(bridge constructed here; `attach` deferred until `context` exists)*
+2. After `context` is constructed (~line 141): `_bridge.attach(events, context);`
+3. After `learnStyle(character, styleId, context);` (~line 170):
+   `_bridge.setRunProfile(lineageId: martialTraditionOf(styleId) ?? styleId, physiqueId: physiqueId);`
+4. Just before `return RunResult(...)` (both the mid-function early return and the end): `_bridge.detach();`
+
+`martialTraditionOf` is already importable — `game_run.dart` already imports `package:build_engine/martial_arts_plugin.dart`.
+
+**When `almanac == null`:** none of steps 1-4 run; `runGame` is byte-identical. The recorder cannot reach `rng` or `policy`, so determinism is unaffected. **The caller persists** after `runGame` returns: `repo.save(recorder.state)` — never inside `runGame`.
+
+### 11.4 Who supplies `runId` / `runNumber` (finding §1.9, spec §1.4)
+
+The **headless caller** (a test, a CI balance job, a future harness driver). Pattern:
+
+```dart
+final repo = JsonFileAlmanacRepository(File('almanac.json'));   // or InMemory in tests
+final recorder = AlmanacRecorder(repo.load());
+final runNumber = recorder.state.runs.length + 1;               // caller's choice, outside runGame
+final runId = 'run-${DateTime.now().microsecondsSinceEpoch}';   // opaque, unique per instance
+final result = runGame(seed, policy: policy, almanac: recorder, runId: runId, runNumber: runNumber);
+repo.save(recorder.state);
+```
+
+`runGame` never computes `runNumber` from repository history and never imports `AlmanacRepository`.
+
+---
+
+## 12. Production Tome-client adapter contract (out-of-repo)
+
+`TomeClientAlmanacAdapter` lives in the client repository. This plan defines only the contract it must honour; **do not import or scaffold the client here.**
+
+The client adapter MUST, using `package:build_engine/almanac.dart` only:
+
+1. Allocate an opaque `runId` per run instance and a `runNumber` from its own history; call `recorder.beginRun(...)` once it knows lineage + physique.
+2. For each resolved encounter, assign a per-run `sequence` and call `recorder.recordFight(fightId: <opaque>, runId, sequence, …)`.
+3. At each build milestone, assign a per-`(run, phase)` `sequence`, build an `AlmanacBuildRecord` (snapshotting its own Tome model into `TomeLayoutSnapshot` — with real `width`/`height` if its Tome is grid-shaped), and call `recorder.recordBuildSnapshot(...)`.
+4. On first observation of a `TechniqueVariant` instance, call `recorder.recordTechniqueDiscovered(...)`; per performed technique action, call `recorder.recordTechniqueUsed(TechniqueUsageObservation(usageEventId: <its own stable action id, or a per-run sequence>, runId, runNumber, instanceId))`.
+5. On its `TechniqueVariantInspired` equivalent, pass the payload verbatim to `recorder.recordTechniqueInspired(...)`.
+6. Per completed training session, `recorder.recordTrainingSession(...)`.
+7. On item discovery, `recorder.recordItemDiscovered(...)`. Affixes: only once the client has authoritative affix identity (see the deliberate-v1-limitation note in Global Constraints).
+8. On run end, final build snapshot + `recorder.completeRun(...)` + `recorder.evaluateStandardMilestones(...)`.
+9. Persist via its own `AlmanacRepository` implementation (may be `JsonFileAlmanacRepository` on desktop, or a custom web-storage implementation of the interface — the interface is web-safe).
+
+The client adapter MUST NOT hand the recorder a live component, entity, event bus, or `PluginContext` — only value objects/snapshots. It MUST NOT parse any id string. Contract parity is proved in-repo by the synthetic adapter test (§13.2 / Phase 10); the client repo runs its own equivalent.
+
+---
+
+## 13. Tests
+
+### 13.1 Unit — `test/plugins/almanac/`
+
+| File | Proves |
+|---|---|
+| `almanac_models_test.dart` | per-record `toJson`/`fromJson` round-trip incl. all observation ledgers & `seed?`; unknown-enum-name throws; constructor copies collections (mutate source → record unchanged); returned collections are unmodifiable |
+| `almanac_serialization_test.dart` | `stateToJson`/`stateFromJson` + `encode`/`decode` round-trip on a fully-populated state; `almanacSchemaVersion` written; mismatch → `AlmanacSchemaVersionError` |
+| `almanac_repository_test.dart` | `InMemory` save/load; `JsonFile` save/load via temp file; `JsonFile.load()` on missing path → `const AlmanacState()`; `save` creates parent dir |
+| `almanac_platform_neutral_test.dart` | `lib/almanac.dart` + its transitive `almanac/` imports contain no `import 'dart:io'`; `almanac_file_repository.dart` is the sole `dart:io` file; `lib/almanac.dart` does not export `almanac_file*` |
+| `almanac_recorder_test.dart` | begin/complete run; multiple runs separate; every method happy path; projections == fresh recompute after a random event sequence |
+| `almanac_id_opacity_test.dart` | recorder + queries behave identically with structured ids (`run-1:u0`) and arbitrary opaque ids (`action-8f3a91`); a `usageEventId` that textually contains a *different* `runId` still binds to the explicit `runId` field |
+| `almanac_run_identity_test.dart` | same `seed`, different `runId` → 2 `AlmanacRunRecord`s; ledgers disjoint even when the two runs reuse the *same* opaque `usageEventId` string; `seed` stored, keys nothing |
+| `almanac_usage_uniqueness_domain_test.dart` | same opaque `usageEventId` under two `runId`s → 2 observations (`(runId, usageEventId)` key); no global-uniqueness assumption |
+| `almanac_fight_identity_test.dart` | two `Bandit`/5-turn fights (seq 0,1) → 2 records; replay `EncounterResolved` → still 2; `enemiesDefeated` counts each win once |
+| `almanac_build_snapshot_test.dart` | `postReward` seq 0 and 1 stay separate; replay → no dup; `TomeLayoutSnapshot` preserves slot ids + instance ids; mutating a fake source list afterward leaves the stored snapshot unchanged |
+| `almanac_technique_usage_test.dart` | two distinct `usageEventId`s, same run → `totalUsage` +2, `runsUsed` has run once; same `usageEventId` replayed → counts once; idempotency survives `save`→`load` between deliveries; `techniquesUsed for X` == count where `o.runId == X` |
+| `almanac_monotonic_completion_test.dart` | `Minted`→`Inspired` **and** `Inspired`→`Minted` → one record, `origin: inspired`, ancestry present; lone `Inspired` leaves later fields `null` |
+| `almanac_contradiction_test.dart` | second event with conflicting `descriptorIds` / `inspirerInstanceIds` / build-snapshot contents → `AlmanacIntegrityException`, established value retained |
+| `almanac_inspiration_test.dart` | `TechniqueVariantInspired` payload verbatim + order-preserving; deliver twice → one `TechniqueInspirationHistory` + one technique record; no RNG, no Technique-state query |
+| `almanac_cross_run_identity_test.dart` | same `baseFamilyId`, two runs, two instance ids → 2 `AlmanacTechniqueRecord`s |
+| `almanac_affix_test.dart` | 3 `AffixObservation`s, distinct opaque `affixEventId`s, one `affixId` → 1 record, `timesDiscovered == 3`, `associatedLineageIds` unioned; repeat an `affixEventId` → unchanged |
+| `almanac_milestone_identity_test.dart` | Runs 4,7,9 all win Western → one milestone (`type = firstWinWithLineage`, `contextId = western`) at Run 4; later runs don't mutate it; identity from explicit fields, not `milestoneId.split` |
+| `almanac_lineage_test.dart` | `getRunsForLineage` / `lineageStatistics` correct and record-derived |
+| `almanac_queries_test.dart` | every getter on a hand-built state; determinism (same state → identical order twice); `discoveryCompletion` fractions |
+| `almanac_build_dna_test.dart` | deterministic; input reorder → same signature; input change → different; `signature != buildId`; FNV-1a matches a hand value |
+| `almanac_architecture_test.dart` | §2 enforcement table + §3.2 assertions |
+
+### 13.2 Integration — `test/integration/almanac_run_history_test.dart`
+
+- 3 runs (own `runId` each, differing seeds/policies) → 3 distinct `AlmanacRunRecord`s; discoveries + final builds + lineage/physique captured.
+- Same seed, two different `runId`s → two separate run records; fight/build/usage/training ledgers disjoint (matched on explicit `(runId, …)`).
+- Same seed + same policy + same `runId` replayed through the bridge → equivalent `AlmanacState`.
+- Whole-chronicle `encode`→`decode` round-trip via `JsonFileAlmanacRepository` (temp file).
+- `almanac == null`: `runGame` result is byte-identical to a run without the parameter; assert `runGame` performs no repo IO (no `JsonFileAlmanacRepository` referenced from `game_run.dart`).
+
+### 13.3 Golden / determinism protection
+
+Before Phase 7, enumerate the existing tests that assert `runGame` output byte-for-byte or replay-stability (candidates: `test/plugins/game/*`, `test/game/*`, `test/integration/*` referencing `runGame` / `DecisionLog` / `RunResult`). Run the full suite green **before** and **after** the `runGame` change with no diff in those tests.
+
+---
+
+## 14. Documentation
+
+- `ARCHITECTURE.md` — new `## Almanac — Persistent Player History` section: passive-observer/adapter model (`HeadlessGameAlmanacBridge` in-repo + out-of-repo `TomeClientAlmanacAdapter`); ids opaque, relationships explicit; `runId` ≠ `seed` ≠ `runNumber`, recorder never generates identity or reads a repo; canonical facts identity-stable & monotonic + `AlmanacIntegrityException`; observation ledgers + derived projections; deep value-aliasing immutability; `BuildDna` a projection not an identity; `dart:io` isolated behind `lib/almanac_file.dart` (web-safe neutral surface, `console_policy.dart` precedent); schema version 1; SP0b `TechniqueVariantInspired` relationship; ContentRegistry relationship; a `Save State ≠ Almanac History` subsection.
+- `CHANGELOG.md` — under `## Unreleased`, `### Added — public API`: the two new barrels `package:build_engine/almanac.dart` (neutral) and `package:build_engine/almanac_file.dart` (`dart:io`), the model/recorder/queries/repository/serialization/build-DNA surface, and the opt-in `runGame(almanac:, runId:, runNumber:)` parameters (default-off, behaviour-preserving).
+
+---
+
+## 15. Commit sequence
+
+Each task = one commit, builds & tests green standalone. `dart format .` + `dart analyze` clean at every commit.
+
+### Phase 0 — repository verification (no code)
+
+- [ ] **0.1** Re-run the §1 checks against `HEAD` of `almanac-v1`; confirm every API/signature/line-number in §1 still holds. Record any drift in this plan before proceeding. **Acceptance:** §1 matches the tree. **Risk:** the branch moved — if `game_run.dart` / `run_events.dart` / `technique_events.dart` changed, re-derive §11.2.
+- [ ] **0.2** Enumerate the golden/determinism tests (§13.3) into a checklist file `docs/superpowers/plans/.almanac-golden-tests.md` (scratch). **Acceptance:** list exists; `dart test` is fully green now.
+
+### Phase 1 — models (`almanac_models.dart`)
+
+- [ ] **1.1** Create `lib/src/plugins/almanac/almanac_models.dart` with the enums + `_enumByName` helper. Test `almanac_models_test.dart`: unknown name throws; `.name` round-trips.
+- [ ] **1.2** Add the three observation records + `toJson`/`fromJson`. Test: round-trip; `seed?`-style optionals.
+- [ ] **1.3** Add the snapshots (`TechniqueInstanceSnapshot` … `BuildDna`). Test: round-trip; constructor copies collections (mutate source → unchanged); returned collection unmodifiable.
+- [ ] **1.4** Add the canonical records + `AlmanacState`. Test: full round-trip of a populated `AlmanacState`.
+- [ ] **1.5** `dart format` + `dart analyze` + `dart test test/plugins/almanac/almanac_models_test.dart`. Commit: `feat(almanac): domain model value objects + json`.
+
+### Phase 2 — serialization (`almanac_serialization.dart`)
+
+- [ ] **2.1** Write failing `almanac_serialization_test.dart`: `encode`→`decode` equality on a populated state; version written; mismatch throws.
+- [ ] **2.2** Implement `AlmanacSchemaVersionError` + `AlmanacSerialization` (`stateToJson`/`stateFromJson`/`encode`/`decode`).
+- [ ] **2.3** Tests green; `dart analyze` clean. Commit: `feat(almanac): schema-versioned serialization`.
+
+### Phase 3 — repository (`almanac_repository.dart` + `almanac_file_repository.dart` + barrels)
+
+- [ ] **3.1** `almanac_repository.dart`: `AlmanacRepository` interface + `InMemoryAlmanacRepository`. Test `almanac_repository_test.dart`: in-memory save/load.
+- [ ] **3.2** `almanac_file_repository.dart`: `JsonFileAlmanacRepository` (`dart:io`). Test: temp-file save/load; missing file → empty; `save` mkdirs.
+- [ ] **3.3** `lib/almanac.dart` (neutral barrel, §3.1) + `lib/almanac_file.dart` (`dart:io` barrel).
+- [ ] **3.4** Extend `test/integration/architecture_dependency_test.dart`: add `'almanac.dart'` **and** `'almanac_file.dart'` to `_pluginBarrels`. Run full arch test — green.
+- [ ] **3.5** `dart analyze` + `dart test`. Commit: `feat(almanac): repository abstraction + dart:io file repo behind own barrel`.
+
+### Phase 4 — recorder (`almanac_recorder.dart`)
+
+- [ ] **4.1** `AlmanacIntegrityException` + `AlmanacRecorder` skeleton (`beginRun`, `completeRun`, `state`). Test: begin→complete→one run record; `beginRun` twice → no dup; conflicting `beginRun` field → exception.
+- [ ] **4.2** `recordFight` + `enemiesDefeated` projection. Test: two identical fights (seq 0,1) → 2; replay `fightId` → still 2.
+- [ ] **4.3** `recordTechniqueDiscovered` / `recordTechniqueInspired` + monotonic `origin` + write-once completion + `AlmanacIntegrityException`. Test `almanac_monotonic_completion_test.dart` + `almanac_contradiction_test.dart` + `almanac_inspiration_test.dart`.
+- [ ] **4.4** `recordTechniqueUsed` with `(runId, usageEventId)` key + `totalUsage`/`runsUsed` recompute. Test `almanac_technique_usage_test.dart` + `almanac_usage_uniqueness_domain_test.dart` + save/load-between-deliveries.
+- [ ] **4.5** `recordAffixDiscovered` / `recordAffixUsed` + affix projections. Test `almanac_affix_test.dart`.
+- [ ] **4.6** `recordTrainingSession` (`(runId, trainingEventId)` key) + `recordDiscovery` (+ append to `runs[runId].discoveryIds`) + `recordItemDiscovered`.
+- [ ] **4.7** `recordBuildSnapshot` (dedup on `buildId`, `AlmanacIntegrityException` on conflicting contents; compute `dna` if empty — depends on Phase 6, so land 6 before 4.7 or stub DNA and backfill).
+- [ ] **4.8** `recordMilestone` + `evaluateStandardMilestones` (explicit `type`+`contextId`). Test `almanac_milestone_identity_test.dart`.
+- [ ] **4.9** `almanac_id_opacity_test.dart` + `almanac_run_identity_test.dart` + `almanac_cross_run_identity_test.dart`. Full `dart test test/plugins/almanac/`. Commit: `feat(almanac): identity-keyed monotonic recorder`.
+
+### Phase 5 — queries (`almanac_queries.dart`)
+
+- [ ] **5.1** Failing `almanac_queries_test.dart` for the required getters on a hand-built state.
+- [ ] **5.2** Implement getters (insertion order, `List.unmodifiable`; `getRunsUsingTechnique` matches `observation.runId`).
+- [ ] **5.3** Aggregates: `lineageStatistics`, `mostUsedTechniques`, `mostUsedAffixes`, `discoveryCompletion` + `LineageStatistics`/`DiscoveryCompletion` value objects. Test `almanac_lineage_test.dart`.
+- [ ] **5.4** Determinism test (same state → identical order twice). Commit: `feat(almanac): read-only query API`.
+
+### Phase 6 — build DNA (`almanac_build_dna.dart`)
+
+- [ ] **6.1** Failing `almanac_build_dna_test.dart`: determinism, reorder-invariance, change-sensitivity, `signature != buildId`, FNV-1a hand value.
+- [ ] **6.2** Implement `buildDna` + FNV-1a. Green. Commit: `feat(almanac): deterministic build DNA signature`. *(Then backfill Task 4.7's DNA call.)*
+
+### Phase 7 — headless bridge + `runGame`
+
+- [ ] **7.1** `lib/src/plugins/almanac/` — nothing here; create `lib/src/plugins/game/almanac_bridge.dart` with `HeadlessGameAlmanacBridge` (constructor, counters, `attach`/`setRunProfile`/`detach`, `_maybeBeginRun`, `_buildSnapshot`). No `runGame` edit yet. Unit-test the bridge against a hand-driven `EventBus` + a minimal `PluginContext` (or a fake) — feed `TechniqueVariantMinted` etc. and assert recorder state.
+- [ ] **7.2** Add `AlmanacRecorder? almanac`, `String? runId`, `int? runNumber` params to `runGame`; wire steps §11.3 (1)-(4) behind `if (almanac != null)`. Add the `assert`.
+- [ ] **7.3** Run the golden/determinism checklist from Task 0.2 — must be **unchanged**. Run full `dart test`.
+- [ ] **7.4** `test/integration/almanac_run_history_test.dart` (§13.2). Commit: `feat(almanac): headless bridge + opt-in runGame wiring`.
+
+### Phase 8 — architecture tests
+
+- [ ] **8.1** `test/plugins/almanac/almanac_architecture_test.dart` — every assertion in §2 + §3.2.
+- [ ] **8.2** `test/plugins/almanac/almanac_platform_neutral_test.dart` — §3.2.
+- [ ] **8.3** New group in `architecture_dependency_test.dart`: gameplay-plugin dirs don't reference `almanac`. Full arch suite green. Commit: `test(almanac): architecture + platform-neutral guards`.
+
+### Phase 9 — unit-test completeness pass
+
+- [ ] **9.1** Fill any §13.1 file not yet created; ensure each spec-§13 case has a test. Commit: `test(almanac): complete unit coverage`.
+
+### Phase 10 — integration hardening
+
+- [ ] **10.1** Adapter-parity test `test/plugins/almanac/almanac_adapter_parity_test.dart` (§12 contract) — synthetic second adapter feeds the same recorder with (a) structured and (b) opaque ids; assert `AlmanacState` equality against the bridge's output for one scripted run. Commit: `test(almanac): adapter contract parity`.
+
+### Phase 11 — documentation
+
+- [ ] **11.1** `ARCHITECTURE.md` + `CHANGELOG.md` per §14. Commit: `docs(almanac): architecture + changelog`.
+
+### Phase 12 — final validation
+
+- [ ] **12.1** `dart format . && dart analyze && dart test` — all green. Manually confirm `Core purity / Dependency DAG / No circular plugin deps / No unmanaged RNG / No cross-plugin private imports` still PASS. Tick §16 acceptance checklist. Commit (if anything changed): `chore(almanac): final validation`.
+
+---
+
+## 16. Final acceptance checklist
+
+- [ ] Almanac is a `lib/src/plugins/almanac/` composition module, not a `GamePlugin`.
+- [ ] `lib/almanac.dart` imports resolve with **no** `dart:io`; architecture test proves it.
+- [ ] `JsonFileAlmanacRepository` is the only `dart:io` file, behind `lib/almanac_file.dart`.
+- [ ] Almanac imports Core only; no plugin/`game`/`build_interpretation` import; arch test proves it.
+- [ ] No gameplay plugin imports `almanac`; arch test proves it.
+- [ ] `runId` / `runNumber` supplied by the caller; `runGame` never generates identity, never reads a repo; `almanac == null` → byte-identical `runGame`.
+- [ ] `seed` stored as metadata only; `runId = "run_<seed>"` never used.
+- [ ] Every id opaque; no `.split` / `.startsWith` in recorder/queries; arch test proves it; every relationship is an explicit field.
+- [ ] `(runId, usageEventId)` / `(affixId, affixEventId)` / `(runId, trainingEventId)` keys; global id uniqueness not assumed.
+- [ ] Canonical facts monotonic; conflicting write-once value → `AlmanacIntegrityException`; no silent overwrite/merge.
+- [ ] `Minted`↔`Inspired` either order → one technique record, ancestry verbatim, `origin` `base`→`inspired` only.
+- [ ] Snapshots deeply isolated; query results unmodifiable; source/result mutation can't alter `AlmanacState`.
+- [ ] Fight / build-snapshot identity is `(runId, opaque id)` + explicit `sequence`/`phase`; duplicates stay distinct; replay adds none.
+- [ ] Projections recomputable from ledgers; never updated without a ledger append.
+- [ ] Affix model + queries + serialization present; **no** harness affix wiring (deliberate v1).
+- [ ] `BuildDna` deterministic, order-normalized, RNG/ML-free, `signature != buildId`, recomputable.
+- [ ] Serialization: schema version 1; missing file → empty; mismatch → `AlmanacSchemaVersionError`; round-trip stable.
+- [ ] Query API pure, deterministic, no analytics engine.
+- [ ] All new + existing architecture tests green; no existing test weakened.
+- [ ] `ARCHITECTURE.md` + `CHANGELOG.md` updated, incl. `Save State ≠ Almanac History`.
+- [ ] `dart format` / `dart analyze` / `dart test` green.
+
+---
+
+## Pre-Implementation Blockers
+
+**None.** The plan is implementation-ready. The two items below were resolved during planning and are recorded here so an executor does not mistake them for open questions:
+
+1. **Style / martial-tradition has no domain event.** `learnStyle` grants tags only; `game_run.dart` holds `styleId` / `traditionId` as locals. Resolution: the bridge exposes `setRunProfile(lineageId, physiqueId)` and `runGame` calls it once (guarded by `almanac != null`) right after `learnStyle` (~`game_run.dart:170`), forwarding values it already holds. This is composition wiring, not identity management, and is within the spec §11 "runGame forwards to the bridge" allowance. No new gameplay event is introduced (spec §16).
+2. **`RunStarted` fires before physique/style are chosen** (`game_run.dart:143`). Resolution: the bridge defers `beginRun` until `setRunProfile` supplies the profile; `_maybeBeginRun` is idempotent. `RunStarted` itself is a no-op for the bridge.
+
+Watch-items (not blockers — verify in Phase 0 against the live branch):
+
+- `EncounterResolved` does not carry `turnsUsed`; the bridge reads it from the `EncounterOutcome` the harness already records, or records `0`. Confirm the accessible source in Phase 0.1.
+- Per-instance mastery accessor is `context.mastery.levelOf(owner, techniqueInstanceSubject(instanceId))` — confirm `techniqueInstanceSubject` is exported from `technique_plugin.dart` (it is used in `technique_variant_lifecycle.dart`); if not exported, the bridge computes `masteryAtDiscovery: null` and the field stays `UNKNOWN` (spec-legal).
+- `ItemInstance` field names for `ItemInstanceSnapshot` (`definitionId`, `owner`, `itemClass`, `statBonuses`) — verified in `lib/src/plugins/item/item_instance.dart`; re-confirm in Phase 0.1.
