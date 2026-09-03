@@ -523,6 +523,128 @@ headless `game_run` harness the hook is inert (no `TechniqueVariant`s are
 minted there), so it draws no RNG and shifts no golden; a later harness
 migration changes that.
 
+## Almanac — Persistent Player History (`lib/src/plugins/almanac/`, `lib/almanac.dart`, `lib/almanac_file.dart`)
+
+**What it is — and is not.** The Almanac is a passive, data-driven record
+of *what a player has discovered, built, mastered, and experienced across
+every run* — nothing more. It is not a gameplay system, not a progression
+authority, not a combat system, not a reward system, and not a content
+database. Data flows one way only: `Gameplay -> Domain/Composition events
+-> AlmanacRecorder -> persistent AlmanacState -> Client queries`. The
+arrow never reverses — no gameplay code reads the Almanac, and no run
+outcome depends on it. It is a chronicle written after the fact, never
+consulted during play.
+
+**Passive-observer / adapter model.** There is one shared
+`AlmanacRecorder`. In this repo the only adapter is
+`HeadlessGameAlmanacBridge` (`lib/src/plugins/game/almanac_bridge.dart`)
+— a composition-layer object, and the *only* in-repo file that imports
+both a gameplay plugin and the Almanac. It subscribes to 9
+domain/composition events and translates each into a recorder call; it
+carries no Almanac logic of its own. The real client repo holds its own
+`TomeClientAlmanacAdapter` honouring the identical recorder contract —
+this repo defines that contract and proves parity with a synthetic
+adapter test, but does not ship the client adapter.
+
+**Identity.** Every id the Almanac stores is an opaque token.
+Relationships are explicit stored fields, never recovered by inspecting
+an id — `.split` / `.startsWith` / regex over an id is banned and
+architecture-tested. Keys are structural, never string-concatenated: a
+run is keyed by `runId`; a fight by `(runId, fightId)`; a build snapshot
+by `_BuildKey(runId, buildId)` (a value record key compared
+field-by-field); a technique-usage observation by `(runId, usageEventId)`;
+an affix observation by `(affixId, affixEventId)`; a training observation
+by `(runId, trainingEventId)`; a milestone by a `milestoneId` derived
+from its `type` plus context. Global id uniqueness is never assumed.
+
+`runId`, `runNumber`, and `seed` are three different things. `runId` and
+`runNumber` are caller-supplied opaque values; `seed` is optional replay
+metadata that keys nothing at all (`runId = "run_<seed>"` is forbidden).
+The recorder never generates identity and never reads a repository — it
+is handed everything it needs.
+
+**Canonical facts are identity-stable and monotonic.** A later
+observation of the same fact may fill a field that was `UNKNOWN`, append
+an element to a ledger, or advance a build's `origin` from `base` to
+`inspired`. A *conflicting* write to an already-established write-once
+value is rejected: the established value is retained and an
+`AlmanacIntegrityException` is raised. There is no silent overwrite and
+no merge/recovery subsystem — the first committed truth wins.
+
+**Observation ledgers + derived projections.** The usage, affix, and
+training ledgers are append-only lists of relational records, each
+carrying its own `runId`. The projections layered over them —
+`totalUsage`, `runsUsed`, the affix counters, and per-run
+`enemiesDefeated` / `techniquesUsed` / `trainingSessions` — are
+*recomputed from the ledgers*, never authored independently. On hydration
+a persisted projection that disagrees with its ledger is normalised back
+to what the ledger says.
+
+**Immutability is deep.** Every collection stored in a record is a copy
+that never aliases live gameplay state, and `AlmanacQueries` hands back
+`List.unmodifiable` / defensive copies. A valid later completion produces
+a *new* record instance rather than mutating one already returned to a
+caller.
+
+**`BuildDna` is a projection, not an identity.** `buildDna(...)` computes
+a deterministic, order-normalised, RNG- and ML-free signature (FNV-1a-32,
+JS-safe) over a build's shape, recomputable from the stored record.
+`signature != buildId` — two builds with the same shape share a signature
+but keep distinct ids.
+
+**Platform split — two barrels.**
+`package:build_engine/almanac.dart` is the platform-neutral surface: the
+domain model value objects, serialization, the `AlmanacRepository`
+interface plus `InMemoryAlmanacRepository`, `AlmanacRecorder`,
+`AlmanacQueries`, and `buildDna` / `BuildDna`. It is safe on any Dart
+target, web included. `JsonFileAlmanacRepository` is the only `dart:io`
+file and lives behind its own barrel,
+`package:build_engine/almanac_file.dart` — the same dedicated-barrel
+split `console_policy.dart` uses for `ConsoleDecisionPolicy`. An
+architecture test proves the neutral barrel pulls in no `dart:io`.
+
+**Serialization.** Module-local `toJson` / `fromJson` over plain maps,
+plus `jsonEncode` / `jsonDecode` — the `Container.toJson` convention this
+engine already follows. Schema version is `1`; a missing file hydrates to
+empty state; a version mismatch raises `AlmanacSchemaVersionError`. The
+repository exposes whole-state `load` / `save` only, with no incremental
+API. `JsonFileAlmanacRepository.save` serialises the entire state, writes
+`<path>.tmp`, then `renameSync`s it into place — a failed save leaves the
+previous complete file intact.
+
+**SP0b relationship.** When the technique layer publishes
+`TechniqueVariantInspired`, the Almanac stores the ancestry *verbatim* —
+no re-resolution, no re-query, no RNG. A `Minted` and an `Inspired`
+observation in either order converge on one technique record with
+`origin: inspired` and the ancestry preserved.
+
+**ContentRegistry relationship.** The Almanac records *what the player
+encountered*, referencing content by the same opaque content ids the
+registry uses. It is not itself a content catalogue and does not depend
+on registry internals.
+
+**`runGame` integration.** Opt-in only: `runGame(seed, {AlmanacRecorder?
+almanac, String? runId, int? runNumber})`. With `almanac == null` a run
+is byte-identical to before — no bridge is constructed, no repository IO
+happens. When an `almanac` is supplied, `runGame` validates `runId` /
+`runNumber` at runtime with `throw ArgumentError` (deliberately not
+`assert`), constructs the bridge, and calls it at fixed composition
+points. `runGame` never generates an id, never computes a `runNumber`,
+and never touches a repository — the caller owns `repo.save`.
+
+### Save State ≠ Almanac History
+
+The game's save/load state and the Almanac are different things and must
+not be conflated. A save is the *resumable current run* — entities,
+components, RNG state, engine and plugin versions — with the lifetime of
+one run and the schema of the live engine. The Almanac is the *permanent
+cross-run chronicle*, owned by the client, with its own schema and a
+lifetime spanning every run a player has ever started. They have
+different owners, lifetimes, schemas, and failure modes; losing or
+corrupting one does not damage the other. Critically, the Almanac is
+never on the critical path of loading or continuing a run — a run boots
+and plays identically whether or not an Almanac exists.
+
 ## Reward/Loot system (`lib/src/reward/`)
 
 Reward *generation*, not a specific loot table — no `MartialLootTable`/

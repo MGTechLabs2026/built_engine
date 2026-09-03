@@ -6,6 +6,26 @@ bumping the pin. Newest first.
 
 ## Unreleased
 
+### Added — Almanac (persistent player history)
+
+- **`package:build_engine/almanac.dart`** — new platform-neutral public
+  barrel for the Almanac (persistent cross-run player history): the domain
+  model value objects + JSON, `AlmanacSerialization` (schema v1), the
+  `AlmanacRepository` interface + `InMemoryAlmanacRepository`,
+  `AlmanacRecorder` (identity-keyed, monotonic, hydrating), `AlmanacQueries`
+  (pure read view), and `buildDna(...)` / `BuildDna`. Safe to import from
+  web targets — no `dart:io`.
+- **`package:build_engine/almanac_file.dart`** — new `dart:io` barrel
+  exporting `JsonFileAlmanacRepository` (atomic temp-file + rename
+  whole-state persistence). Kept separate so the neutral barrel stays
+  web-safe.
+- **`runGame(almanac:, runId:, runNumber:)`** — new optional, default-off
+  parameters on `runGame`. With `almanac == null` (the default) behaviour
+  is byte-identical: no history recording, no repository IO. When supplied,
+  a `HeadlessGameAlmanacBridge` observes the run and feeds the recorder;
+  the caller owns persistence. `runId` / `runNumber` are caller-supplied
+  opaque values, validated with `ArgumentError`.
+
 ### Added — public API (audit A1/A2/A4 refactor)
 
 - **`resolveTechniqueEvolutionAfterTraining(owner, technique, profile, context)`**
