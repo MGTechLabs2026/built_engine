@@ -7,6 +7,7 @@
 /// `ConsoleDecisionPolicy`.
 library;
 
+export 'src/plugins/almanac/almanac_build_dna.dart';
 export 'src/plugins/almanac/almanac_models.dart';
 export 'src/plugins/almanac/almanac_repository.dart';
 export 'src/plugins/almanac/almanac_serialization.dart';
