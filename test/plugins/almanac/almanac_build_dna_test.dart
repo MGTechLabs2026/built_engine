@@ -10,7 +10,11 @@ int _fnv1a32(String s) {
   int hash = 0x811c9dc5;
   for (final int c in s.codeUnits) {
     hash ^= c;
-    hash = (hash * 0x01000193) & 0xFFFFFFFF;
+    // Split-16-bit multiply by the FNV prime (0x0100 << 16 | 0x0193): keeps
+    // every intermediate < 2^43 so the hash is exact on dart2js/wasm too.
+    final int lo = (hash & 0xFFFF) * 0x0193;
+    final int mid = ((hash >> 16) & 0xFFFF) * 0x0193 + (hash & 0xFFFF) * 0x0100;
+    hash = ((mid << 16) + lo) & 0xFFFFFFFF;
   }
   return hash;
 }
@@ -45,35 +49,42 @@ void main() {
       expect(sample().signature, sample().signature);
     });
 
-    test('reorder-invariance: shuffled iterables and axis maps give the same '
-        'tokens and signature', () {
-      final BuildDna a = buildDna(
-        lineageId: 'lin',
-        physiqueId: 'phy',
-        techniqueFamilies: <String>['a', 'b', 'c'],
-        itemIds: <String>['x', 'y', 'z'],
-        affixCategories: <String>['p', 'q'],
-        axisProfiles: <Map<String, num>>[
-          <String, num>{'m': 2},
-          <String, num>{'n': -3},
-          <String, num>{'o': 1},
-        ],
-      );
-      final BuildDna b = buildDna(
-        lineageId: 'lin',
-        physiqueId: 'phy',
-        techniqueFamilies: <String>['c', 'a', 'b', 'a'],
-        itemIds: <String>['z', 'x', 'y'],
-        affixCategories: <String>['q', 'p'],
-        axisProfiles: <Map<String, num>>[
-          <String, num>{'o': 1},
-          <String, num>{'n': -3},
-          <String, num>{'m': 2},
-        ],
-      );
-      expect(b.tokens, a.tokens);
-      expect(b.signature, a.signature);
-    });
+    test(
+      'reorder-invariance: shuffled iterables, a shuffled multi-key axis map, '
+      'and a shuffled axis-map list give the same tokens and signature',
+      () {
+        final BuildDna a = buildDna(
+          lineageId: 'lin',
+          physiqueId: 'phy',
+          techniqueFamilies: <String>['a', 'b', 'c'],
+          itemIds: <String>['x', 'y', 'z'],
+          affixCategories: <String>['p', 'q'],
+          axisProfiles: <Map<String, num>>[
+            // Multi-key literal, keys in deliberately non-sorted order.
+            <String, num>{'zeta': 3, 'alpha': 1},
+            <String, num>{'m': 2},
+            <String, num>{'n': -3},
+            <String, num>{'o': 1},
+          ],
+        );
+        final BuildDna b = buildDna(
+          lineageId: 'lin',
+          physiqueId: 'phy',
+          techniqueFamilies: <String>['c', 'a', 'b', 'a'],
+          itemIds: <String>['z', 'x', 'y'],
+          affixCategories: <String>['q', 'p'],
+          axisProfiles: <Map<String, num>>[
+            <String, num>{'o': 1},
+            <String, num>{'n': -3},
+            <String, num>{'m': 2},
+            // Same map, keys in the opposite (sorted) order; list reordered too.
+            <String, num>{'alpha': 1, 'zeta': 3},
+          ],
+        );
+        expect(b.tokens, a.tokens);
+        expect(b.signature, a.signature);
+      },
+    );
 
     test('change-sensitivity: adding an item id changes the signature', () {
       final BuildDna base = sample();
