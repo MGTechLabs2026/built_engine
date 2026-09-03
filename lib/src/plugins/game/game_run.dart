@@ -1,3 +1,4 @@
+import 'package:build_engine/almanac.dart';
 import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/build_interpretation.dart';
 import 'package:build_engine/combat_plugin.dart';
@@ -6,6 +7,7 @@ import 'package:build_engine/martial_arts_plugin.dart';
 import 'package:build_engine/physique_plugin.dart';
 import 'package:build_engine/technique_plugin.dart';
 
+import 'almanac_bridge.dart';
 import 'combat_stage.dart';
 import 'decision_log.dart';
 import 'enemy_content.dart';
@@ -113,11 +115,25 @@ RunResult runGame(
   String characterName = 'Player',
   RunDecisionPolicy policy = const DefaultRunDecisionPolicy(),
   EventBus? eventBus,
+  AlmanacRecorder? almanac,
+  String? runId,
+  int? runNumber,
 }) {
+  // Runtime validation (not `assert` — assertions are stripped in
+  // release/AOT). Inert when `almanac == null`: both sub-conditions
+  // short-circuit and nothing throws.
+  if (almanac != null && (runId == null || runNumber == null)) {
+    throw ArgumentError('runGame(almanac:) requires runId and runNumber');
+  }
+  HeadlessGameAlmanacBridge? bridge;
   final stopwatch = Stopwatch()..start();
   final recordingPolicy = RecordingDecisionPolicy(policy);
 
   final events = eventBus ?? EventBus();
+  if (almanac != null) {
+    bridge = HeadlessGameAlmanacBridge(almanac,
+        runId: runId!, runNumber: runNumber!, seed: seed);
+  }
   final entities = EntityRegistry(events);
   final components = ComponentStore();
   final rng = RngService(seed);
@@ -157,6 +173,7 @@ RunResult runGame(
 
   // ---- New Run / character ------------------------------------------
   final character = context.characters.create();
+  bridge?.attach(events, context, character);
   context.components.add(character, const CombatantComponent(team: 'player', initiative: 10));
   context.components.add(character, const HealthComponent(current: 100, max: 100));
 
@@ -168,6 +185,8 @@ RunResult runGame(
       .chooseMartialTradition(const [MartialTraditions.western, MartialTraditions.eastern]);
   final styleId = recordingPolicy.chooseStartingStyle(stylesForTradition(traditionId));
   learnStyle(character, styleId, context);
+  bridge?.setRunProfile(
+      lineageId: martialTraditionOf(styleId) ?? styleId, physiqueId: physiqueId);
 
   // ---- Starting Tome: generic slots (a high ceiling, see RunTomeSlots),
   // `RunTomeSlots.startingUnlockedCount` unlocked at start -------------
@@ -209,6 +228,7 @@ RunResult runGame(
     tomeManager.placeItem(item, 'Starting Tome ($itemId)');
   }
   manageTome();
+  bridge?.recordBuildPhase(BuildPhase.initial);
 
   // ---- Reward pool: every id beyond the starting kit, seed-shuffled -----
   final rewardPool = seededShuffle(
@@ -247,6 +267,7 @@ RunResult runGame(
   RunResult buildResult({required bool won}) {
     stopwatch.stop();
     events.publish(RunEnded(won: won, encounterCount: combatStage.encounters.length));
+    bridge?.detach();
     return RunResult(
       seed: seed,
       characterName: characterName,
@@ -310,6 +331,7 @@ RunResult runGame(
       trainingStage.runTraining(() => ownedItemIds(character, context), cycleIndex);
       restoreHealth(character, context);
       manageTome();
+      bridge?.recordBuildPhase(BuildPhase.postTraining);
       continue;
     }
 
@@ -319,6 +341,7 @@ RunResult runGame(
       return buildResult(won: false);
     }
     rewardStage.grantReward('Cycle $cycleNumber Fight 1', cycleIndex);
+    bridge?.recordBuildPhase(BuildPhase.postReward);
 
     final weakBase2 = enemyDefinition(
         RunEnemies.weakPool[rng.nextInt(RunEnemies.weakPool.length)], context);
@@ -326,6 +349,7 @@ RunResult runGame(
       return buildResult(won: false);
     }
     rewardStage.grantReward('Cycle $cycleNumber Fight 2', cycleIndex);
+    bridge?.recordBuildPhase(BuildPhase.postReward);
 
     final eliteBase = enemyDefinition(
         RunEnemies.eliteBossPool[rng.nextInt(RunEnemies.eliteBossPool.length)], context);
@@ -333,6 +357,7 @@ RunResult runGame(
       return buildResult(won: false);
     }
     rewardStage.grantReward('Cycle $cycleNumber Fight 3', cycleIndex);
+    bridge?.recordBuildPhase(BuildPhase.postReward);
 
     restoreHealth(character, context);
     manageTome();
