@@ -492,9 +492,12 @@ Tome state (§5.8 — its collections never alias gameplay state). One run may l
 produce `initial`, `postReward#0`, `postReward#1`, `postTraining#0`, `postTraining#1`,
 `finalBuild` — the `sequence` keeps `postReward#0` and `postReward#1` as distinct
 records. A second snapshot never overwrites an earlier one that shares a `BuildPhase`.
-Idempotency: dedup on whole-string `buildId`; `runId` / `phase` / `sequence` are read
-from their explicit fields (§1.5). A repeat `buildId` carrying **different** contents is
-a contradiction → `AlmanacIntegrityException` (§5.1.1).
+Idempotency: dedup on the **`(runId, buildId)` pair** — both stored as explicit fields
+and compared structurally (a value key), never concatenated into one string and never
+parsed apart (§1.3, §1.5). So the same `buildId` string under two different `runId`s is
+two records. A repeat `(runId, buildId)` carrying **different** contents is a
+contradiction → `AlmanacIntegrityException` (§5.1.1); a byte-identical repeat is a
+silent no-op.
 
 ### 5.5 Snapshots (self-contained historical values — survive rebalance)
 
@@ -729,8 +732,8 @@ component store, the event bus, or any gameplay mutation. Inputs are `String` / 
 | Record / projection input | Idempotency key | Authoritative relational fields |
 |---|---|---|
 | run | `runId` | `runNumber`, `seed?` |
-| fight | `fightId`, scoped within `runs[runId].fights` | `runId`, `sequence` |
-| build snapshot | `buildId` | `runId`, `phase`, `sequence` |
+| fight | `(runId, fightId)` — `fightId` scoped within `runs[runId].fights` | `runId`, `sequence` |
+| build snapshot | `(runId, buildId)` | `runId`, `phase`, `sequence` |
 | technique history | `instanceId` | — |
 | technique-usage observation | `(runId, usageEventId)` | `runId`, `runNumber`, `instanceId` |
 | inspiration | `resultInstanceId` | `runId` |
