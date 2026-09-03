@@ -296,3 +296,245 @@ AlmanacDiscoveryRecord discoveryRecord({
   timestamp: timestamp ?? at(1),
   snapshot: snapshot ?? discoverySnapshot(),
 );
+
+AlmanacMilestoneRecord milestoneRecord({
+  required String milestoneId,
+  MilestoneType type = MilestoneType.firstRun,
+  required String runId,
+  int runNumber = 1,
+  DateTime? timestamp,
+  String? contextId,
+}) => AlmanacMilestoneRecord(
+  milestoneId: milestoneId,
+  type: type,
+  runId: runId,
+  runNumber: runNumber,
+  timestamp: timestamp ?? at(1),
+  contextId: contextId,
+);
+
+/// A genuinely-populated [AlmanacState] for the persist → query determinism
+/// pass: two runs across two lineages / physiques, two builds per run across
+/// distinct phases, techniques carrying usage observations, an inspiration
+/// ancestry, affixes with both discovery and usage ledgers, discoveries of
+/// four types, and two milestones. Every relationship is an explicit id field
+/// so a test never has to parse one.
+AlmanacState fullyPopulatedState() {
+  final runA = runRecord(
+    runId: 'run-a',
+    runNumber: 1,
+    seed: 111,
+    lineageId: 'lin-west',
+    physiqueId: 'phy-iron',
+    startedAt: at(1),
+    completedAt: at(2),
+    outcome: RunOutcome.won,
+    fights: [
+      fightRecord(runId: 'run-a', fightId: 'fa0', sequence: 0),
+      fightRecord(runId: 'run-a', fightId: 'fa1', sequence: 1, won: false),
+    ],
+    discoveryIds: const ['technique:fam-a', 'item:iron_sword'],
+    trainingObservations: const [
+      TrainingObservation(
+        trainingEventId: 'tr-a0',
+        runId: 'run-a',
+        runNumber: 1,
+      ),
+    ],
+    finalBuildId: 'ba-final',
+    enemiesDefeated: 1,
+    techniquesUsed: 2,
+    trainingSessions: 1,
+  );
+  final runB = runRecord(
+    runId: 'run-b',
+    runNumber: 2,
+    lineageId: 'lin-east',
+    physiqueId: 'phy-jade',
+    startedAt: at(3),
+    completedAt: at(4),
+    outcome: RunOutcome.lost,
+    fights: [
+      fightRecord(runId: 'run-b', fightId: 'fb0', sequence: 0, won: false),
+    ],
+    discoveryIds: const ['affix:af-1'],
+    trainingObservations: const [],
+    enemiesDefeated: 0,
+    techniquesUsed: 1,
+    trainingSessions: 0,
+  );
+
+  return AlmanacState(
+    runs: [runA, runB],
+    builds: [
+      buildRecord(
+        runId: 'run-a',
+        buildId: 'ba-0',
+        phase: BuildPhase.initial,
+        sequence: 0,
+        lineageId: 'lin-west',
+        physiqueId: 'phy-iron',
+        techniques: [
+          techniqueSnapshot(instanceId: 'ti-a', baseFamilyId: 'fam-a'),
+        ],
+      ),
+      buildRecord(
+        runId: 'run-a',
+        buildId: 'ba-final',
+        phase: BuildPhase.finalBuild,
+        sequence: 1,
+        lineageId: 'lin-west',
+        physiqueId: 'phy-iron',
+        techniques: [
+          techniqueSnapshot(instanceId: 'ti-a', baseFamilyId: 'fam-a'),
+        ],
+      ),
+      buildRecord(
+        runId: 'run-b',
+        buildId: 'bb-0',
+        phase: BuildPhase.initial,
+        sequence: 0,
+        lineageId: 'lin-east',
+        physiqueId: 'phy-jade',
+      ),
+      buildRecord(
+        runId: 'run-b',
+        buildId: 'bb-1',
+        phase: BuildPhase.postReward,
+        sequence: 1,
+        lineageId: 'lin-east',
+        physiqueId: 'phy-jade',
+      ),
+    ],
+    techniques: [
+      techniqueRecord(
+        instanceId: 'ti-a',
+        baseFamilyId: 'fam-a',
+        discoveredRunId: 'run-a',
+        discoveredRunNumber: 1,
+        masteryAtDiscovery: 1,
+        usageObservations: [
+          usageObservation(
+            usageEventId: 'ua0',
+            runId: 'run-a',
+            instanceId: 'ti-a',
+          ),
+          usageObservation(
+            usageEventId: 'ua1',
+            runId: 'run-a',
+            instanceId: 'ti-a',
+          ),
+        ],
+        totalUsage: 5,
+      ),
+      techniqueRecord(
+        instanceId: 'ti-b',
+        baseFamilyId: 'fam-b',
+        origin: TechniqueOrigin.inspired,
+        usageObservations: [
+          usageObservation(
+            usageEventId: 'ub0',
+            runId: 'run-b',
+            runNumber: 2,
+            instanceId: 'ti-b',
+          ),
+        ],
+        totalUsage: 9,
+        runsUsed: const [2],
+      ),
+    ],
+    inspirations: [
+      inspirationHistory(
+        resultInstanceId: 'ti-b',
+        runId: 'run-b',
+        familyId: 'fam-b',
+        descriptorIds: const ['d1'],
+        inspirerInstanceIds: const ['ti-a'],
+      ),
+    ],
+    affixes: [
+      affixRecord(
+        affixId: 'af-1',
+        discoveryObservations: [
+          affixObservation(
+            affixEventId: 'ad0',
+            runId: 'run-a',
+            lineageId: 'lin-west',
+          ),
+          affixObservation(
+            affixEventId: 'ad1',
+            runId: 'run-b',
+            runNumber: 2,
+            lineageId: 'lin-east',
+          ),
+        ],
+        usageObservations: [
+          affixObservation(
+            affixEventId: 'au0',
+            runId: 'run-a',
+            lineageId: 'lin-west',
+          ),
+        ],
+        timesUsed: 3,
+        firstDiscoveredRunId: 'run-a',
+        associatedLineageIds: const ['lin-west', 'lin-east'],
+      ),
+      affixRecord(
+        affixId: 'af-2',
+        discoveryObservations: [
+          affixObservation(affixEventId: 'ad2', runId: 'run-b', runNumber: 2),
+        ],
+        timesUsed: 7,
+        firstDiscoveredRunId: 'run-b',
+      ),
+    ],
+    discoveries: [
+      discoveryRecord(
+        discoveryId: 'technique:fam-a',
+        type: AlmanacDiscoveryType.technique,
+        contentId: 'fam-a',
+        instanceId: 'ti-a',
+        runId: 'run-a',
+        runNumber: 1,
+      ),
+      discoveryRecord(
+        discoveryId: 'item:iron_sword',
+        type: AlmanacDiscoveryType.item,
+        contentId: 'iron_sword',
+        runId: 'run-a',
+        runNumber: 1,
+      ),
+      discoveryRecord(
+        discoveryId: 'affix:af-1',
+        type: AlmanacDiscoveryType.affix,
+        contentId: 'af-1',
+        runId: 'run-b',
+        runNumber: 2,
+      ),
+      discoveryRecord(
+        discoveryId: 'techniqueVariant:ti-b',
+        type: AlmanacDiscoveryType.techniqueVariant,
+        contentId: 'fam-b',
+        instanceId: 'ti-b',
+        runId: 'run-b',
+        runNumber: 2,
+      ),
+    ],
+    milestones: [
+      milestoneRecord(
+        milestoneId: 'firstRun',
+        runId: 'run-a',
+        runNumber: 1,
+        timestamp: at(2),
+      ),
+      milestoneRecord(
+        milestoneId: 'firstWinWithLineage:lin-west',
+        type: MilestoneType.firstWinWithLineage,
+        runId: 'run-a',
+        runNumber: 1,
+        timestamp: at(2),
+        contextId: 'lin-west',
+      ),
+    ],
+  );
+}

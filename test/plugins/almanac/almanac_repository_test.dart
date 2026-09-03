@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:build_engine/almanac.dart' as barrel;
 import 'package:build_engine/src/plugins/almanac/almanac_file_repository.dart';
 import 'package:build_engine/src/plugins/almanac/almanac_models.dart';
 import 'package:build_engine/src/plugins/almanac/almanac_repository.dart';
@@ -101,6 +102,18 @@ void main() {
       expect(repo.load(), seeded);
       repo.save(AlmanacState.empty());
       expect(repo.load(), AlmanacState.empty());
+    });
+
+    test('the neutral barrel re-exports the repository interface + impl', () {
+      // Everything here is reached through `package:build_engine/almanac.dart`
+      // only — proof the web-safe barrel actually surfaces the repository
+      // contract and its in-memory implementation.
+      final barrel.AlmanacRepository repo = barrel.InMemoryAlmanacRepository();
+      repo.save(barrel.AlmanacState.empty());
+      expect(repo.load(), barrel.AlmanacState.empty());
+
+      final seeded = barrel.InMemoryAlmanacRepository(_populatedState());
+      expect(seeded.load(), _populatedState());
     });
 
     test('the interface exposes only whole-state load/save', () {

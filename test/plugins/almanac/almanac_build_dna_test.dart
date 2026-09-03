@@ -127,6 +127,23 @@ void main() {
       expect(after.signature, isNot(before.signature));
     });
 
+    test('the signature is a content digest, never a build identity', () {
+      final BuildDna dna = sample();
+      // `buildId` is an opaque, caller-assigned token; the signature is a
+      // derived 8-hex FNV digest of the token list. They are different kinds
+      // of value and must not be conflated.
+      for (final String buildId in const <String>[
+        'run-1:finalBuild:0',
+        'action-8f3a91',
+        'iron-lineage',
+      ]) {
+        expect(dna.signature, isNot(equals(buildId)));
+      }
+      // The signature depends only on the DNA inputs — not on any identity —
+      // so two builds differing solely in their buildId share it.
+      expect(sample().signature, equals(dna.signature));
+    });
+
     test('signature is lowercase hex of length 8', () {
       final String sig = sample().signature;
       expect(sig, hasLength(8));

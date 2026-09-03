@@ -7,22 +7,20 @@
 library;
 
 import 'package:build_engine/src/plugins/almanac/almanac_models.dart';
+import 'package:build_engine/src/plugins/almanac/almanac_queries.dart';
 import 'package:build_engine/src/plugins/almanac/almanac_recorder.dart';
 import 'package:test/test.dart';
 
 import 'support/almanac_fixtures.dart';
 
-/// Reads a build back the way a query would — by its two explicit fields.
+/// Reads a build back through the shipping query API — the composite
+/// `(runId, buildId)` match in `AlmanacQueries.getBuild`, not a hand-rolled
+/// scan.
 AlmanacBuildRecord? _getBuild(
   AlmanacRecorder recorder,
   String runId,
   String buildId,
-) {
-  for (final build in recorder.state.builds) {
-    if (build.runId == runId && build.buildId == buildId) return build;
-  }
-  return null;
-}
+) => AlmanacQueries(recorder.state).getBuild(runId, buildId);
 
 void main() {
   group('build identity', () {

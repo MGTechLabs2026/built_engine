@@ -7,6 +7,7 @@
 library;
 
 import 'package:build_engine/src/plugins/almanac/almanac_models.dart';
+import 'package:build_engine/src/plugins/almanac/almanac_queries.dart';
 import 'package:build_engine/src/plugins/almanac/almanac_recorder.dart';
 import 'package:test/test.dart';
 
@@ -102,6 +103,51 @@ void main() {
         structured.techniques.single.totalUsage,
       );
     });
+
+    test(
+      'the query API reads the same history whichever id scheme was used',
+      () {
+        final structured = AlmanacQueries(
+          _drive(
+            fightId: 'run-1:e0',
+            usageEventId: 'run-1:u0',
+            trainingEventId: 'run-1:t0',
+            buildId: 'run-1:finalBuild:0',
+          ).state,
+        );
+        final opaque = AlmanacQueries(
+          _drive(
+            fightId: 'action-8f3a91',
+            usageEventId: 'action-1c02de',
+            trainingEventId: 'action-4b77aa',
+            buildId: 'action-90ff31',
+          ).state,
+        );
+
+        // runId ('run-1') and instanceId ('ti-1') are identical between the two
+        // drives; only the opaque event/build ids differ.
+        expect(
+          opaque.getRunHistory().map((r) => r.runId),
+          structured.getRunHistory().map((r) => r.runId),
+        );
+        expect(
+          opaque.getRunsUsingTechnique('ti-1').map((r) => r.runId),
+          structured.getRunsUsingTechnique('ti-1').map((r) => r.runId),
+        );
+        expect(
+          opaque.getTechniqueHistory('ti-1')!.totalUsage,
+          structured.getTechniqueHistory('ti-1')!.totalUsage,
+        );
+        expect(
+          opaque.getBuildHistory().length,
+          structured.getBuildHistory().length,
+        );
+        expect(
+          opaque.getBuildsForRun('run-1').map((b) => b.phase),
+          structured.getBuildsForRun('run-1').map((b) => b.phase),
+        );
+      },
+    );
 
     test('a usageEventId naming another run binds to its explicit runId', () {
       final recorder =

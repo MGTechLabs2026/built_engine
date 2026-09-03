@@ -323,6 +323,25 @@ void main() {
       ]);
     });
 
+    test(
+      'lineageStatistics is fully record-derived on the hand-built state',
+      () {
+        expect(
+          queries.lineageStatistics('lin-x'),
+          const LineageStatistics(
+            runs: 2, // run-A (won) + run-C (abandoned)
+            wins: 1,
+            losses: 0,
+            techniquesDiscovered: 1, // d1 + d5 both name fam-a -> one distinct
+            itemsDiscovered: 1, // d2 item-sword on run-A
+            affixesDiscovered: 1, // d4 af-1 on run-C
+            buildsUsed: 2, // build-1 + build-2, both lineageId lin-x
+            physiquesUsed: 1, // run-A and run-C are both phy-1
+          ),
+        );
+      },
+    );
+
     test('discoveryCompletion counts distinct contentIds per type', () {
       final completion = queries.discoveryCompletion(
         known: {

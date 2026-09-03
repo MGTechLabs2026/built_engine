@@ -6,15 +6,26 @@ import 'package:test/test.dart';
 /// which is always the working directory under `dart test` in this repo.
 const _almanacDir = 'lib/src/plugins/almanac';
 const _almanacBarrel = 'lib/almanac.dart';
+const _almanacBridge = 'lib/src/plugins/game/almanac_bridge.dart';
 
 /// Every `.dart` file under [_almanacDir], sorted for deterministic output.
-List<File> _almanacDartFiles() =>
-    Directory(_almanacDir)
-        .listSync(recursive: true)
-        .whereType<File>()
-        .where((f) => f.path.endsWith('.dart'))
-        .toList()
-      ..sort((a, b) => a.path.compareTo(b.path));
+/// Guarded non-empty so the loop-based tests below can never pass vacuously
+/// if the directory path breaks or the module is emptied.
+List<File> _almanacDartFiles() {
+  final files =
+      Directory(_almanacDir)
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'))
+          .toList()
+        ..sort((a, b) => a.path.compareTo(b.path));
+  expect(
+    files,
+    isNotEmpty,
+    reason: 'no almanac .dart files found under $_almanacDir — broken path',
+  );
+  return files;
+}
 
 /// Drops every full-line `//` / `///` comment so a substring / directive scan
 /// sees code only. The committed Almanac doc comments legitimately mention
@@ -139,6 +150,38 @@ void main() {
           );
         }
       }
+    });
+
+    // §13.1 (last table row) — `almanac_bridge.dart` keeps every subscription
+    // on the instance: no `static` field of a subscription type, and no
+    // library-scope `subscribe(` / `EventSubscription` (every subscription is
+    // created inside a method body and stored on `this`, so `detach()` can
+    // cancel all of them and there is no module-level listener).
+    test('almanac_bridge.dart has no static or library-scope subscription', () {
+      final code = _codeOnly(File(_almanacBridge).readAsStringSync());
+
+      // No `static` declaration whose type is a subscription.
+      expect(
+        RegExp(
+          r'^\s*static\b[^\n]*\b(Event|Stream)Subscription\b',
+          multiLine: true,
+        ).hasMatch(code),
+        isFalse,
+        reason: 'a subscription must never be static on the bridge',
+      );
+
+      // Every `subscribe(` call and every `EventSubscription` mention sits
+      // inside a class/method body — i.e. is indented. A column-0 occurrence
+      // would be a library-scope (module-level) listener.
+      final libraryScope = RegExp(
+        r'''^[^\s/][^\n]*(subscribe\(|EventSubscription)''',
+        multiLine: true,
+      );
+      expect(
+        libraryScope.hasMatch(code),
+        isFalse,
+        reason: 'almanac_bridge.dart has a library-scope subscription',
+      );
     });
 
     // §13.6 — the Almanac is a plain composition module, never a `GamePlugin`.

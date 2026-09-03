@@ -8,6 +8,7 @@
 library;
 
 import 'package:build_engine/src/plugins/almanac/almanac_models.dart';
+import 'package:build_engine/src/plugins/almanac/almanac_queries.dart';
 import 'package:build_engine/src/plugins/almanac/almanac_recorder.dart';
 import 'package:test/test.dart';
 
@@ -190,6 +191,88 @@ void main() {
       expect(recorder.state.runs.single.fights, hasLength(2));
       expect(first.runs.single.enemiesDefeated, 1);
     });
+  });
+
+  group('AlmanacQueries egress', () {
+    AlmanacRecorder populated() =>
+        AlmanacRecorder()
+          ..beginRun(
+            runId: 'run-1',
+            runNumber: 1,
+            lineageId: 'western',
+            physiqueId: 'phy-a',
+            startedAt: at(1),
+          )
+          ..recordBuildSnapshot(buildRecord(runId: 'run-1', buildId: 'b0'))
+          ..recordTechniqueDiscovered(
+            instanceId: 'ti-1',
+            baseFamilyId: 'fam-a',
+            descriptorIds: const ['d1'],
+            axisProfile: const {'power': 1},
+            origin: TechniqueOrigin.base,
+            runId: 'run-1',
+            runNumber: 1,
+            timestamp: at(1),
+          );
+
+    test('a List returned by a query cannot reach the AlmanacState', () {
+      final recorder = populated();
+      final state = recorder.state;
+      final runs = AlmanacQueries(state).getRunHistory();
+
+      expect(() => runs.add(runs.first), throwsUnsupportedError);
+      // The state — and a fresh query over it — are untouched.
+      expect(recorder.state, equals(state));
+      expect(
+        AlmanacQueries(recorder.state).getRunHistory(),
+        equals(state.runs),
+      );
+    });
+
+    test('a Map returned by discoveryCompletion cannot reach the state', () {
+      final recorder = populated();
+      final before = recorder.state;
+      final completion = AlmanacQueries(before).discoveryCompletion(
+        known: const {
+          AlmanacDiscoveryType.technique: {'fam-a'},
+        },
+      );
+
+      expect(
+        () =>
+            completion[AlmanacDiscoveryType.item] = const DiscoveryCompletion(
+              discovered: 0,
+              total: 0,
+              fraction: 0,
+            ),
+        throwsUnsupportedError,
+      );
+      expect(recorder.state, equals(before));
+    });
+
+    test(
+      'a technique read via getTechniqueHistory before a monotonic '
+      'completion is left unchanged; the new read carries the completed field',
+      () {
+        final recorder = populated();
+        final before =
+            AlmanacQueries(recorder.state).getTechniqueHistory('ti-1')!;
+
+        recorder.recordTechniqueInspired(
+          resultInstanceId: 'ti-1',
+          runId: 'run-1',
+          familyId: 'fam-a',
+          descriptorIds: const ['d1'],
+          inspirerInstanceIds: const ['ti-a'],
+        );
+        final after =
+            AlmanacQueries(recorder.state).getTechniqueHistory('ti-1')!;
+
+        expect(before.origin, TechniqueOrigin.base);
+        expect(after.origin, TechniqueOrigin.inspired);
+        expect(identical(before, after), isFalse);
+      },
+    );
   });
 
   group('completion is not mutation', () {

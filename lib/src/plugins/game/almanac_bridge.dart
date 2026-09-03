@@ -163,7 +163,7 @@ class HeadlessGameAlmanacBridge {
       descriptorIds: v.descriptorIds.toList(),
       axisProfile: Map<String, num>.of(v.axisProfile),
       origin: TechniqueOrigin.base,
-      masteryAtDiscovery: _masteryLevelOrNull(e.instanceId),
+      masteryAtDiscovery: _masteryLevelOf(e.instanceId),
       runId: runId,
       runNumber: runNumber,
       timestamp: DateTime.now(),
@@ -325,7 +325,7 @@ class HeadlessGameAlmanacBridge {
   String _discoveryId(AlmanacDiscoveryType type, String contentId) =>
       '${type.name}:$contentId';
 
-  int? _masteryLevelOrNull(EntityId instanceId) => _context.mastery.levelOf(
+  int? _masteryLevelOf(EntityId instanceId) => _context.mastery.levelOf(
     _character,
     techniqueInstanceSubject(instanceId),
   );
