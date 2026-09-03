@@ -271,4 +271,28 @@ void main() {
       expect(publishers, ['lib/src/plugins/technique/technique_evolution.dart']);
     });
   });
+
+  group('Almanac: no gameplay plugin imports the Almanac', () {
+    // The headless bridge in lib/src/plugins/game/ is the ONE sanctioned
+    // dual-importer (gameplay plugin + Almanac); it is a composition root,
+    // not a gameplay plugin, and audit A1 already fences it off. A gameplay
+    // plugin reaching into cross-run player history would invert the
+    // dependency arrow the Almanac design rests on.
+    const gameplayPluginDirs = [
+      'lib/src/plugins/technique',
+      'lib/src/plugins/combat',
+      'lib/src/plugins/martial_arts',
+      'lib/src/plugins/item',
+      'lib/src/plugins/physique',
+      'lib/src/plugins/elemental',
+      'lib/src/plugins/auto_combat',
+    ];
+    for (final dir in gameplayPluginDirs) {
+      test('$dir does not reference the Almanac', () {
+        _assertNoSubstringInDirectory(_almanacBarrel, dir); // 'almanac.dart'
+        _assertNoSubstringInDirectory(_almanacFileBarrel, dir); // 'almanac_file.dart'
+        _assertNoSubstringInDirectory('almanac/', dir); // escape into almanac/
+      });
+    }
+  });
 }
