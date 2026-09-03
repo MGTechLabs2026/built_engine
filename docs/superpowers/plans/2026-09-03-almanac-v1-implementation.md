@@ -17,6 +17,7 @@
 - **`lib/almanac.dart` must not transitively require `dart:io`.** Web-safe surface = models + recorder + queries + repository interface + serialization. Only `JsonFileAlmanacRepository` (behind `lib/almanac_file.dart`) uses `dart:io`.
 - **No Flutter / Flame / Devvit / database / backend / `dart:html` / `dart:ui`.**
 - **All Almanac ids are opaque tokens.** Never `split` / `startsWith` / regex / prefix-parse an id to recover a relationship. Every relationship is a stored explicit field. Enforced by an architecture test.
+- **Adapter ID formatting is not part of the Almanac API contract.** A composition adapter (the headless bridge, or an out-of-repo client adapter) MAY mint readable id strings — `<runId>:e<n>`, `<runId>:u<n>`, `<runId>:t<n>`, `<runId>:<phase>:<n>`. Downstream — every Almanac model, recorder, query, repository, serialization step — treats them as **opaque**: whole-string compare only, no structural inference. The bridge's specific format is an implementation detail; a client adapter may emit `action-8f3a91` and everything behaves identically. **Tests must assert relationships via explicit fields** (`fight.runId == expected`, `build.phase == expected`, `usage.runId == expected`), never via an id's textual prefix. (§11.2.1)
 - **`runId` ≠ `runNumber` ≠ `seed`.** `runId`/`runNumber` are caller-supplied opaque values; `seed` is optional replay metadata that keys nothing; `runId = "run_<seed>"` is forbidden. The recorder never generates identity and never reads a repository.
 - **Idempotency is identity-keyed.** Keys: run `runId`; fight `fightId` within `runs[runId].fights`; build snapshot `buildId`; technique history `instanceId`; technique-usage `(runId, usageEventId)`; inspiration `resultInstanceId`; discovery `discoveryId`; affix history `affixId`; affix observation `(affixId, affixEventId)`; training `(runId, trainingEventId)`; milestone `milestoneId`. Every key compared by whole-string equality.
 - **Canonical history is identity-stable and monotonic.** Later observations may fill an `UNKNOWN` field, append a new ledger element, or advance `origin` `base`→`inspired`. A conflicting write-once value is retained and raises `AlmanacIntegrityException` — never a silent overwrite, never a merge/recovery system.
@@ -376,6 +377,10 @@ class AlmanacIntegrityException implements Exception {
 }
 
 class AlmanacRecorder {
+  /// Hydrates from an existing canonical state (§5.1). Rebuilds every
+  /// identity index by REPLAYING `initial`'s records through the same
+  /// invariant-preserving insert paths the public `record…` methods use —
+  /// it does not retain any collection reference from `initial`. See §5.1.
   AlmanacRecorder([AlmanacState initial = const AlmanacState()]);
 
   AlmanacState get state;   // rebuilt from internal identity-indexed maps, lists in insertion order
@@ -439,7 +444,28 @@ class AlmanacRecorder {
 }
 ```
 
-**Internal structure:** `Map<String, _RunBuilder> _runs`, `Map<String, AlmanacTechniqueRecord> _techniques`, `Map<String, TechniqueInspirationHistory> _inspirations`, `Map<String, AlmanacAffixRecord> _affixes`, `Map<String, AlmanacDiscoveryRecord> _discoveries`, `Map<String, AlmanacMilestoneRecord> _milestones`, `Map<String, AlmanacBuildRecord> _builds` (keyed by `buildId`). `state` getter materialises ordered lists.
+**Internal structure:** `Map<String, _RunBuilder> _runs`, `Map<String, AlmanacTechniqueRecord> _techniques`, `Map<String, TechniqueInspirationHistory> _inspirations`, `Map<String, AlmanacAffixRecord> _affixes`, `Map<String, AlmanacDiscoveryRecord> _discoveries`, `Map<String, AlmanacMilestoneRecord> _milestones`, `Map<String, AlmanacBuildRecord> _builds` (keyed by `buildId`). Each map also records first-seen insertion order (a parallel `List<String>` of keys, or `LinkedHashMap`) so `state` materialises lists in the order the records were first added.
+
+### 5.1 Constructor hydration — `AlmanacRecorder(AlmanacState initial)`
+
+A first-class task (Phase 4.0), not an implicit detail. The constructor MUST:
+
+1. **Rebuild indexes by replay, not by reference.** Iterate `initial.runs`, `initial.builds`, `initial.techniques`, `initial.inspirations`, `initial.affixes`, `initial.discoveries`, `initial.milestones` in list order and feed each record into the **same private insert path** the public `record…` methods use (`_upsertRun`, `_addFight`, `_upsertBuild`, `_upsertTechnique`, `_consumeUsageObservation`, `_upsertInspiration`, `_upsertAffix` + its observations, `_upsertDiscovery`, `_upsertMilestone`). Nested lists inside each record (fights, `usageObservations`, `discoveryObservations`, `usageObservations` (affix), `trainingObservations`, `descriptorIds`, `axisProfile`, snapshots) are **defensively copied** into the recorder's own representation exactly as an ingress from an adapter would be (§7). No `List`/`Map`/`Set` reference from `initial` is retained.
+2. **Preserve insertion ordering.** The replay order is `initial`'s list order, so `recorder.state` reproduces the same ordering; observation ledgers keep their element order.
+3. **Preserve identity & uniqueness invariants.** Because replay goes through the same insert paths, projections (`totalUsage`, `runsUsed`, affix counters, `firstDiscoveredRunId`, `associatedLineageIds`, per-run `enemiesDefeated` / `techniquesUsed` / `trainingSessions`) are **recomputed from the ledgers**, not trusted from `initial` — a persisted state whose projection disagrees with its ledger is normalised to the ledger-derived value (log-free; the ledger is canonical, §5, §6).
+4. **Reject a corrupt input.** If `initial` contains **two records with the same identity key** (two `AlmanacRunRecord` with one `runId`; two `AlmanacBuildRecord` with one `buildId`; two `AlmanacTechniqueRecord` with one `instanceId`; two `TechniqueInspirationHistory` with one `resultInstanceId`; two `AlmanacAffixRecord` with one `affixId`; two `AlmanacDiscoveryRecord` with one `discoveryId`; two `AlmanacMilestoneRecord` with one `milestoneId`; or a ledger with two observations sharing its structural key), the constructor throws `AlmanacIntegrityException` — for **conflicting** contents *and* for **byte-identical** duplicates, because a well-formed `AlmanacSerialization.stateToJson` never emits either (the one-record-per-identity invariant, spec §5.1). This is a fail-fast corrupt-input check, **not** a merge/recovery subsystem.
+5. **Future writes are invariant-preserving.** After hydration the recorder holds only its own copies; every subsequent `record…` call runs the same idempotency/monotonic/contradiction logic (§6) as on a fresh recorder.
+6. **`recorder.state` stays deeply immutable** (§7) — hydration does not weaken egress copying.
+
+**Tests required (Phase 4.0):**
+
+- `load` a populated persisted state → `AlmanacRecorder(state)` → `recorder.state` **round-trips equal** to `state` (structural equality, same list order).
+- hydrate → append new observations (a new run, a new usage observation on an existing technique) → resulting history is correct and projections match ledgers.
+- hydrate, then **mutate the original `initial`'s collections** (add to `initial.runs`, mutate a nested `descriptorIds`) → `recorder.state` **unchanged**.
+- mutate a collection returned by `recorder.state` → recorder internals **unchanged** (`.add` throws or is a no-copy).
+- `initial` with a duplicated `runId` (identical contents) → `AlmanacIntegrityException`.
+- `initial` with a duplicated `buildId` carrying **different** snapshots → `AlmanacIntegrityException`.
+- `initial` whose `AlmanacTechniqueRecord.totalUsage` disagrees with `usageObservations.length` → hydrated recorder reports the ledger-derived value.
 
 **Milestone id derivation (never parsed back):** `milestoneId = contextId == null ? type.name : '${type.name}:$contextId'`. `evaluateStandardMilestones` also stores `type` + `contextId` as explicit fields; queries read those, never `split(':')`.
 
@@ -780,11 +806,20 @@ Each row is handled by exactly one `_on…` method registered once in `attach`. 
 | `TrainingResultRecorded` | `recorder.recordTrainingSession(TrainingObservation(trainingEventId: '$runId:t${_trainingSeq++}', runId: runId, runNumber: runNumber))`; then `recorder.recordBuildSnapshot(_buildSnapshot(BuildPhase.postTraining, sequence: _nextBuildSeq(BuildPhase.postTraining)))` |
 | `RunEnded` | build the final snapshot `s = _buildSnapshot(BuildPhase.finalBuild, sequence: 0)`; `_finalBuildId = s.buildId`; `recorder.recordBuildSnapshot(s)`; `recorder.completeRun(runId: runId, completedAt: DateTime.now(), outcome: e.won ? RunOutcome.won : RunOutcome.lost, finalBuildId: _finalBuildId)`; `recorder.evaluateStandardMilestones(runId: runId, runNumber: runNumber, outcome: e.won ? RunOutcome.won : RunOutcome.lost, lineageId: _lineageId!, finalBuildId: _finalBuildId, timestamp: DateTime.now())` |
 
-`_nextBuildSeq(phase)` = `_buildSeq.update(phase, (n) => n + 1, ifAbsent: () => 0)` — the current value, then it is bumped for next time (so the first `postReward` is `sequence 0`).
+`_nextBuildSeq(phase)` = `_buildSeq.update(phase, (n) => n + 1, ifAbsent: () => 0)` — returns the current value, then bumps it. So per run: `initial` → `sequence 0` (there is one), `postReward` → `0, 1, 2, …`, `postTraining` → `0, 1, 2, …`, `finalBuild` → `0` (taken once, on `RunEnded`).
 
-`_masteryLevelOrNull(instanceId)` = `context.mastery.levelOf(_character, techniqueInstanceSubject(instanceId))` if `techniqueInstanceSubject` is exported from `technique_plugin.dart` (watch-item, §Blockers); otherwise `null` (spec-legal — the field stays `UNKNOWN`).
+`_buildId(BuildPhase phase, int sequence)` = `'$runId:${phase.name}:$sequence'`. This is the **bridge's** deterministic per-run scheme:
 
-`_buildSnapshot(phase, {required int sequence})` builds an `AlmanacBuildRecord` from `_context.tome.inspect(_character)`:
+- **Uniqueness contract:** for a given run, the tuple `(runId, phase, sequence)` maps to **exactly one** `buildId` string, and the bridge only ever emits a given `(phase, sequence)` once per run (each `_nextBuildSeq(phase)` call yields a fresh integer; `finalBuild` is emitted once from the single `RunEnded` handler). So a well-behaved run produces one `AlmanacBuildRecord` per `buildId`.
+- **Determinism:** replaying the same event stream through the bridge with the same `runId` produces the identical set of `buildId`s (§13.2 replay test).
+- **Opacity downstream:** the recorder / queries / serialization treat `buildId` as an opaque whole string (§11.2.1). The record also carries `runId`, `phase`, `sequence` as explicit fields — those, never `buildId` parsing, are how any relationship is read.
+- **Persistence identity:** `(runId, buildId)` — the recorder stores by `buildId` (whole-string match) and refuses a **different** payload for a `buildId` it already holds (`AlmanacIntegrityException`, §5, §6); a **byte-identical** resubmission is a silent no-op.
+- **`buildId` is not Build DNA identity.** `BuildDna.signature != buildId` (§10). DNA is a derived projection, never a key.
+- The bridge's textual format is an **adapter implementation detail, not part of the Almanac API contract** — a production adapter may emit any opaque token (§11.2.1).
+
+`_masteryLevelOrNull(instanceId)` = `context.mastery.levelOf(_character, techniqueInstanceSubject(instanceId))` if `techniqueInstanceSubject` is exported from `technique_plugin.dart` (watch-item, Pre-Implementation Blockers); otherwise `null` (spec-legal — the field stays `UNKNOWN`).
+
+`_buildSnapshot(BuildPhase phase, {required int sequence})` builds one immutable `AlmanacBuildRecord` from `_context.tome.inspect(_character)` — `buildId: _buildId(phase, sequence)`, `runId: runId`, `phase: phase`, `sequence: sequence`, plus:
 - `width`/`height` `null` (named-slot harness Tome).
 - one `TomeSlotSnapshot` per placement: `slotId: p.slot.id`, `occupantKind: p.buildComponentRef.referenceType == techniqueReferenceType ? 'technique' : p.buildComponentRef.referenceType == itemReferenceType ? 'item' : 'empty'`, `occupantRefId: p.buildComponentRef.contentId`, `instanceId: p.buildComponentRef.instanceEntityId?.value.toString()`.
 - `techniques`: for each technique placement with an `instanceEntityId`, a `TechniqueInstanceSnapshot` from the `TechniqueVariant` component + per-instance mastery level.
@@ -792,16 +827,51 @@ Each row is handled by exactly one `_on…` method registered once in `attach`. 
 - `affixes`: empty in v1 (finding §1: no affix identity).
 - `dna`: `buildDna(lineageId: _lineageId!, physiqueId: _physiqueId!, techniqueFamilies: <baseFamilyIds>, itemIds: <definitionIds>, affixCategories: const [], axisProfiles: <from the technique snapshots>)`.
 
+`_buildId` / `_nextBuildSeq` / `_buildSnapshot` are **instance methods** on `HeadlessGameAlmanacBridge`; `_buildSeq` resets with each bridge, so counters never leak between runs (§11.4).
+
+### 11.2.1 Adapter-generated IDs are opaque downstream (implementation invariant)
+
+The bridge builds `usageEventId` / `trainingEventId` / `fightId` / `buildId` by concatenating `runId` with a run-local counter (`'$runId:u$n'`, `'$runId:e$n'`, `'$runId:t$n'`, `_buildId(phase, n)`). This is **allowed** solely because the string is created and owned by the composition adapter and is never taken apart again.
+
+**Allowed** (adapter, `almanac_bridge.dart`):
+
+```dart
+'$runId:e${_encounterSeq - 1}'            // mint an opaque token from runId + local seq
+_buildId(BuildPhase.postReward, seq)      // -> '$runId:postReward:$seq', opaque thereafter
+```
+
+**Forbidden** (anywhere under `lib/src/plugins/almanac/`, and in tests):
+
+```dart
+buildId.split(':')                        // NO
+usageEventId.startsWith(runId)            // NO
+RegExp(r':e(\d+)$').firstMatch(fightId)   // NO
+// reconstructing runId / phase / sequence from a composed id           NO
+```
+
+Enforcement:
+
+- The architecture test (`almanac_architecture_test.dart`, Phase 8) already scans `almanac_recorder.dart` + `almanac_queries.dart` for `.split(` / `.startsWith(`; **extend that scan to every file under `lib/src/plugins/almanac/`** and to `RegExp(` used on an id-typed variable.
+- **Test-authoring rule:** no test in `test/plugins/almanac/` or `test/integration/almanac_*` may `split` / `startsWith` / regex an Almanac id, or assert equality against a hand-built `'<runId>:…'` string as a *relationship* check. Relationships are asserted through explicit fields: `record.runId`, `record.phase`, `record.sequence`, `observation.runId`, `observation.instanceId`. Asserting a *full* id equals a full expected id (`fight.fightId == firstFight.fightId`) is fine — that is whole-string equality, not parsing.
+
 ### 11.3 Run lifecycle sequencing
 
-The bridge is a **composition adapter**: it may hold run-local temporary context (§11.1), but it never becomes gameplay authority — it makes no decision, mutates no gameplay state, and the recorder it feeds never touches `PluginContext`, the repository, or RNG. The lifecycle, mapped onto the real `game_run.dart` call sites:
+The actual `game_run.dart` ordering is fixed and the plan does **not** move any of it:
+
+```
+create context → RunStarted → create character → initialize physique
+  → choose tradition/style → learn style → Tome setup → gameplay → RunEnded
+```
+
+The bridge is a **composition adapter**: it may hold run-local temporary context (§11.1), but it never becomes gameplay authority — it makes no decision, mutates no gameplay state, and the recorder it feeds never touches `PluginContext`, the repository, or RNG. It attaches only *after the character exists* (handlers need it), and `RunStarted` is deliberately not the Almanac init event. The lifecycle, mapped onto the real call sites (no gameplay code is reordered for Almanac's benefit):
 
 | # | `game_run.dart` point | Bridge step | Rationale |
 |---|---|---|---|
-| 1 | after `final events = eventBus ?? EventBus();` (~L124) | **construct** `HeadlessGameAlmanacBridge(almanac, runId, runNumber, seed)` (guarded by `almanac != null`); `assert(runId != null && runNumber != null)` | The caller has already supplied `runId` / `runNumber` / `seed`; the bridge holds them. No repository, no id generation. |
+| 0 | first statement of `runGame` body | **runtime guard**: `if (almanac != null && (runId == null || runNumber == null)) throw ArgumentError('runGame(almanac:) requires runId and runNumber');` — not `assert` (stripped in release). Inert when `almanac == null`. | Fail loud at the boundary; `runId!`/`runNumber!` safe afterward. |
+| 1 | after `final events = eventBus ?? EventBus();` (~L124) | **construct** `HeadlessGameAlmanacBridge(almanac, runId: runId!, runNumber: runNumber!, seed: seed)` (guarded by `almanac != null`) | The caller has already supplied `runId` / `runNumber` / `seed`; the bridge holds them. No repository, no id generation. |
 | 2 | after `context` is built (~L141), before `RunStarted` is published (L143) | `bridge.attach(events, context, character)` — **actually** attach after `character` is created (~L158), since a handler needs it. Attach registers one subscription per source event into `_subs`. | Subscriptions exist before the first observable domain event that matters. `RunStarted` (L143) is intentionally not observed (§11.1). |
 | 3 | after `initializePhysique` (~L164) publishes `PhysiqueAssigned`, and after `learnStyle(character, styleId, context)` (~L170) | `bridge.setRunProfile(lineageId: martialTraditionOf(styleId) ?? styleId, physiqueId: physiqueId)` | **Physique** arrives via `PhysiqueAssigned` (`_onPhysiqueAssigned` already caught it) — `setRunProfile` re-passes it for safety. **Lineage/tradition/style** has *no domain event*; `runGame` holds `styleId` / `traditionId` as locals, so composition forwards it. Nothing is fabricated from an unrelated event. `_maybeBeginRun` fires `recorder.beginRun(...)` exactly once, when both facts are known. |
-| 4 | throughout the cycle loop | passive observation only — `TomeChanged` / `EncounterStarted`+`EncounterResolved` / `RewardSelected` / `TrainingResultRecorded` / `TechniqueVariantMinted`+`Inspired` / `ActionCompleted` (§11.2). Metadata already-begun run is enriched in place via monotonic completion (§5.1); a technique record created by `Minted` and completed by a later `Inspired` stays one record. | The bridge never reorders or blocks gameplay; every handler is a pure translation to a recorder call. |
+| 4 | throughout the cycle loop | passive observation only — `TomeChanged` / `EncounterStarted`+`EncounterResolved` / `RewardSelected` / `TrainingResultRecorded` / `TechniqueVariantMinted`+`Inspired` / `ActionCompleted` (§11.2). Metadata already-begun run is enriched in place via monotonic completion (§6); a technique record created by `Minted` and completed by a later `Inspired` stays one record. | The bridge never reorders or blocks gameplay; every handler is a pure translation to a recorder call. |
 | 5 | inside `buildResult({required bool won})` (~L245), **immediately after** `events.publish(RunEnded(...))` | `bridge.detach()` | `EventBus.publish` is synchronous, so the bridge's `_onRunEnded` (final snapshot + `completeRun` + `evaluateStandardMilestones`) has already run when `publish` returns. `buildResult` is the **single funnel** for all four `runGame` return paths (three `return buildResult(won: false)` on fight loss + one `return buildResult(won: true)` at the cap), so one `detach()` call there covers every exit. |
 | 6 | after `runGame` returns, in the **caller** | `repo.save(recorder.state)` | Whole-state persistence (§8.5). Never inside `runGame`. |
 
@@ -849,18 +919,34 @@ RunResult runGame(
 });
 ```
 
-The **only** `runGame` edits, every one wrapped in `if (almanac != null) { … }`:
+**Runtime validation (not `assert`).** Dart assertions are stripped in
+release/AOT, so the contract is enforced with an explicit throw. As the
+very first statement of `runGame`'s body (before `Stopwatch`, before any
+work), unconditionally:
+
+```dart
+if (almanac != null && (runId == null || runNumber == null)) {
+  throw ArgumentError('runGame(almanac:) requires runId and runNumber');
+}
+```
+
+- Runs only when `almanac != null` — `almanac == null` reaches the check, both sub-conditions short-circuit, nothing throws, behaviour is unchanged.
+- After it, `runId!` / `runNumber!` are provably non-null.
+- Introduces no repository access and no identity generation — it only rejects a missing caller-supplied value.
+- `ArgumentError` matches the repo's existing input-rejection idiom (`tome_service.dart:45`, `item_combine.dart:94`, `progression_engine.dart:109`).
+
+The **only** other `runGame` edits, every one wrapped in `if (almanac != null) { … }`:
 
 | Where | Edit |
 |---|---|
-| after `final events = eventBus ?? EventBus();` (~L124) | `assert(runId != null && runNumber != null, 'runGame(almanac:) requires runId + runNumber');` then `_bridge = HeadlessGameAlmanacBridge(almanac, runId: runId!, runNumber: runNumber!, seed: seed);` (declare `HeadlessGameAlmanacBridge? _bridge;` at function top) |
+| after `final events = eventBus ?? EventBus();` (~L124) | `_bridge = HeadlessGameAlmanacBridge(almanac, runId: runId!, runNumber: runNumber!, seed: seed);` (declare `HeadlessGameAlmanacBridge? _bridge;` at function top; `runId!`/`runNumber!` are safe — the runtime check above already ran) |
 | after `final character = context.characters.create();` (~L158) | `_bridge!.attach(events, context, character);` |
 | after `learnStyle(character, styleId, context);` (~L170) | `_bridge!.setRunProfile(lineageId: martialTraditionOf(styleId) ?? styleId, physiqueId: physiqueId);` |
 | inside `RunResult buildResult({required bool won})`, on the line **after** `events.publish(RunEnded(won: won, encounterCount: combatStage.encounters.length));` | `_bridge?.detach();` |
 
-That is 4 statements, all no-ops when `almanac == null`. `buildResult` is the sole `RunResult` constructor site, so the single `detach()` there fires on every one of `runGame`'s four returns.
+That is one guard-throw + 4 guarded statements, all inert when `almanac == null`. `buildResult` is the sole `RunResult` constructor site, so the single `detach()` there fires on every one of `runGame`'s four returns.
 
-**When `almanac == null`:** none of the four edits execute. `runGame` is byte-identical: no bridge, no subscriptions, no `RunEnded` observer beyond what already exists, no `context`/`rng`/`policy` interaction, no repository IO. Determinism, `DecisionLog` replay, and existing golden tests are untouched (§13.3).
+**When `almanac == null`:** the guard-throw's first sub-condition is false, and none of the four edits execute. `runGame` is byte-identical: no bridge, no subscriptions, no `RunEnded` observer beyond what already exists, no `context`/`rng`/`policy` interaction, no repository IO. Determinism, `DecisionLog` replay, and existing golden tests are untouched (§13.3).
 
 ### 11.6 Who supplies `runId` / `runNumber` (finding §1.9, spec §1.4)
 
@@ -910,11 +996,14 @@ The client adapter MUST NOT hand the recorder a live component, entity, event bu
 | `almanac_repository_test.dart` | `InMemory` save/load returns an equal state; `JsonFile` save/load via temp file; `JsonFile.load()` on missing path → `const AlmanacState()`; `save` creates parent dir; **after a successful `save` no `<path>.tmp` remains** (atomicity, §8.5); **`save` of a state whose serialization throws, over a file holding state A, leaves the file still readable as A** (whole-state atomicity — use a test-double state or repo whose `encode` throws) |
 | `almanac_platform_neutral_test.dart` | `lib/almanac.dart` + its transitive `almanac/` imports contain no `import 'dart:io'`; `almanac_file_repository.dart` is the sole `dart:io` file; `lib/almanac.dart` does not export `almanac_file*` |
 | `almanac_recorder_test.dart` | begin/complete run; multiple runs separate; every method happy path; projections == fresh recompute after a random event sequence |
+| `almanac_recorder_hydration_test.dart` | `AlmanacRecorder(state)` round-trips `.state` equal (same list order); hydrate then append new observations → correct, projections match ledgers; mutating `initial`'s collections post-construct → `.state` unchanged; mutating a `.state` collection → internals unchanged; duplicated `runId` (identical contents) → `AlmanacIntegrityException`; duplicated `buildId` (conflicting snapshot) → `AlmanacIntegrityException`; `initial` with `totalUsage` ≠ `usageObservations.length` → hydrated recorder reports the ledger-derived value (§5.1) |
+| `almanac_build_identity_test.dart` | recorder keyed on whole-string `buildId`: distinct `(runId, phase, sequence)` → distinct records (assert via `build.runId`/`phase`/`sequence`, never by parsing `buildId`); byte-identical resubmission of one `buildId` → no-op (still 1 record); conflicting snapshot at one `buildId` → `AlmanacIntegrityException`; **two `finalBuild` submissions for one run → one canonical record** |
+| `almanac_persist_query_determinism_test.dart` | build a populated `AlmanacState` → `AlmanacSerialization.encode` → `decode` → run every `AlmanacQueries` getter on both the original and the decoded state → **identical results and identical ordering**; structural round-trip equality of the whole state |
 | `almanac_id_opacity_test.dart` | recorder + queries behave identically with structured ids (`run-1:u0`) and arbitrary opaque ids (`action-8f3a91`); a `usageEventId` that textually contains a *different* `runId` still binds to the explicit `runId` field |
 | `almanac_run_identity_test.dart` | same `seed`, different `runId` → 2 `AlmanacRunRecord`s; ledgers disjoint even when the two runs reuse the *same* opaque `usageEventId` string; `seed` stored, keys nothing |
 | `almanac_usage_uniqueness_domain_test.dart` | same opaque `usageEventId` under two `runId`s → 2 observations (`(runId, usageEventId)` key); no global-uniqueness assumption |
 | `almanac_fight_identity_test.dart` | two `Bandit`/5-turn fights (seq 0,1) → 2 records; replay `EncounterResolved` → still 2; `enemiesDefeated` counts each win once |
-| `almanac_build_snapshot_test.dart` | `postReward` seq 0 and 1 stay separate; replay → no dup; `TomeLayoutSnapshot` preserves slot ids + instance ids; mutating a fake source list afterward leaves the stored snapshot unchanged |
+| `almanac_build_snapshot_test.dart` | `postReward` seq 0 and 1 stay separate (assert via `build.sequence`); replay → no dup; `TomeLayoutSnapshot` preserves slot ids + instance ids; mutating a fake source list afterward leaves the stored snapshot unchanged |
 | `almanac_technique_usage_test.dart` | two distinct `usageEventId`s, same run → `totalUsage` +2, `runsUsed` has run once; same `usageEventId` replayed → counts once; idempotency survives `save`→`load` between deliveries; `techniquesUsed for X` == count where `o.runId == X` |
 | `almanac_monotonic_completion_test.dart` | `Minted`→`Inspired` **and** `Inspired`→`Minted` → one record, `origin: inspired`, ancestry present; lone `Inspired` leaves later fields `null` |
 | `almanac_contradiction_test.dart` | second event with conflicting `descriptorIds` / `inspirerInstanceIds` / build-snapshot contents → `AlmanacIntegrityException`, established value retained |
@@ -928,7 +1017,8 @@ The client adapter MUST NOT hand the recorder a live component, entity, event bu
 | `almanac_build_dna_test.dart` | deterministic; input reorder → same signature; input change → different; `signature != buildId`; FNV-1a matches a hand value |
 | `almanac_bridge_lifecycle_test.dart` | drives a bare `EventBus` + a fake/minimal `PluginContext` + `character`. **(a)** one run: each source event published once → exactly one recorder observation; **(b)** two sequential attach→publish→`detach` cycles on the **same** `EventBus` with **fresh** bridges → no duplicated observations, no run-A event in run-B state; **(c)** after `detach()`, publishing every observed event type again → recorder state unchanged; **(d)** `detach()` called twice → no throw, state unchanged; **(e)** N attach/run/detach cycles → observation counts scale exactly ×N; **(f)** `attach` called twice on one bridge → still one subscription set; **(g)** counters (`_encounterSeq` etc.) never leak between instances |
 | `almanac_bridge_run_profile_test.dart` | `beginRun` is **not** emitted until both `PhysiqueAssigned` (or `setRunProfile` physique) **and** `setRunProfile` lineage are seen, in either order; `RunStarted` alone triggers nothing; lineage is never taken from `PhysiqueAssigned` |
-| `almanac_architecture_test.dart` | §2 enforcement table + §3.2 assertions; **plus** `almanac_bridge.dart` contains no `static ` field of a subscription type and no module-level `EventSubscription` / `subscribe(` at library scope |
+| `almanac_architecture_test.dart` | §2 enforcement table + §3.2 assertions; **plus** every file under `lib/src/plugins/almanac/` contains no `.split(` / `.startsWith(` / `RegExp(` applied to an id (§11.2.1); `almanac_bridge.dart` contains no `static ` field of a subscription type and no module-level `EventSubscription` / `subscribe(` at library scope |
+| `runGame_almanac_validation_test.dart` (in `test/plugins/game/`) | `runGame(seed, almanac: recorder, runId: null, runNumber: 1)` → **throws `ArgumentError`**; `runGame(seed, almanac: recorder, runId: 'opaque-run', runNumber: null)` → **throws `ArgumentError`**; `runGame(seed, almanac: null, runId: null, runNumber: null)` → existing behaviour, no throw, equal to `runGame(seed)` |
 
 ### 13.2 Integration — `test/integration/almanac_run_history_test.dart`
 
@@ -936,7 +1026,8 @@ The client adapter MUST NOT hand the recorder a live component, entity, event bu
 - Same seed, two different `runId`s → two separate run records; fight/build/usage/training ledgers disjoint (matched on explicit `(runId, …)`).
 - Same seed + same policy + same `runId` replayed through the bridge → equivalent `AlmanacState`.
 - **Two full `runGame(almanac: recorder, …)` calls in one test, sharing one `AlmanacRecorder`, different `runId`s** → 2 `AlmanacRunRecord`s, no cross-run observations, each run's bridge subscriptions gone after its `runGame` returns (assert by publishing a stray `EncounterResolved` on the first run's `EventBus` after it returns and seeing no new fight).
-- Whole-chronicle `encode`→`decode` round-trip via `JsonFileAlmanacRepository` (temp file); no `<path>.tmp` left behind.
+- **Persist → re-hydrate → continue:** run 1 with `recorder1`; `repo.save(recorder1.state)`; `final recorder2 = AlmanacRecorder(repo.load());` run 2 with `recorder2` (new `runId`); `recorder2.state` holds **both** runs, run 1's history byte-identical to what run 1 produced, run 2 appended correctly.
+- Whole-chronicle `encode`→`decode` round-trip via `JsonFileAlmanacRepository` (temp file); no `<path>.tmp` left behind; every `AlmanacQueries` getter returns identical ordered results before and after the round-trip (mirrors `almanac_persist_query_determinism_test.dart` at run scale).
 - `almanac == null`: `runGame` result is byte-identical to a run without the parameter; assert `runGame` performs no repo IO (no `AlmanacRepository` / `JsonFileAlmanacRepository` referenced from `game_run.dart`) and no `HeadlessGameAlmanacBridge` is constructed; a determinism check (same seed+policy, `almanac == null`, twice → identical `RunResult`).
 
 ### 13.3 Golden / determinism protection
@@ -985,13 +1076,14 @@ Each task = one commit, builds & tests green standalone. `dart format .` + `dart
 
 ### Phase 4 — recorder (`almanac_recorder.dart`)
 
-- [ ] **4.1** `AlmanacIntegrityException` + `AlmanacRecorder` skeleton (`beginRun`, `completeRun`, `state`). Test: begin→complete→one run record; `beginRun` twice → no dup; conflicting `beginRun` field → exception.
-- [ ] **4.2** `recordFight` + `enemiesDefeated` projection. Test: two identical fights (seq 0,1) → 2; replay `fightId` → still 2.
+- [ ] **4.0 (constructor hydration)** — **File:** `lib/src/plugins/almanac/almanac_recorder.dart`. **Symbols:** private insert paths `_upsertRun` / `_addFight` / `_upsertBuild` / `_upsertTechnique` / `_consumeUsageObservation` / `_upsertInspiration` / `_upsertAffix` / `_upsertDiscovery` / `_upsertMilestone`; `AlmanacRecorder([AlmanacState initial = const AlmanacState()])`; per-map insertion-order key lists. **Rule:** the constructor replays `initial`'s seven record lists (in list order) through those private paths — copying every nested collection (§7), recomputing every projection from the ledgers, and throwing `AlmanacIntegrityException` on any duplicated identity key (identical *or* conflicting). No reference from `initial` is retained; `recorder.state` stays deeply immutable. **Tests** (`almanac_recorder_hydration_test.dart`): round-trip `state` → `AlmanacRecorder(state)` → `.state` equal (same order); hydrate then append → correct; mutate `initial` collections post-construct → `.state` unchanged; mutate a `.state` collection → internals unchanged; duplicated `runId` (identical) → `AlmanacIntegrityException`; duplicated `buildId` (different snapshot) → `AlmanacIntegrityException`; `totalUsage` ≠ `usageObservations.length` in `initial` → hydrated recorder reports the ledger value. **Acceptance:** §5.1 items 1-6 all demonstrably hold; `dart analyze` clean.
+- [ ] **4.1** `AlmanacIntegrityException` + `AlmanacRecorder` skeleton (`beginRun`, `completeRun`, `state`) built on the Task-4.0 private paths. Test: begin→complete→one run record; `beginRun` twice → no dup; conflicting `beginRun` field → exception.
+- [ ] **4.2** `recordFight` + `enemiesDefeated` projection. Test: two identical fights (seq 0,1) → 2; replay `fightId` → still 2; relationships asserted via `fight.runId` / `fight.sequence`, never by parsing `fightId` (§11.2.1).
 - [ ] **4.3** `recordTechniqueDiscovered` / `recordTechniqueInspired` + monotonic `origin` + write-once completion + `AlmanacIntegrityException`. Test `almanac_monotonic_completion_test.dart` + `almanac_contradiction_test.dart` + `almanac_inspiration_test.dart`.
 - [ ] **4.4** `recordTechniqueUsed` with `(runId, usageEventId)` key + `totalUsage`/`runsUsed` recompute. Test `almanac_technique_usage_test.dart` + `almanac_usage_uniqueness_domain_test.dart` + save/load-between-deliveries.
 - [ ] **4.5** `recordAffixDiscovered` / `recordAffixUsed` + affix projections. Test `almanac_affix_test.dart`.
 - [ ] **4.6** `recordTrainingSession` (`(runId, trainingEventId)` key) + `recordDiscovery` (+ append to `runs[runId].discoveryIds`) + `recordItemDiscovered`.
-- [ ] **4.7** `recordBuildSnapshot` (dedup on `buildId`, `AlmanacIntegrityException` on conflicting contents; compute `dna` if empty — depends on Phase 6, so land 6 before 4.7 or stub DNA and backfill).
+- [ ] **4.7** `recordBuildSnapshot` — key on whole-string `buildId`; **byte-identical resubmission → silent no-op**; different payload for a held `buildId` → `AlmanacIntegrityException`; `(runId, buildId)` is the persistence identity; compute `dna` only if `record.dna.tokens` is empty (depends on Phase 6 — land 6 first or stub DNA and backfill). Test `almanac_build_identity_test.dart`: same `(runId, phase, sequence)` → same `buildId` (via the bridge's `_buildId` in a bridge test; recorder test uses hand-built records) → one record; different `phase`/`sequence` → distinct records; different `runId`, same `phase`/`sequence` → distinct records; conflicting snapshot at one `buildId` → `AlmanacIntegrityException`; **two identical `finalBuild` submissions → one canonical record**. All relationship assertions via `build.runId` / `build.phase` / `build.sequence` (§11.2.1).
 - [ ] **4.8** `recordMilestone` + `evaluateStandardMilestones` (explicit `type`+`contextId`). Test `almanac_milestone_identity_test.dart`.
 - [ ] **4.9** `almanac_id_opacity_test.dart` + `almanac_run_identity_test.dart` + `almanac_cross_run_identity_test.dart`. Full `dart test test/plugins/almanac/`. Commit: `feat(almanac): identity-keyed monotonic recorder`.
 
@@ -1009,11 +1101,11 @@ Each task = one commit, builds & tests green standalone. `dart format .` + `dart
 
 ### Phase 7 — headless bridge + `runGame`
 
-- [ ] **7.1** Create `lib/src/plugins/game/almanac_bridge.dart` with `HeadlessGameAlmanacBridge` exactly per §11.1: constructor `(recorder, {runId, runNumber, seed})`; instance-only run-local fields (`_encounterSeq`, `_encounterTurns`, `_buildSeq`, `_usageSeq`, `_trainingSeq`, `_lineageId`, `_physiqueId`, `_finalBuildId`, `_begun`, `_disposed`, `_subs`); `attach(EventBus, PluginContext, EntityId)` registering one handler per §11.2 row into `_subs` (guarded `if (_subs.isNotEmpty || _disposed) return;`); `setRunProfile({lineageId, physiqueId})`; `_maybeBeginRun`; `_nextBuildSeq`; `_masteryLevelOrNull`; `_buildSnapshot`; `detach()` (idempotent, sets `_disposed`, cancels every `_subs` entry, clears). **No `static` / library-scope subscription state.** No `runGame` edit yet.
+- [ ] **7.1** Create `lib/src/plugins/game/almanac_bridge.dart` with `HeadlessGameAlmanacBridge` exactly per §11.1: constructor `(recorder, {runId, runNumber, seed})`; instance-only run-local fields (`_encounterSeq`, `_encounterTurns`, `_buildSeq`, `_usageSeq`, `_trainingSeq`, `_lineageId`, `_physiqueId`, `_finalBuildId`, `_begun`, `_disposed`, `_subs`); `attach(EventBus, PluginContext, EntityId)` registering one handler per §11.2 row into `_subs` (guarded `if (_subs.isNotEmpty || _disposed) return;`); `setRunProfile({lineageId, physiqueId})`; `_maybeBeginRun`; `_nextBuildSeq`; **`_buildId(BuildPhase, int)` = `'$runId:${phase.name}:$sequence'`** (§11.2 uniqueness contract); `_masteryLevelOrNull`; `_buildSnapshot` (sets `buildId`/`runId`/`phase`/`sequence` explicit fields); `detach()` (idempotent, sets `_disposed`, cancels every `_subs` entry, clears). **No `static` / library-scope subscription state; no id string is ever parsed (§11.2.1).** No `runGame` edit yet.
 - [ ] **7.2** `almanac_bridge_lifecycle_test.dart` + `almanac_bridge_run_profile_test.dart` (§13.1) — hand-driven `EventBus` + minimal/fake `PluginContext` + a `character` id. Prove: one-observation-per-event; two sequential fresh-bridge cycles on one bus → no duplication / no cross-run leak; post-`detach` publishes are inert; double `detach` is safe; N cycles scale ×N; `beginRun` deferred until physique+lineage both known in either order.
-- [ ] **7.3** Add `AlmanacRecorder? almanac`, `String? runId`, `int? runNumber` to `runGame`; apply the **4 guarded edits** from §11.5 (construct after `events`; `attach(events, context, character)` after `character` created ~L158; `setRunProfile` after `learnStyle` ~L170; `_bridge?.detach()` in `buildResult` right after `events.publish(RunEnded(...))`). Add the `assert(runId != null && runNumber != null)`.
-- [ ] **7.4** Run the golden/determinism checklist from Task 0.2 — output must be **byte-identical** with `almanac == null`. Add a `runGame` determinism assertion (same seed+policy, no almanac, twice → equal `RunResult`).
-- [ ] **7.5** `test/integration/almanac_run_history_test.dart` (§13.2), including the two-sequential-runs / stale-subscription assertions. Commit: `feat(almanac): headless bridge + opt-in runGame wiring`.
+- [ ] **7.3** Add `AlmanacRecorder? almanac`, `String? runId`, `int? runNumber` to `runGame`. **First** add the runtime guard as the first body statement: `if (almanac != null && (runId == null || runNumber == null)) throw ArgumentError('runGame(almanac:) requires runId and runNumber');` — **not `assert`** (§11.5). **Then** apply the 4 guarded edits from §11.5 (construct `_bridge` after `events`; `_bridge!.attach(events, context, character)` after `character` created ~L158; `_bridge!.setRunProfile(...)` after `learnStyle` ~L170; `_bridge?.detach()` in `buildResult` right after `events.publish(RunEnded(...))`).
+- [ ] **7.4** `runGame_almanac_validation_test.dart` (§13.1) — `runId: null` → `ArgumentError`; `runNumber: null` → `ArgumentError`; `almanac: null` with both null → unchanged behaviour, equal to `runGame(seed)`. Then run the golden/determinism checklist from Task 0.2 — output **byte-identical** with `almanac == null` — and add a `runGame` determinism assertion (same seed+policy, no almanac, twice → equal `RunResult`).
+- [ ] **7.5** `test/integration/almanac_run_history_test.dart` (§13.2), including the two-sequential-runs / stale-subscription and **persist → `AlmanacRecorder(repo.load())` → continue** assertions. Commit: `feat(almanac): headless bridge + opt-in runGame wiring`.
 
 ### Phase 8 — architecture tests
 
@@ -1047,14 +1139,18 @@ Each task = one commit, builds & tests green standalone. `dart format .` + `dart
 - [ ] Almanac imports Core only; no plugin/`game`/`build_interpretation` import; arch test proves it.
 - [ ] No gameplay plugin imports `almanac`; arch test proves it.
 - [ ] `runId` / `runNumber` supplied by the caller; `runGame` never generates identity, never reads a repo; `almanac == null` → byte-identical `runGame`.
+- [ ] **`runGame` validates `runId`/`runNumber` at runtime with `throw ArgumentError` (not `assert`), only when `almanac != null`; works with assertions disabled.** (§11.5; `runGame_almanac_validation_test.dart`)
 - [ ] `seed` stored as metadata only; `runId = "run_<seed>"` never used.
-- [ ] Every id opaque; no `.split` / `.startsWith` in recorder/queries; arch test proves it; every relationship is an explicit field.
+- [ ] **`AlmanacRecorder(initialState)` rebuilds indexes by replaying `initial` through the private insert paths, deep-copies every collection, recomputes projections from ledgers, and throws `AlmanacIntegrityException` on any duplicated identity key.** (§5.1; `almanac_recorder_hydration_test.dart`)
+- [ ] **Adapter ID formatting is not part of the Almanac API contract:** the bridge composes readable ids from `runId` + a local counter; nothing under `lib/src/plugins/almanac/` (or any test) parses one; arch test scans the whole `almanac/` dir + tests for `.split`/`.startsWith`/`RegExp` on ids. (§11.2.1)
+- [ ] Every id opaque; every relationship is an explicit field; tests assert relationships via `record.runId` / `.phase` / `.sequence`, never via textual prefix.
 - [ ] `(runId, usageEventId)` / `(affixId, affixEventId)` / `(runId, trainingEventId)` keys; global id uniqueness not assumed.
 - [ ] Canonical facts monotonic; conflicting write-once value → `AlmanacIntegrityException`; no silent overwrite/merge.
 - [ ] `Minted`↔`Inspired` either order → one technique record, ancestry verbatim, `origin` `base`→`inspired` only.
 - [ ] Snapshots deeply isolated; query results unmodifiable; source/result mutation can't alter `AlmanacState`; a valid later completion creates a new record instance, never mutates an exposed one.
-- [ ] Fight / build-snapshot identity is `(runId, opaque id)` + explicit `sequence`/`phase`; duplicates stay distinct; replay adds none.
+- [ ] Fight / build-snapshot identity is `(runId, opaque id)` + explicit `sequence`/`phase`; distinct `(runId, phase, sequence)` → distinct records; **byte-identical resubmission of a `buildId` is a no-op; two `finalBuild` submissions → one canonical record**; conflicting payload at a held `buildId` → `AlmanacIntegrityException`. (§11.2; `almanac_build_identity_test.dart`)
 - [ ] Projections recomputable from ledgers; never updated without a ledger append.
+- [ ] **Persist → re-hydrate → continue:** `AlmanacRecorder(repo.load())` then more runs → combined history correct, earlier runs unchanged; whole-state `encode`→`decode`→`AlmanacQueries` gives identical ordered results. (§13.2; `almanac_persist_query_determinism_test.dart`)
 - [ ] **Run lifecycle** (§11.3): construct → attach (after `character`) → observe init → `setRunProfile` (lineage from composition, physique from `PhysiqueAssigned`) → `beginRun` once both known → passive observation → `RunEnded` finalize → `detach` in `buildResult` (single funnel for all 4 returns) → caller `repo.save`. `RunStarted` carries no metadata and is ignored.
 - [ ] **Subscription disposal** (§11.4): bridge owns every subscription; fresh bridge per `runGame`; `detach()` cancels all + `_disposed` guard; idempotent; no static listeners; two sequential runs never cross-observe; N attach/run/detach cycles scale ×N.
 - [ ] **Repository atomicity** (§8.5): whole-state `load`/`save` only, no incremental API; `JsonFileAlmanacRepository.save` serializes fully then temp-file + `renameSync`; a failed `save` leaves the prior complete file; no transactions/DB.
@@ -1090,9 +1186,11 @@ Watch-items (not blockers — verify in Phase 0 against the live branch):
 
 - [ ] **Architecture boundaries** — Almanac imports Core only; no gameplay plugin imports Almanac; `HeadlessGameAlmanacBridge` is the sole in-repo file importing both a gameplay plugin and Almanac; Core is unaware of Almanac; `TomeClientAlmanacAdapter` stays an external boundary. (§2, §12; arch tests §13.1 + Phase 8)
 - [ ] **Web-safe barrel** — `lib/almanac.dart` transitively free of `dart:io`; `dart:io` only in `almanac_file_repository.dart` behind `lib/almanac_file.dart`; no conditional exports; no Flutter/Flame/Devvit/`dart:html`/`dart:ui`/DB/backend. (§3; `almanac_platform_neutral_test.dart`)
-- [ ] **Opaque IDs** — no `split`/`startsWith`/regex/prefix parsing anywhere in `almanac/`; every relationship is an explicit stored field; arch test scans `almanac_recorder.dart` + `almanac_queries.dart`. (Global Constraints, §6; `almanac_id_opacity_test.dart`)
+- [ ] **Opaque IDs** — no `split`/`startsWith`/regex/prefix parsing anywhere under `lib/src/plugins/almanac/` **or in any Almanac test**; adapter ID formatting (bridge composing `runId`+counter) is explicitly *not* an Almanac API contract; every relationship is an explicit stored field; arch test scans the whole `almanac/` dir. (Global Constraints, §6, §11.2.1; `almanac_id_opacity_test.dart`)
+- [ ] **Build identity** — `buildId` opaque; `(runId, phase, sequence)` → exactly one `buildId` in the bridge; distinct tuples → distinct records; byte-identical `buildId` resubmission is a no-op; two `finalBuild` submissions → one canonical record; conflicting payload at a held `buildId` → `AlmanacIntegrityException`; `buildId` is never Build DNA identity. (§11.2, §11.2.1; `almanac_build_identity_test.dart`)
+- [ ] **Recorder hydration** — `AlmanacRecorder(initialState)` replays `initial` through the private insert paths, deep-copies every collection (no retained reference), recomputes projections from ledgers, throws `AlmanacIntegrityException` on any duplicated identity key (identical *or* conflicting); `recorder.state` stays deeply immutable; persist → `AlmanacRecorder(repo.load())` → continue works. (§5.1; `almanac_recorder_hydration_test.dart`)
 - [ ] **Idempotency** — structural keys `(runId, usageEventId)`, `(affixId, affixEventId)`, `(runId, trainingEventId)`, plus `runId` / `fightId`-in-run / `buildId` / `instanceId` / `resultInstanceId` / `discoveryId` / `milestoneId`; no concatenated-string key whose parsing carries meaning; global uniqueness not assumed. (§6; `almanac_usage_uniqueness_domain_test.dart`)
-- [ ] **Monotonic history** — `UNKNOWN → KNOWN → FINAL`, `base → inspired`; contradictory established value → `AlmanacIntegrityException`; no silent overwrite; no merge/recovery subsystem. (§5.1, §5; `almanac_monotonic_completion_test.dart`, `almanac_contradiction_test.dart`)
+- [ ] **Monotonic history** — `UNKNOWN → KNOWN → FINAL`, `base → inspired`; contradictory established value → `AlmanacIntegrityException`; no silent overwrite; no merge/recovery subsystem. (§5, §6; `almanac_monotonic_completion_test.dart`, `almanac_contradiction_test.dart`)
 - [ ] **Deep immutability** — every stored `List`/`Set`/`Map` defensive-copied; query results `unmodifiable` / copies; a later completion yields a new value, never mutates a previously exposed record. (§7; `almanac_models_test.dart`, `almanac_immutability_test.dart`)
 - [ ] **Serialization** — schema version 1; `stateFromJson` version-checks first (`AlmanacSchemaVersionError`); `encode`/`decode` round-trip stable incl. every ledger; missing file → `const AlmanacState()`. (§8; `almanac_serialization_test.dart`)
 - [ ] **Run lifecycle** — explicit sequence construct → attach → observe-init → `setRunProfile` → `beginRun` (physique from `PhysiqueAssigned`, lineage from composition, either order) → observe → `RunEnded` finalize → `detach` (single `buildResult` funnel) → caller `save`; `RunStarted` ignored; recorder never sees `PluginContext`/repo. (§11.3; `almanac_bridge_run_profile_test.dart`)
@@ -1101,7 +1199,7 @@ Watch-items (not blockers — verify in Phase 0 against the live branch):
 - [ ] **SP0b ancestry** — `TechniqueVariantInspired` stored verbatim (`resultInstanceId`, `runId`, `familyId`, `descriptorIds`, `inspirerInstanceIds`), order preserved; never re-resolved, re-queried, or recomputed; no RNG in `almanac/`. (§6 of spec, §11.2; `almanac_inspiration_test.dart`)
 - [ ] **Build DNA** — deterministic, order-normalized, RNG-free, ML-free, `signature != buildId`, recomputable from the snapshot, never a uniqueness key. (§10; `almanac_build_dna_test.dart`)
 - [ ] **Headless adapter** — `_buildSnapshot` reads live Tome/component/mastery state in the bridge and passes only completed value objects; `TomeChanged` alone is not treated as sufficient — the bridge inspects `context.tome.inspect(character)` at snapshot time; no manufactured gameplay events; missing telemetry handled by bridge-local sequence/counter or `setRunProfile`. (§11.1–§11.2)
-- [ ] **`runGame` opt-in behavior** — 4 guarded edits only; `almanac == null` ⇒ no bridge, no subscriptions, no repo IO, byte-identical `RunResult`, determinism and `DecisionLog` replay unaffected. (§11.5; §13.2, §13.3)
+- [ ] **`runGame` opt-in behavior** — one runtime guard (`throw ArgumentError`, **not `assert`**, only when `almanac != null`) + 4 guarded edits; `almanac == null` ⇒ guard inert, no bridge, no subscriptions, no repo IO, byte-identical `RunResult`, determinism and `DecisionLog` replay unaffected. (§11.5; `runGame_almanac_validation_test.dart`, §13.2, §13.3)
 - [ ] **Architecture tests** — new `almanac_architecture_test.dart` + `almanac_platform_neutral_test.dart` + extended `architecture_dependency_test.dart` (`_pluginBarrels` += `almanac.dart`, `almanac_file.dart`; gameplay-plugin dirs vs `almanac`); no existing architecture test weakened. (Phase 8)
 - [ ] **Integration tests** — 3-run chronicle; same-seed-two-`runId` disjointness; two full `runGame(almanac:)` calls sharing one recorder with no cross-run leakage and no surviving subscriptions; whole-chronicle `JsonFile` round-trip with no `.tmp` residue. (§13.2)
 - [ ] **Determinism / regression tests** — pre-Phase-7 golden list captured; `almanac == null` output byte-identical before/after; `runGame` determinism assertion (same seed+policy twice → equal `RunResult`); no Almanac-caused gameplay-state mutation. (§13.3, Phase 7.4)
