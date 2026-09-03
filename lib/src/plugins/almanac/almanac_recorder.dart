@@ -138,6 +138,34 @@ class _AffixEntry {
 /// to hydrate (§5.1). Every public `record…` method and the constructor's
 /// hydration replay route through the same private insert paths, so a hydrated
 /// recorder enforces exactly the same invariants as a fresh one.
+///
+/// ## Ordering contract across a save boundary
+///
+/// Within one session the recorder is **order-independent**: an observation
+/// naming a subject that has not been declared yet (a use before its discovery,
+/// a fight before its `beginRun`) opens a record whose identity fields are
+/// still unknown, and the later declaration fills them through the ordinary
+/// monotonic path.
+///
+/// That tolerance does **not** survive persistence. [AlmanacState] and the
+/// model records it holds have no representation for "unknown", so
+/// [AlmanacRecorder.state] materialises an undeclared field as a sentinel —
+/// `''` for `lineageId` / `baseFamilyId`, `0` for `runNumber`,
+/// [RunOutcome.abandoned], [TechniqueOrigin.base], a zero-valued
+/// [AffixSnapshot], the Unix epoch for `startedAt`. Once that state is saved
+/// and hydrated back, the sentinel is indistinguishable from a real value, so
+/// the declaration that would have filled it is instead a **contradiction** and
+/// raises [AlmanacIntegrityException].
+///
+/// So: a caller that persists mid-run MUST establish an identity —
+/// [beginRun] / [recordTechniqueDiscovered] / [recordAffixDiscovered] — before
+/// recording an observation against it, whenever a real identity-fill for that
+/// subject may still arrive after a hydrate. The headless bridge already
+/// satisfies this (`Minted` precedes `ActionCompleted`; `setRunProfile` →
+/// `beginRun` precedes any fight or training observation), and this is the
+/// intended v1 contract rather than a bug to work around: widening the model to
+/// nullable identity fields, or dropping stub records (they own ledgers that
+/// must survive), are both out of scope for v1.
 class AlmanacRecorder {
   /// Rebuilds every identity index by **replaying** [initial]'s seven record
   /// lists, in list order, through the private insert paths — never by
@@ -356,11 +384,10 @@ class AlmanacRecorder {
   }) {
     final _RunEntry? existing = _runs[runId];
     if (_hydrating && existing != null) {
-      throw AlmanacIntegrityException(
-        record: 'AlmanacRunRecord(runId=$runId)',
-        field: 'runId',
-        established: 'the record already hydrated for runId $runId',
-        rejected: 'a second record for the same runId',
+      _rejectHydrationDuplicate(
+        'AlmanacRunRecord(runId=$runId)',
+        'runId',
+        'the run already hydrated under $runId',
       );
     }
     final _RunEntry entry = existing ?? _RunEntry(runId);
@@ -423,50 +450,33 @@ class AlmanacRecorder {
     _runs[runId] = entry;
   }
 
-  void _addFight(AlmanacFightRecord fight) {
-    final _RunEntry entry = _runEntry(fight.runId);
-    final AlmanacFightRecord? existing = entry.fights[fight.fightId];
-    if (existing == null) {
-      entry.fights[fight.fightId] = fight;
-      return;
-    }
-    final String label =
-        'AlmanacFightRecord(runId=${fight.runId},fightId=${fight.fightId})';
-    if (_hydrating || existing != fight) {
-      throw AlmanacIntegrityException(
-        record: label,
-        field: _firstDifferingField(existing.toJson(), fight.toJson()),
-        established: existing,
-        rejected: fight,
-      );
-    }
-  }
+  void _addFight(AlmanacFightRecord fight) => _putUnique(
+    _runEntry(fight.runId).fights,
+    fight.fightId,
+    fight,
+    label: 'AlmanacFightRecord(runId=${fight.runId},fightId=${fight.fightId})',
+    identityField: 'fightId',
+    json: (AlmanacFightRecord record) => record.toJson(),
+  );
 
-  void _addTrainingObservation(TrainingObservation observation) {
-    final _RunEntry entry = _runEntry(observation.runId);
-    final TrainingObservation? existing =
-        entry.training[observation.trainingEventId];
-    if (existing == null) {
-      entry.training[observation.trainingEventId] = observation;
-      return;
-    }
-    if (_hydrating) {
-      throw AlmanacIntegrityException(
-        record:
+  void _addTrainingObservation(TrainingObservation observation) =>
+      _appendUnique(
+        _runEntry(observation.runId).training,
+        observation.trainingEventId,
+        observation,
+        label:
             'TrainingObservation(runId=${observation.runId},'
             'trainingEventId=${observation.trainingEventId})',
-        field: 'trainingEventId',
-        established: existing,
-        rejected: observation,
+        identityField: 'trainingEventId',
       );
-    }
-  }
 
+  /// Indexes [discoveryId] under its run. The run entry is created on demand,
+  /// exactly as [_addFight] and [_addTrainingObservation] do, so a discovery
+  /// observed before its `beginRun` still gets its back-link — design point 8
+  /// is unconditional, and nothing re-links later.
   void _linkDiscoveryToRun(String runId, String discoveryId) {
-    final _RunEntry? entry = _runs[runId];
-    // A discovery whose run has not been begun keeps its own canonical record;
-    // the per-run index is filled the moment the run exists.
-    if (entry == null || entry.discoveryIds.contains(discoveryId)) return;
+    final _RunEntry entry = _runEntry(runId);
+    if (entry.discoveryIds.contains(discoveryId)) return;
     entry.discoveryIds.add(discoveryId);
   }
 
@@ -508,22 +518,16 @@ class AlmanacRecorder {
 
   void _upsertBuild(AlmanacBuildRecord record) {
     final AlmanacBuildRecord candidate = _withDna(record);
-    final _BuildKey key = (runId: candidate.runId, buildId: candidate.buildId);
-    final AlmanacBuildRecord? existing = _builds[key];
-    if (existing == null) {
-      _builds[key] = candidate;
-      return;
-    }
-    if (_hydrating || existing != candidate) {
-      throw AlmanacIntegrityException(
-        record:
-            'AlmanacBuildRecord(runId=${candidate.runId},'
-            'buildId=${candidate.buildId})',
-        field: _firstDifferingField(existing.toJson(), candidate.toJson()),
-        established: existing,
-        rejected: candidate,
-      );
-    }
+    _putUnique(
+      _builds,
+      (runId: candidate.runId, buildId: candidate.buildId),
+      candidate,
+      label:
+          'AlmanacBuildRecord(runId=${candidate.runId},'
+          'buildId=${candidate.buildId})',
+      identityField: 'buildId',
+      json: (AlmanacBuildRecord value) => value.toJson(),
+    );
   }
 
   /// Back-fills the derived build DNA when the caller left it empty. Idempotent:
@@ -571,6 +575,11 @@ class AlmanacRecorder {
 
   /// Records the first sighting of a technique instance. Re-delivering it is a
   /// no-op; a conflicting value for an already-set field throws.
+  ///
+  /// `timestamp` is accepted for symmetry with the other discovery entry points
+  /// and deliberately goes nowhere: [AlmanacTechniqueRecord] carries no
+  /// timestamp, and `discoveredRunId` / `discoveredRunNumber` are the run
+  /// context the history actually keeps.
   void recordTechniqueDiscovered({
     required String instanceId,
     required String baseFamilyId,
@@ -642,11 +651,10 @@ class AlmanacRecorder {
     TechniqueOrigin? origin,
   }) {
     if (_hydrating && _techniques.containsKey(instanceId)) {
-      throw AlmanacIntegrityException(
-        record: 'AlmanacTechniqueRecord(instanceId=$instanceId)',
-        field: 'instanceId',
-        established: 'the record already hydrated for instanceId $instanceId',
-        rejected: 'a second record for the same instanceId',
+      _rejectHydrationDuplicate(
+        'AlmanacTechniqueRecord(instanceId=$instanceId)',
+        'instanceId',
+        'the technique already hydrated under $instanceId',
       );
     }
     _techniques[instanceId] = _mergeTechnique(
@@ -741,45 +749,27 @@ class AlmanacRecorder {
       observation.instanceId,
       () => _TechniqueEntry(observation.instanceId),
     );
-    final _UsageKey key = (
-      runId: observation.runId,
-      usageEventId: observation.usageEventId,
+    _appendUnique(
+      entry.usage,
+      (runId: observation.runId, usageEventId: observation.usageEventId),
+      observation,
+      label:
+          'TechniqueUsageObservation(runId=${observation.runId},'
+          'usageEventId=${observation.usageEventId})',
+      identityField: 'usageEventId',
     );
-    final TechniqueUsageObservation? existing = entry.usage[key];
-    if (existing == null) {
-      entry.usage[key] = observation;
-      return;
-    }
-    if (_hydrating) {
-      throw AlmanacIntegrityException(
-        record:
-            'TechniqueUsageObservation(runId=${observation.runId},'
-            'usageEventId=${observation.usageEventId})',
-        field: 'usageEventId',
-        established: existing,
-        rejected: observation,
-      );
-    }
   }
 
-  void _upsertInspiration(TechniqueInspirationHistory history) {
-    final TechniqueInspirationHistory? existing =
-        _inspirations[history.resultInstanceId];
-    if (existing == null) {
-      _inspirations[history.resultInstanceId] = history;
-      return;
-    }
-    if (_hydrating || existing != history) {
-      throw AlmanacIntegrityException(
-        record:
-            'TechniqueInspirationHistory('
-            'resultInstanceId=${history.resultInstanceId})',
-        field: _firstDifferingField(existing.toJson(), history.toJson()),
-        established: existing,
-        rejected: history,
-      );
-    }
-  }
+  void _upsertInspiration(TechniqueInspirationHistory history) => _putUnique(
+    _inspirations,
+    history.resultInstanceId,
+    history,
+    label:
+        'TechniqueInspirationHistory('
+        'resultInstanceId=${history.resultInstanceId})',
+    identityField: 'resultInstanceId',
+    json: (TechniqueInspirationHistory value) => value.toJson(),
+  );
 
   AlmanacTechniqueRecord _techniqueRecord(_TechniqueEntry entry) {
     final List<TechniqueUsageObservation> observations =
@@ -836,11 +826,10 @@ class AlmanacRecorder {
   void _upsertAffix({required String affixId, AffixSnapshot? snapshot}) {
     final _AffixEntry? existing = _affixes[affixId];
     if (_hydrating && existing != null) {
-      throw AlmanacIntegrityException(
-        record: 'AlmanacAffixRecord(affixId=$affixId)',
-        field: 'affixId',
-        established: 'the record already hydrated for affixId $affixId',
-        rejected: 'a second record for the same affixId',
+      _rejectHydrationDuplicate(
+        'AlmanacAffixRecord(affixId=$affixId)',
+        'affixId',
+        'the affix already hydrated under $affixId',
       );
     }
     final _AffixEntry entry = existing ?? _AffixEntry(affixId);
@@ -862,23 +851,15 @@ class AlmanacRecorder {
       affixId,
       () => _AffixEntry(affixId),
     );
-    final Map<String, AffixObservation> ledger =
-        discovered ? entry.discoveries : entry.usage;
-    final AffixObservation? existing = ledger[observation.affixEventId];
-    if (existing == null) {
-      ledger[observation.affixEventId] = observation;
-      return;
-    }
-    if (_hydrating) {
-      throw AlmanacIntegrityException(
-        record:
-            'AffixObservation(affixId=$affixId,'
-            'affixEventId=${observation.affixEventId})',
-        field: 'affixEventId',
-        established: existing,
-        rejected: observation,
-      );
-    }
+    _appendUnique(
+      discovered ? entry.discoveries : entry.usage,
+      observation.affixEventId,
+      observation,
+      label:
+          'AffixObservation(affixId=$affixId,'
+          'affixEventId=${observation.affixEventId})',
+      identityField: 'affixEventId',
+    );
   }
 
   AlmanacAffixRecord _affixRecord(_AffixEntry entry) {
@@ -918,18 +899,8 @@ class AlmanacRecorder {
 
   /// Records a first-seen discovery. The first write is canonical: a later
   /// encounter of the same [AlmanacDiscoveryRecord.discoveryId] adds nothing.
-  void recordDiscovery(AlmanacDiscoveryRecord record) => _upsertDiscovery(
-    AlmanacDiscoveryRecord(
-      discoveryId: record.discoveryId,
-      type: record.type,
-      contentId: record.contentId,
-      instanceId: record.instanceId,
-      runId: record.runId,
-      runNumber: record.runNumber,
-      timestamp: record.timestamp,
-      snapshot: _copySnapshot(record.snapshot),
-    ),
-  );
+  void recordDiscovery(AlmanacDiscoveryRecord record) =>
+      _upsertDiscovery(record);
 
   /// Records the first sighting of an item definition. The recorder forms the
   /// `discoveryId` from the type and the content id; the explicit `type` /
@@ -955,23 +926,29 @@ class AlmanacRecorder {
     ),
   );
 
+  /// §6: a re-encounter of an already-discovered thing adds nothing — the first
+  /// sighting is canonical and a later run is not a conflict. The recursive
+  /// snapshot copy lives here rather than in [recordDiscovery] so that
+  /// hydration gets it too (§5.1 item 1), mirroring where [_withDna] sits.
   void _upsertDiscovery(AlmanacDiscoveryRecord record) {
-    final AlmanacDiscoveryRecord? existing = _discoveries[record.discoveryId];
-    if (existing != null) {
-      if (_hydrating) {
-        throw AlmanacIntegrityException(
-          record: 'AlmanacDiscoveryRecord(discoveryId=${record.discoveryId})',
-          field: 'discoveryId',
-          established: existing,
-          rejected: record,
-        );
-      }
-      // §6: a re-encounter of an already-discovered thing adds nothing — the
-      // first sighting is the canonical one, later runs are not a conflict.
-      return;
-    }
-    _discoveries[record.discoveryId] = record;
-    _linkDiscoveryToRun(record.runId, record.discoveryId);
+    final AlmanacDiscoveryRecord candidate = AlmanacDiscoveryRecord(
+      discoveryId: record.discoveryId,
+      type: record.type,
+      contentId: record.contentId,
+      instanceId: record.instanceId,
+      runId: record.runId,
+      runNumber: record.runNumber,
+      timestamp: record.timestamp,
+      snapshot: _copySnapshot(record.snapshot),
+    );
+    final bool stored = _appendUnique(
+      _discoveries,
+      candidate.discoveryId,
+      candidate,
+      label: 'AlmanacDiscoveryRecord(discoveryId=${candidate.discoveryId})',
+      identityField: 'discoveryId',
+    );
+    if (stored) _linkDiscoveryToRun(candidate.runId, candidate.discoveryId);
   }
 
   /// Records a one-time meta achievement under `type.name` (plus `:contextId`
@@ -1033,22 +1010,14 @@ class AlmanacRecorder {
     }
   }
 
-  void _upsertMilestone(AlmanacMilestoneRecord record) {
-    final AlmanacMilestoneRecord? existing = _milestones[record.milestoneId];
-    if (existing != null) {
-      if (_hydrating) {
-        throw AlmanacIntegrityException(
-          record: 'AlmanacMilestoneRecord(milestoneId=${record.milestoneId})',
-          field: 'milestoneId',
-          established: existing,
-          rejected: record,
-        );
-      }
-      // §6: the first qualifying occurrence is canonical; later ones are no-ops.
-      return;
-    }
-    _milestones[record.milestoneId] = record;
-  }
+  /// §6: the first qualifying occurrence is canonical; later ones are no-ops.
+  void _upsertMilestone(AlmanacMilestoneRecord record) => _appendUnique(
+    _milestones,
+    record.milestoneId,
+    record,
+    label: 'AlmanacMilestoneRecord(milestoneId=${record.milestoneId})',
+    identityField: 'milestoneId',
+  );
 
   /// `type.name`, scoped with `:contextId` when the milestone is per-lineage or
   /// per-build. Formed here, never parsed back.
@@ -1062,6 +1031,77 @@ class AlmanacRecorder {
   // ---------------------------------------------------------------------------
   // Shared helpers
   // ---------------------------------------------------------------------------
+
+  /// Corrupt persisted input: the hydrated state held two records under one
+  /// identity key. Byte-identical counts, because a well-formed `stateToJson`
+  /// never emits a duplicate (§5.1 item 4). The one place that phrasing lives.
+  Never _rejectHydrationDuplicate(
+    String record,
+    String field,
+    Object? established,
+  ) =>
+      throw AlmanacIntegrityException(
+        record: record,
+        field: field,
+        established: established,
+        rejected: 'a second record under the same $field',
+      );
+
+  /// Store-if-absent for a write-once record: absent → store; a byte-identical
+  /// resubmission → silent no-op live, corrupt input while hydrating; a
+  /// different payload at the same key → refused, naming the first differing
+  /// field. The one implementation behind `_addFight`, `_upsertBuild` and
+  /// `_upsertInspiration` — and the reason hydration and the public `record…`
+  /// methods cannot drift apart.
+  void _putUnique<K, T extends Object>(
+    Map<K, T> map,
+    K key,
+    T value, {
+    required String label,
+    required String identityField,
+    required Map<String, dynamic> Function(T value) json,
+  }) {
+    final T? existing = map[key];
+    if (existing == null) {
+      map[key] = value;
+      return;
+    }
+    if (existing == value) {
+      if (_hydrating) {
+        _rejectHydrationDuplicate(label, identityField, existing);
+      }
+      return;
+    }
+    throw AlmanacIntegrityException(
+      record: label,
+      field: _firstDifferingField(json(existing), json(value)),
+      established: existing,
+      rejected: value,
+    );
+  }
+
+  /// Append-if-absent for a key whose repeats carry no contradiction — the
+  /// observation ledgers (§6: "append only if that pair absent") plus
+  /// discoveries and milestones, whose first write is canonical and whose later
+  /// encounters add nothing. Returns whether [value] was stored. A repeat is a
+  /// silent no-op live and corrupt input while hydrating.
+  bool _appendUnique<K, T extends Object>(
+    Map<K, T> map,
+    K key,
+    T value, {
+    required String label,
+    required String identityField,
+  }) {
+    final T? existing = map[key];
+    if (existing != null) {
+      if (_hydrating) {
+        _rejectHydrationDuplicate(label, identityField, existing);
+      }
+      return false;
+    }
+    map[key] = value;
+    return true;
+  }
 
   /// Monotonic completion for a single field: an absent [incoming] leaves the
   /// established value alone, an unknown established value is filled, an equal
@@ -1133,9 +1173,21 @@ class AlmanacRecorder {
     if (value is Map<Object?, Object?>) {
       return Map<String, Object?>.unmodifiable(<String, Object?>{
         for (final MapEntry<Object?, Object?> entry in value.entries)
-          entry.key! as String: _copyValue(entry.value),
+          _jsonKey(entry.key): _copyValue(entry.value),
       });
     }
     return value;
+  }
+
+  /// [DiscoverySnapshot.values] is JSON-safe by contract, so every nested map
+  /// key is a `String`. Says so out loud rather than surfacing a bare
+  /// `TypeError` from a malformed payload.
+  String _jsonKey(Object? key) {
+    if (key is String) return key;
+    throw ArgumentError.value(
+      key,
+      'key',
+      'non-string key in DiscoverySnapshot.values',
+    );
   }
 }

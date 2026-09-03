@@ -497,6 +497,32 @@ void main() {
       expect(recorder.state.runs.last.discoveryIds, isEmpty);
     });
 
+    test('a discovery recorded before beginRun still back-links to it', () {
+      final recorder =
+          AlmanacRecorder()
+            ..recordDiscovery(
+              techniqueDiscovery(
+                runId: 'run-1',
+                runNumber: 1,
+                timestamp: at(1),
+              ),
+            )
+            ..beginRun(
+              runId: 'run-1',
+              runNumber: 1,
+              lineageId: 'western',
+              physiqueId: 'phy-a',
+              startedAt: at(1),
+            );
+
+      final run = recorder.state.runs.single;
+      expect(run.runId, 'run-1');
+      expect(run.lineageId, 'western');
+      // Design point 8 is unconditional: the back-link is not lost just
+      // because the run had not been opened yet.
+      expect(run.discoveryIds, ['technique:fam-a']);
+    });
+
     test('recordItemDiscovered keeps type and contentId as real fields', () {
       final recorder =
           AlmanacRecorder()..recordItemDiscovered(
