@@ -548,8 +548,16 @@ class JsonFileAlmanacRepository implements AlmanacRepository {
 
   @override
   void save(AlmanacState state) {
+    // Serialize the COMPLETE state first — a serialization failure aborts
+    // before any file is touched, so the on-disk Almanac is never partial.
+    final payload = AlmanacSerialization.encode(state);
     _file.parent.createSync(recursive: true);
-    _file.writeAsStringSync(AlmanacSerialization.encode(state));
+    // Atomic replace: write a sibling temp file, then rename over the
+    // target. A crash leaves either the old complete file or the new
+    // complete file — never a half-written one. No transactions, no DB.
+    final tmp = File('${_file.path}.tmp');
+    tmp.writeAsStringSync(payload, flush: true);
+    tmp.renameSync(_file.path);
   }
 }
 ```
@@ -560,9 +568,23 @@ Missing file → empty state. Malformed JSON → the `jsonDecode` / cast error p
 
 ### 8.4 Behaviour summary
 
-`almanacSchemaVersion = 1` written at the top of `stateToJson`. `stateFromJson` reads it first and throws `AlmanacSchemaVersionError(found, 1)` on mismatch — the migration seam. `encode`/`decode` are thin `jsonEncode`/`jsonDecode` wrappers. `InMemoryAlmanacRepository` is the neutral default; `JsonFileAlmanacRepository` (behind `lib/almanac_file.dart`) adds file IO with "missing file → empty state" and `createSync(recursive: true)` on save.
+`almanacSchemaVersion = 1` written at the top of `stateToJson`. `stateFromJson` reads it first and throws `AlmanacSchemaVersionError(found, 1)` on mismatch — the migration seam. `encode`/`decode` are thin `jsonEncode`/`jsonDecode` wrappers. `InMemoryAlmanacRepository` is the neutral default; `JsonFileAlmanacRepository` (behind `lib/almanac_file.dart`) adds file IO.
 
-**Tests required (Phase 2 + Phase 3):** `stateToJson`/`stateFromJson` round-trip on a fully-populated state (every record type, every ledger, `seed` present and absent); `encode`/`decode` round-trip; schema-version mismatch throws; `InMemory` save/load; `JsonFile` save/load via a `Directory.systemTemp.createTempSync` file; `JsonFile.load()` on a non-existent path returns `const AlmanacState()`.
+### 8.5 Persistence atomicity contract
+
+The repository boundary is deliberately **whole-state**, not incremental:
+
+| Rule | Consequence for the implementer |
+|---|---|
+| `load()` returns a **complete** `AlmanacState` (or throws). | No caller ever sees a partial state. On a missing file, return `const AlmanacState()`. |
+| `save(state)` takes a **complete** `AlmanacState` and writes a **complete** serialized snapshot. | There is **no** `saveRun(...)` / `appendFight(...)` / field-level persistence API. Do not add one. |
+| `AlmanacRecorder` owns the whole canonical state in memory; `recorder.state` is always internally consistent (every projection matches its ledger — §5, §6). | The recorder never persists. A caller does `repo.save(recorder.state)` at whatever cadence it chooses (typically once, after `runGame` returns). |
+| A failure during `save` must not leave a state that a later `load` would accept as valid-but-truncated. | `JsonFileAlmanacRepository.save` serializes fully first (a serialization error touches no file), then writes `<path>.tmp` and `renameSync`s it over `<path>` — a POSIX-atomic replace; best-effort on Windows. A crash between the two steps leaves the previous complete file intact. |
+| No transactions, no database, no backend, no second persistence framework. | `dart:io` `File` + `rename` is the entire mechanism. `InMemoryAlmanacRepository` just holds the last `save`d reference. |
+
+A custom (e.g. web-storage) `AlmanacRepository` in a client repo honours the same contract: `load` returns a whole state, `save` writes a whole state, partial writes are never surfaced as success.
+
+**Tests required (Phase 2 + Phase 3):** `stateToJson`/`stateFromJson` round-trip on a fully-populated state (every record type, every ledger, `seed` present and absent); `encode`/`decode` round-trip; schema-version mismatch throws; `InMemory` save/load returns an equal state; `JsonFile` save/load via a `Directory.systemTemp.createTempSync` file; `JsonFile.load()` on a non-existent path returns `const AlmanacState()`; **after a successful `JsonFile.save`, no `<path>.tmp` remains**; **`JsonFile.save` of state B over an existing file holding state A, when serialization of B is forced to throw (inject via a state whose `toJson` throws in a test double), leaves the file still readable as state A**.
 
 ---
 
@@ -630,14 +652,17 @@ BuildDna buildDna({
 ### 11.1 Bridge
 
 ```dart
-// imports: build_engine.dart, technique_plugin.dart, martial_arts_plugin.dart,
-//          package:build_engine/almanac.dart, and sibling run_events.dart / physique event.
+// imports: package:build_engine/build_engine.dart,
+//          package:build_engine/technique_plugin.dart,
+//          package:build_engine/martial_arts_plugin.dart,
+//          package:build_engine/almanac.dart,
+//          sibling 'run_events.dart', and the physique event (via a plugin barrel).
 class HeadlessGameAlmanacBridge {
   HeadlessGameAlmanacBridge(
     this._recorder, {
     required this.runId,     // caller-supplied opaque token — NEVER "run_$seed"
     required this.runNumber, // caller-supplied
-    this.seed,               // metadata only
+    this.seed,               // metadata only, never keyed on
   });
 
   final AlmanacRecorder _recorder;
@@ -645,32 +670,63 @@ class HeadlessGameAlmanacBridge {
   final int runNumber;
   final int? seed;
 
-  // per-run counters (deterministic for a fixed event stream)
-  int _encounterSeq = 0;
-  final Map<BuildPhase, int> _buildSeq = {};
-  int _usageSeq = 0;
-  int _trainingSeq = 0;
-
-  // deferred until the run profile is known
-  String? _lineageId;
-  String? _physiqueId;
+  // ---- run-local temporary context (legitimate for a composition adapter) ----
+  int _encounterSeq = 0;        // per-run, incremented on EncounterStarted
+  int _encounterTurns = 0;      // per-encounter, reset on EncounterStarted
+  final Map<BuildPhase, int> _buildSeq = {};   // per (run, phase)
+  int _usageSeq = 0;            // per-run
+  int _trainingSeq = 0;         // per-run
+  String? _lineageId;           // from setRunProfile (no domain event carries it)
+  String? _physiqueId;          // from setRunProfile / PhysiqueAssigned
+  String? _finalBuildId;        // set when the RunEnded snapshot is taken
   bool _begun = false;
+  bool _disposed = false;
 
-  final List<EventSubscription> _subs = [];
+  late final PluginContext _context;
+  late final EntityId _character;
+  final List<EventSubscription> _subs = <EventSubscription>[];
 
-  /// Called by runGame immediately after `events` is created.
-  void attach(EventBus events, PluginContext context) { /* subscribe to the events in §11.2 */ }
+  /// Step 2 of §11.3. Binds the context the snapshot builders need and
+  /// registers exactly one subscription per source event (§11.2). Every
+  /// returned `EventSubscription` is stored in `_subs` and owned by THIS
+  /// bridge instance. Idempotent: a second call is a no-op.
+  void attach(EventBus events, PluginContext context, EntityId character) {
+    if (_subs.isNotEmpty || _disposed) return;
+    _context = context;
+    _character = character;
+    _subs.add(events.subscribe<PhysiqueAssigned>(_onPhysiqueAssigned));
+    _subs.add(events.subscribe<TomeChanged>(_onTomeChanged));
+    _subs.add(events.subscribe<TechniqueVariantMinted>(_onMinted));
+    _subs.add(events.subscribe<TechniqueVariantInspired>(_onInspired));
+    _subs.add(events.subscribe<SubjectDiscovered>(_onSubjectDiscovered));
+    _subs.add(events.subscribe<ActionCompleted>(_onActionCompleted));
+    _subs.add(events.subscribe<EncounterStarted>(_onEncounterStarted));
+    _subs.add(events.subscribe<EncounterResolved>(_onEncounterResolved));
+    _subs.add(events.subscribe<RewardSelected>(_onRewardSelected));
+    _subs.add(events.subscribe<TrainingResultRecorded>(_onTrainingResult));
+    _subs.add(events.subscribe<RunEnded>(_onRunEnded));
+    // RunStarted is deliberately NOT observed — it carries only seed +
+    // characterName, both already known to the caller, and it is published
+    // (game_run.dart:143) before physique/style exist.
+  }
 
-  /// Called by runGame once physiqueId + styleId are known (~game_run.dart:170),
-  /// BEFORE the cycle loop. Supplies the two facts that have no domain event.
+  /// Step 3 of §11.3. Supplies the two facts no domain event carries. The
+  /// only new call `runGame` makes into Almanac besides construct/attach/detach.
   void setRunProfile({required String lineageId, required String physiqueId}) {
+    if (_disposed) return;
     _lineageId = lineageId;
-    _physiqueId = physiqueId;
+    _physiqueId ??= physiqueId;
+    _maybeBeginRun();
+  }
+
+  void _onPhysiqueAssigned(PhysiqueAssigned e) {
+    if (_disposed || e.character != _character) return;
+    _physiqueId ??= e.physiqueId;
     _maybeBeginRun();
   }
 
   void _maybeBeginRun() {
-    if (_begun || _lineageId == null || _physiqueId == null) return;
+    if (_begun || _disposed || _lineageId == null || _physiqueId == null) return;
     _begun = true;
     _recorder.beginRun(
       runId: runId, runNumber: runNumber, seed: seed,
@@ -678,33 +734,57 @@ class HeadlessGameAlmanacBridge {
     );
   }
 
-  /// Called by runGame after the loop / on RunEnded handling completes.
-  void detach() { for (final s in _subs) s.cancel(); }
+  // ... _onTomeChanged / _onMinted / _onInspired / _onSubjectDiscovered /
+  //     _onActionCompleted / _onEncounterStarted / _onEncounterResolved /
+  //     _onRewardSelected / _onTrainingResult / _onRunEnded per §11.2.
+  // EVERY handler begins with `if (_disposed) return;`.
+
+  /// Step 5 of §11.3. Cancels every subscription this bridge owns and marks
+  /// the bridge dead. Safe to call more than once; a later EventBus publish
+  /// reaches none of this bridge's handlers afterward.
+  void detach() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final s in _subs) {
+      s.cancel();   // EventSubscription.cancel() -> handlers.remove(wrapped); already idempotent
+    }
+    _subs.clear();
+  }
 }
 ```
 
-`setRunProfile` is the **only** new call `runGame` makes into Almanac beyond constructing/attaching the bridge. It is composition wiring, not identity management: `runGame` forwards two values it already holds as locals; it generates no id and reads no repository. Spec §11 explicitly permits `runGame` forwarding `runId`/`runNumber` to the bridge; this extends that to the two profile facts that lack an event (finding §1.8).
+Notes locked by the audit:
 
-### 11.2 Event → recorder map (existing events only)
+- Every subscription is created in `attach` and stored in `_subs`; the bridge is the sole owner. There is **no** module-level / static listener anywhere in `almanac_bridge.dart`.
+- `EventBus.subscribe<T>` returns an `EventSubscription`; `cancel()` does `handlers.remove(wrapped)` (`lib/src/event/event_bus.dart:33`) — removing an absent handler is a harmless no-op, so `detach()` is idempotent without extra guards. The `_disposed` flag additionally makes every handler inert the instant `detach` runs, covering an in-flight `publish` iteration.
+- `EventBus.publish` iterates `List.from(handlers)` (`event_bus.dart:52`), so a handler cancelling a subscription mid-dispatch is safe — but the bridge never does that; `detach` is only called from `runGame`.
+- `attach` is idempotent (`_subs.isNotEmpty` guard) and refuses after `detach` (`_disposed` guard).
+
+### 11.2 Event → recorder map (existing events only — no new events)
+
+Each row is handled by exactly one `_on…` method registered once in `attach`. Every method first-lines `if (_disposed) return;`.
 
 | Observed | Bridge action |
 |---|---|
-| `RunStarted` | no-op (profile not yet known) |
-| `PhysiqueAssigned` | remember `physiqueId` (redundant safety; `setRunProfile` is authoritative) |
-| `setRunProfile(...)` call from `runGame` | `_maybeBeginRun()` → `recorder.beginRun` |
-| `TomeChanged` with `stepName == 'starting'` | `recorder.recordBuildSnapshot(_buildSnapshot(BuildPhase.initial, context, character))` |
-| `TechniqueVariantMinted` | read `context.components.get<TechniqueVariant>(e.instanceId)`; `recorder.recordTechniqueDiscovered(origin: base, descriptorIds: variant.descriptorIds.toList(), axisProfile: variant.axisProfile, styleId: variant.styleId, masteryAtDiscovery: context.mastery.levelOf(character, techniqueInstanceSubject(e.instanceId)), runId, runNumber, timestamp: now)` |
-| `TechniqueVariantInspired` | `recorder.recordTechniqueInspired(resultInstanceId: e.instanceId.value.toString(), runId, familyId: e.familyId, descriptorIds: e.descriptorIds.toList(), inspirerInstanceIds: [for (final i in e.inspirerInstanceIds) i.value.toString()])` |
-| `SubjectDiscovered` with subject `technique:*` | `recorder.recordDiscovery(AlmanacDiscoveryRecord(type: technique, contentId: <suffix>, …))` — suffix obtained from the **Technique plugin's own** `techniqueSubject` helper inverse, NOT by `subject.split(':')` in Almanac code; the bridge may use plugin helpers since it imports the plugin |
-| `SubjectDiscovered` with subject `item:*` | `recorder.recordDiscovery(type: item, …)` similarly |
-| `ActionCompleted` where `e.action.sourceRef?.referenceType == techniqueReferenceType && e.action.sourceRef?.instanceEntityId != null` | `recorder.recordTechniqueUsed(TechniqueUsageObservation(usageEventId: '$runId:u${_usageSeq++}', runId, runNumber, instanceId: e.action.sourceRef!.instanceEntityId!.value.toString()))` — same predicate as `combat_stage.dart:106` |
-| `EncounterStarted` | `_encounterSeq++` (no recorder call) |
-| `EncounterResolved` | `recorder.recordFight(runId, fightId: '$runId:e${_encounterSeq - 1}', sequence: _encounterSeq - 1, name: e.name, enemyId: e.enemyId, won: e.won, playerHealthAfter: e.playerHealthAfter, turnsUsed: <from EncounterOutcome or 0>)` |
-| `RewardSelected` | `recorder.recordBuildSnapshot(_buildSnapshot(BuildPhase.postReward, …, sequence: _buildSeq.update(postReward, +1)))` |
-| `TrainingResultRecorded` | `recorder.recordTrainingSession(TrainingObservation(trainingEventId: '$runId:t${_trainingSeq++}', runId, runNumber))`; then a `postTraining` build snapshot |
-| `RunEnded` | final `finalBuild` snapshot + DNA; `recorder.completeRun(runId, completedAt: now, outcome: e.won ? RunOutcome.won : RunOutcome.lost, finalBuildId: <that snapshot's buildId>)`; `recorder.evaluateStandardMilestones(runId, runNumber, outcome, lineageId: _lineageId!, finalBuildId, timestamp: now)` |
+| `PhysiqueAssigned` (physique plugin) for `_character` | `_physiqueId ??= e.physiqueId`; `_maybeBeginRun()` |
+| `runGame` → `bridge.setRunProfile(lineageId, physiqueId)` | store `_lineageId`; `_maybeBeginRun()` → `recorder.beginRun(...)` once both known |
+| `TomeChanged` with `e.stepName == 'starting'` | `recorder.recordBuildSnapshot(_buildSnapshot(BuildPhase.initial, sequence: _nextBuildSeq(BuildPhase.initial)))` |
+| `TechniqueVariantMinted` | `final v = _context.components.get<TechniqueVariant>(e.instanceId)!;` → `recorder.recordTechniqueDiscovered(instanceId: e.instanceId.value.toString(), baseFamilyId: e.baseFamilyId, styleId: v.styleId, descriptorIds: v.descriptorIds.toList(), axisProfile: Map.of(v.axisProfile), origin: TechniqueOrigin.base, masteryAtDiscovery: _masteryLevelOrNull(e.instanceId), runId: runId, runNumber: runNumber, timestamp: DateTime.now())` |
+| `TechniqueVariantInspired` | `recorder.recordTechniqueInspired(resultInstanceId: e.instanceId.value.toString(), runId: runId, familyId: e.familyId, descriptorIds: e.descriptorIds.toList(), inspirerInstanceIds: [for (final i in e.inspirerInstanceIds) i.value.toString()])` |
+| `SubjectDiscovered` where `techniqueSubjectId(e.subject) != null` | `recorder.recordDiscovery(AlmanacDiscoveryRecord(type: AlmanacDiscoveryType.technique, contentId: techniqueSubjectId(e.subject)!, runId: runId, runNumber: runNumber, timestamp: now, snapshot: const DiscoverySnapshot(label: 'technique', values: {})))` — `techniqueSubjectId` is the **Technique plugin's own** helper; the bridge imports that plugin. Almanac code never inspects the subject string. |
+| `SubjectDiscovered` where `itemSubjectId(e.subject) != null` | same, `type: AlmanacDiscoveryType.item`, via the **Item plugin's** helper |
+| `ActionCompleted` where `e.action.sourceRef?.referenceType == techniqueReferenceType && e.action.sourceRef?.instanceEntityId != null` | `recorder.recordTechniqueUsed(TechniqueUsageObservation(usageEventId: '$runId:u${_usageSeq++}', runId: runId, runNumber: runNumber, instanceId: e.action.sourceRef!.instanceEntityId!.value.toString()))` — **the exact predicate `combat_stage.dart:104-107` already uses** for `recordTechniqueVariantUsage`. Also `_encounterTurns++`. |
+| `EncounterStarted` | `_encounterSeq++`; `_encounterTurns = 0` (no recorder call) |
+| `EncounterResolved` | `recorder.recordFight(runId: runId, fightId: '$runId:e${_encounterSeq - 1}', sequence: _encounterSeq - 1, name: e.name, enemyId: e.enemyId, won: e.won, playerHealthAfter: e.playerHealthAfter, turnsUsed: _encounterTurns)` — `_encounterTurns` counts `ActionCompleted`s since the matching `EncounterStarted`, matching `combat_stage.dart`'s own `turnsUsed` definition ("actions executed, either side") without needing the private `battle` id |
+| `RewardSelected` | `recorder.recordBuildSnapshot(_buildSnapshot(BuildPhase.postReward, sequence: _nextBuildSeq(BuildPhase.postReward)))` |
+| `TrainingResultRecorded` | `recorder.recordTrainingSession(TrainingObservation(trainingEventId: '$runId:t${_trainingSeq++}', runId: runId, runNumber: runNumber))`; then `recorder.recordBuildSnapshot(_buildSnapshot(BuildPhase.postTraining, sequence: _nextBuildSeq(BuildPhase.postTraining)))` |
+| `RunEnded` | build the final snapshot `s = _buildSnapshot(BuildPhase.finalBuild, sequence: 0)`; `_finalBuildId = s.buildId`; `recorder.recordBuildSnapshot(s)`; `recorder.completeRun(runId: runId, completedAt: DateTime.now(), outcome: e.won ? RunOutcome.won : RunOutcome.lost, finalBuildId: _finalBuildId)`; `recorder.evaluateStandardMilestones(runId: runId, runNumber: runNumber, outcome: e.won ? RunOutcome.won : RunOutcome.lost, lineageId: _lineageId!, finalBuildId: _finalBuildId, timestamp: DateTime.now())` |
 
-`_buildSnapshot(phase, context, character)` builds a `TomeLayoutSnapshot` from `context.tome.inspect(character)`:
+`_nextBuildSeq(phase)` = `_buildSeq.update(phase, (n) => n + 1, ifAbsent: () => 0)` — the current value, then it is bumped for next time (so the first `postReward` is `sequence 0`).
+
+`_masteryLevelOrNull(instanceId)` = `context.mastery.levelOf(_character, techniqueInstanceSubject(instanceId))` if `techniqueInstanceSubject` is exported from `technique_plugin.dart` (watch-item, §Blockers); otherwise `null` (spec-legal — the field stays `UNKNOWN`).
+
+`_buildSnapshot(phase, {required int sequence})` builds an `AlmanacBuildRecord` from `_context.tome.inspect(_character)`:
 - `width`/`height` `null` (named-slot harness Tome).
 - one `TomeSlotSnapshot` per placement: `slotId: p.slot.id`, `occupantKind: p.buildComponentRef.referenceType == techniqueReferenceType ? 'technique' : p.buildComponentRef.referenceType == itemReferenceType ? 'item' : 'empty'`, `occupantRefId: p.buildComponentRef.contentId`, `instanceId: p.buildComponentRef.instanceEntityId?.value.toString()`.
 - `techniques`: for each technique placement with an `instanceEntityId`, a `TechniqueInstanceSnapshot` from the `TechniqueVariant` component + per-instance mastery level.
@@ -712,7 +792,48 @@ class HeadlessGameAlmanacBridge {
 - `affixes`: empty in v1 (finding §1: no affix identity).
 - `dna`: `buildDna(lineageId: _lineageId!, physiqueId: _physiqueId!, techniqueFamilies: <baseFamilyIds>, itemIds: <definitionIds>, affixCategories: const [], axisProfiles: <from the technique snapshots>)`.
 
-### 11.3 `runGame` change (Phase 7)
+### 11.3 Run lifecycle sequencing
+
+The bridge is a **composition adapter**: it may hold run-local temporary context (§11.1), but it never becomes gameplay authority — it makes no decision, mutates no gameplay state, and the recorder it feeds never touches `PluginContext`, the repository, or RNG. The lifecycle, mapped onto the real `game_run.dart` call sites:
+
+| # | `game_run.dart` point | Bridge step | Rationale |
+|---|---|---|---|
+| 1 | after `final events = eventBus ?? EventBus();` (~L124) | **construct** `HeadlessGameAlmanacBridge(almanac, runId, runNumber, seed)` (guarded by `almanac != null`); `assert(runId != null && runNumber != null)` | The caller has already supplied `runId` / `runNumber` / `seed`; the bridge holds them. No repository, no id generation. |
+| 2 | after `context` is built (~L141), before `RunStarted` is published (L143) | `bridge.attach(events, context, character)` — **actually** attach after `character` is created (~L158), since a handler needs it. Attach registers one subscription per source event into `_subs`. | Subscriptions exist before the first observable domain event that matters. `RunStarted` (L143) is intentionally not observed (§11.1). |
+| 3 | after `initializePhysique` (~L164) publishes `PhysiqueAssigned`, and after `learnStyle(character, styleId, context)` (~L170) | `bridge.setRunProfile(lineageId: martialTraditionOf(styleId) ?? styleId, physiqueId: physiqueId)` | **Physique** arrives via `PhysiqueAssigned` (`_onPhysiqueAssigned` already caught it) — `setRunProfile` re-passes it for safety. **Lineage/tradition/style** has *no domain event*; `runGame` holds `styleId` / `traditionId` as locals, so composition forwards it. Nothing is fabricated from an unrelated event. `_maybeBeginRun` fires `recorder.beginRun(...)` exactly once, when both facts are known. |
+| 4 | throughout the cycle loop | passive observation only — `TomeChanged` / `EncounterStarted`+`EncounterResolved` / `RewardSelected` / `TrainingResultRecorded` / `TechniqueVariantMinted`+`Inspired` / `ActionCompleted` (§11.2). Metadata already-begun run is enriched in place via monotonic completion (§5.1); a technique record created by `Minted` and completed by a later `Inspired` stays one record. | The bridge never reorders or blocks gameplay; every handler is a pure translation to a recorder call. |
+| 5 | inside `buildResult({required bool won})` (~L245), **immediately after** `events.publish(RunEnded(...))` | `bridge.detach()` | `EventBus.publish` is synchronous, so the bridge's `_onRunEnded` (final snapshot + `completeRun` + `evaluateStandardMilestones`) has already run when `publish` returns. `buildResult` is the **single funnel** for all four `runGame` return paths (three `return buildResult(won: false)` on fight loss + one `return buildResult(won: true)` at the cap), so one `detach()` call there covers every exit. |
+| 6 | after `runGame` returns, in the **caller** | `repo.save(recorder.state)` | Whole-state persistence (§8.5). Never inside `runGame`. |
+
+Explicit facts the plan commits to:
+
+- **`RunStarted` is not assumed to carry complete run metadata.** It carries `seed` + `characterName` only, and is published before physique/style exist. The bridge ignores it.
+- **Physique** comes from `PhysiqueAssigned` (`e.physiqueId`), filtered to `_character`.
+- **Lineage / tradition / style** is *not* derivable from any event. It is supplied through the adapter's explicit composition API (`setRunProfile`), from values `runGame` already holds. It is never inferred from `PhysiqueAssigned`, tags, or any other event.
+- **Any datum not available through an event is supplied through `setRunProfile`** (today: only `lineageId`). If a future need appears, extend `setRunProfile` — do not manufacture a gameplay event.
+- **The recorder only ever receives completed primitive/snapshot observations.** The bridge does all `context` reads and builds every `TomeLayoutSnapshot` / `TechniqueInstanceSnapshot` / `ItemInstanceSnapshot` before calling the recorder.
+
+`martialTraditionOf` is already importable — `game_run.dart` imports `package:build_engine/martial_arts_plugin.dart`.
+
+### 11.4 Subscription lifecycle correctness
+
+The bridge **owns every subscription it creates** and disposes them all when the run ends.
+
+Guarantees (each becomes an acceptance criterion and a test, §13.1):
+
+| Guarantee | How the plan achieves it |
+|---|---|
+| One observation per source event, per run | `attach` registers **exactly one** handler per event type into `_subs`; handlers are plain methods, not re-registered. |
+| Two sequential runs never cross-observe | Each `runGame(almanac:)` call constructs a **fresh** `HeadlessGameAlmanacBridge` with its own `_subs`. Run A's bridge is `detach()`ed inside `buildResult` before `runGame` returns, so its handlers are removed from the `EventBus` before run B's bridge attaches (to a **new** `EventBus` anyway — `runGame` creates `events` per call unless the caller passes one). |
+| No double recording from duplicate subscriptions | `attach` is guarded (`if (_subs.isNotEmpty || _disposed) return;`) so a mistaken second `attach` is a no-op. |
+| No stale encounter/build/training state between runs | All run-local counters (`_encounterSeq`, `_encounterTurns`, `_buildSeq`, `_usageSeq`, `_trainingSeq`, `_lineageId`, `_physiqueId`, `_finalBuildId`, `_begun`) live on the **instance**, discarded with it. There is no static/module state in `almanac_bridge.dart`. |
+| No bridge subscription survives a completed run | `detach()` calls `s.cancel()` on every entry of `_subs` (→ `handlers.remove(wrapped)` in `EventBus`), sets `_disposed = true` (every handler early-returns thereafter), and clears `_subs`. |
+| Disposal is safe and idempotent | `detach()` early-returns if `_disposed`; `EventSubscription.cancel()` on an already-removed handler is a harmless no-op (`event_bus.dart:33`). |
+| Repeated attach/run/detach cycles stay correct | Each cycle is a new instance; nothing is reused. A test drives N cycles on one long-lived `EventBus` and asserts observation counts scale exactly ×N with no leakage. |
+
+No global singleton listeners. No `EventBus` subclassing. The mechanism is exactly `EventBus.subscribe` / `EventSubscription.cancel` as they exist today.
+
+### 11.5 `runGame` change (Phase 7)
 
 `lib/src/plugins/game/game_run.dart` — new optional parameters, default off:
 
@@ -728,21 +849,20 @@ RunResult runGame(
 });
 ```
 
-Wiring, all guarded by `if (almanac != null)`:
-1. After `final events = eventBus ?? EventBus();` (~line 124):
-   `assert(runId != null && runNumber != null, 'runGame(almanac:) requires runId + runNumber');`
-   `final _bridge = HeadlessGameAlmanacBridge(almanac, runId: runId!, runNumber: runNumber!, seed: seed);`
-   *(bridge constructed here; `attach` deferred until `context` exists)*
-2. After `context` is constructed (~line 141): `_bridge.attach(events, context);`
-3. After `learnStyle(character, styleId, context);` (~line 170):
-   `_bridge.setRunProfile(lineageId: martialTraditionOf(styleId) ?? styleId, physiqueId: physiqueId);`
-4. Just before `return RunResult(...)` (both the mid-function early return and the end): `_bridge.detach();`
+The **only** `runGame` edits, every one wrapped in `if (almanac != null) { … }`:
 
-`martialTraditionOf` is already importable — `game_run.dart` already imports `package:build_engine/martial_arts_plugin.dart`.
+| Where | Edit |
+|---|---|
+| after `final events = eventBus ?? EventBus();` (~L124) | `assert(runId != null && runNumber != null, 'runGame(almanac:) requires runId + runNumber');` then `_bridge = HeadlessGameAlmanacBridge(almanac, runId: runId!, runNumber: runNumber!, seed: seed);` (declare `HeadlessGameAlmanacBridge? _bridge;` at function top) |
+| after `final character = context.characters.create();` (~L158) | `_bridge!.attach(events, context, character);` |
+| after `learnStyle(character, styleId, context);` (~L170) | `_bridge!.setRunProfile(lineageId: martialTraditionOf(styleId) ?? styleId, physiqueId: physiqueId);` |
+| inside `RunResult buildResult({required bool won})`, on the line **after** `events.publish(RunEnded(won: won, encounterCount: combatStage.encounters.length));` | `_bridge?.detach();` |
 
-**When `almanac == null`:** none of steps 1-4 run; `runGame` is byte-identical. The recorder cannot reach `rng` or `policy`, so determinism is unaffected. **The caller persists** after `runGame` returns: `repo.save(recorder.state)` — never inside `runGame`.
+That is 4 statements, all no-ops when `almanac == null`. `buildResult` is the sole `RunResult` constructor site, so the single `detach()` there fires on every one of `runGame`'s four returns.
 
-### 11.4 Who supplies `runId` / `runNumber` (finding §1.9, spec §1.4)
+**When `almanac == null`:** none of the four edits execute. `runGame` is byte-identical: no bridge, no subscriptions, no `RunEnded` observer beyond what already exists, no `context`/`rng`/`policy` interaction, no repository IO. Determinism, `DecisionLog` replay, and existing golden tests are untouched (§13.3).
+
+### 11.6 Who supplies `runId` / `runNumber` (finding §1.9, spec §1.4)
 
 The **headless caller** (a test, a CI balance job, a future harness driver). Pattern:
 
@@ -787,7 +907,7 @@ The client adapter MUST NOT hand the recorder a live component, entity, event bu
 |---|---|
 | `almanac_models_test.dart` | per-record `toJson`/`fromJson` round-trip incl. all observation ledgers & `seed?`; unknown-enum-name throws; constructor copies collections (mutate source → record unchanged); returned collections are unmodifiable |
 | `almanac_serialization_test.dart` | `stateToJson`/`stateFromJson` + `encode`/`decode` round-trip on a fully-populated state; `almanacSchemaVersion` written; mismatch → `AlmanacSchemaVersionError` |
-| `almanac_repository_test.dart` | `InMemory` save/load; `JsonFile` save/load via temp file; `JsonFile.load()` on missing path → `const AlmanacState()`; `save` creates parent dir |
+| `almanac_repository_test.dart` | `InMemory` save/load returns an equal state; `JsonFile` save/load via temp file; `JsonFile.load()` on missing path → `const AlmanacState()`; `save` creates parent dir; **after a successful `save` no `<path>.tmp` remains** (atomicity, §8.5); **`save` of a state whose serialization throws, over a file holding state A, leaves the file still readable as A** (whole-state atomicity — use a test-double state or repo whose `encode` throws) |
 | `almanac_platform_neutral_test.dart` | `lib/almanac.dart` + its transitive `almanac/` imports contain no `import 'dart:io'`; `almanac_file_repository.dart` is the sole `dart:io` file; `lib/almanac.dart` does not export `almanac_file*` |
 | `almanac_recorder_test.dart` | begin/complete run; multiple runs separate; every method happy path; projections == fresh recompute after a random event sequence |
 | `almanac_id_opacity_test.dart` | recorder + queries behave identically with structured ids (`run-1:u0`) and arbitrary opaque ids (`action-8f3a91`); a `usageEventId` that textually contains a *different* `runId` still binds to the explicit `runId` field |
@@ -800,20 +920,24 @@ The client adapter MUST NOT hand the recorder a live component, entity, event bu
 | `almanac_contradiction_test.dart` | second event with conflicting `descriptorIds` / `inspirerInstanceIds` / build-snapshot contents → `AlmanacIntegrityException`, established value retained |
 | `almanac_inspiration_test.dart` | `TechniqueVariantInspired` payload verbatim + order-preserving; deliver twice → one `TechniqueInspirationHistory` + one technique record; no RNG, no Technique-state query |
 | `almanac_cross_run_identity_test.dart` | same `baseFamilyId`, two runs, two instance ids → 2 `AlmanacTechniqueRecord`s |
+| `almanac_immutability_test.dart` | mutate an adapter's source `List`/`Map` after a `record…` call → stored record unchanged; mutate a `List`/`Map` returned by `AlmanacQueries` → `AlmanacState` unchanged; a monotonic completion (`Minted` then `Inspired`) leaves the object previously returned by `getTechniqueHistory` unchanged (a new instance holds the completed field) |
 | `almanac_affix_test.dart` | 3 `AffixObservation`s, distinct opaque `affixEventId`s, one `affixId` → 1 record, `timesDiscovered == 3`, `associatedLineageIds` unioned; repeat an `affixEventId` → unchanged |
 | `almanac_milestone_identity_test.dart` | Runs 4,7,9 all win Western → one milestone (`type = firstWinWithLineage`, `contextId = western`) at Run 4; later runs don't mutate it; identity from explicit fields, not `milestoneId.split` |
 | `almanac_lineage_test.dart` | `getRunsForLineage` / `lineageStatistics` correct and record-derived |
 | `almanac_queries_test.dart` | every getter on a hand-built state; determinism (same state → identical order twice); `discoveryCompletion` fractions |
 | `almanac_build_dna_test.dart` | deterministic; input reorder → same signature; input change → different; `signature != buildId`; FNV-1a matches a hand value |
-| `almanac_architecture_test.dart` | §2 enforcement table + §3.2 assertions |
+| `almanac_bridge_lifecycle_test.dart` | drives a bare `EventBus` + a fake/minimal `PluginContext` + `character`. **(a)** one run: each source event published once → exactly one recorder observation; **(b)** two sequential attach→publish→`detach` cycles on the **same** `EventBus` with **fresh** bridges → no duplicated observations, no run-A event in run-B state; **(c)** after `detach()`, publishing every observed event type again → recorder state unchanged; **(d)** `detach()` called twice → no throw, state unchanged; **(e)** N attach/run/detach cycles → observation counts scale exactly ×N; **(f)** `attach` called twice on one bridge → still one subscription set; **(g)** counters (`_encounterSeq` etc.) never leak between instances |
+| `almanac_bridge_run_profile_test.dart` | `beginRun` is **not** emitted until both `PhysiqueAssigned` (or `setRunProfile` physique) **and** `setRunProfile` lineage are seen, in either order; `RunStarted` alone triggers nothing; lineage is never taken from `PhysiqueAssigned` |
+| `almanac_architecture_test.dart` | §2 enforcement table + §3.2 assertions; **plus** `almanac_bridge.dart` contains no `static ` field of a subscription type and no module-level `EventSubscription` / `subscribe(` at library scope |
 
 ### 13.2 Integration — `test/integration/almanac_run_history_test.dart`
 
 - 3 runs (own `runId` each, differing seeds/policies) → 3 distinct `AlmanacRunRecord`s; discoveries + final builds + lineage/physique captured.
 - Same seed, two different `runId`s → two separate run records; fight/build/usage/training ledgers disjoint (matched on explicit `(runId, …)`).
 - Same seed + same policy + same `runId` replayed through the bridge → equivalent `AlmanacState`.
-- Whole-chronicle `encode`→`decode` round-trip via `JsonFileAlmanacRepository` (temp file).
-- `almanac == null`: `runGame` result is byte-identical to a run without the parameter; assert `runGame` performs no repo IO (no `JsonFileAlmanacRepository` referenced from `game_run.dart`).
+- **Two full `runGame(almanac: recorder, …)` calls in one test, sharing one `AlmanacRecorder`, different `runId`s** → 2 `AlmanacRunRecord`s, no cross-run observations, each run's bridge subscriptions gone after its `runGame` returns (assert by publishing a stray `EncounterResolved` on the first run's `EventBus` after it returns and seeing no new fight).
+- Whole-chronicle `encode`→`decode` round-trip via `JsonFileAlmanacRepository` (temp file); no `<path>.tmp` left behind.
+- `almanac == null`: `runGame` result is byte-identical to a run without the parameter; assert `runGame` performs no repo IO (no `AlmanacRepository` / `JsonFileAlmanacRepository` referenced from `game_run.dart`) and no `HeadlessGameAlmanacBridge` is constructed; a determinism check (same seed+policy, `almanac == null`, twice → identical `RunResult`).
 
 ### 13.3 Golden / determinism protection
 
@@ -853,8 +977,8 @@ Each task = one commit, builds & tests green standalone. `dart format .` + `dart
 
 ### Phase 3 — repository (`almanac_repository.dart` + `almanac_file_repository.dart` + barrels)
 
-- [ ] **3.1** `almanac_repository.dart`: `AlmanacRepository` interface + `InMemoryAlmanacRepository`. Test `almanac_repository_test.dart`: in-memory save/load.
-- [ ] **3.2** `almanac_file_repository.dart`: `JsonFileAlmanacRepository` (`dart:io`). Test: temp-file save/load; missing file → empty; `save` mkdirs.
+- [ ] **3.1** `almanac_repository.dart`: `AlmanacRepository` interface (whole-state `load`/`save` only — §8.5) + `InMemoryAlmanacRepository`. Test `almanac_repository_test.dart`: in-memory save/load returns an equal state; no incremental/field-level API exists on the interface.
+- [ ] **3.2** `almanac_file_repository.dart`: `JsonFileAlmanacRepository` (`dart:io`) — `save` = serialize-complete-first → write `<path>.tmp` → `renameSync` (§8.3, §8.5). Test: temp-file save/load; missing file → empty; `save` mkdirs; no `<path>.tmp` remains after success; a `save` whose serialization throws leaves the prior file intact and readable.
 - [ ] **3.3** `lib/almanac.dart` (neutral barrel, §3.1) + `lib/almanac_file.dart` (`dart:io` barrel).
 - [ ] **3.4** Extend `test/integration/architecture_dependency_test.dart`: add `'almanac.dart'` **and** `'almanac_file.dart'` to `_pluginBarrels`. Run full arch test — green.
 - [ ] **3.5** `dart analyze` + `dart test`. Commit: `feat(almanac): repository abstraction + dart:io file repo behind own barrel`.
@@ -885,10 +1009,11 @@ Each task = one commit, builds & tests green standalone. `dart format .` + `dart
 
 ### Phase 7 — headless bridge + `runGame`
 
-- [ ] **7.1** `lib/src/plugins/almanac/` — nothing here; create `lib/src/plugins/game/almanac_bridge.dart` with `HeadlessGameAlmanacBridge` (constructor, counters, `attach`/`setRunProfile`/`detach`, `_maybeBeginRun`, `_buildSnapshot`). No `runGame` edit yet. Unit-test the bridge against a hand-driven `EventBus` + a minimal `PluginContext` (or a fake) — feed `TechniqueVariantMinted` etc. and assert recorder state.
-- [ ] **7.2** Add `AlmanacRecorder? almanac`, `String? runId`, `int? runNumber` params to `runGame`; wire steps §11.3 (1)-(4) behind `if (almanac != null)`. Add the `assert`.
-- [ ] **7.3** Run the golden/determinism checklist from Task 0.2 — must be **unchanged**. Run full `dart test`.
-- [ ] **7.4** `test/integration/almanac_run_history_test.dart` (§13.2). Commit: `feat(almanac): headless bridge + opt-in runGame wiring`.
+- [ ] **7.1** Create `lib/src/plugins/game/almanac_bridge.dart` with `HeadlessGameAlmanacBridge` exactly per §11.1: constructor `(recorder, {runId, runNumber, seed})`; instance-only run-local fields (`_encounterSeq`, `_encounterTurns`, `_buildSeq`, `_usageSeq`, `_trainingSeq`, `_lineageId`, `_physiqueId`, `_finalBuildId`, `_begun`, `_disposed`, `_subs`); `attach(EventBus, PluginContext, EntityId)` registering one handler per §11.2 row into `_subs` (guarded `if (_subs.isNotEmpty || _disposed) return;`); `setRunProfile({lineageId, physiqueId})`; `_maybeBeginRun`; `_nextBuildSeq`; `_masteryLevelOrNull`; `_buildSnapshot`; `detach()` (idempotent, sets `_disposed`, cancels every `_subs` entry, clears). **No `static` / library-scope subscription state.** No `runGame` edit yet.
+- [ ] **7.2** `almanac_bridge_lifecycle_test.dart` + `almanac_bridge_run_profile_test.dart` (§13.1) — hand-driven `EventBus` + minimal/fake `PluginContext` + a `character` id. Prove: one-observation-per-event; two sequential fresh-bridge cycles on one bus → no duplication / no cross-run leak; post-`detach` publishes are inert; double `detach` is safe; N cycles scale ×N; `beginRun` deferred until physique+lineage both known in either order.
+- [ ] **7.3** Add `AlmanacRecorder? almanac`, `String? runId`, `int? runNumber` to `runGame`; apply the **4 guarded edits** from §11.5 (construct after `events`; `attach(events, context, character)` after `character` created ~L158; `setRunProfile` after `learnStyle` ~L170; `_bridge?.detach()` in `buildResult` right after `events.publish(RunEnded(...))`). Add the `assert(runId != null && runNumber != null)`.
+- [ ] **7.4** Run the golden/determinism checklist from Task 0.2 — output must be **byte-identical** with `almanac == null`. Add a `runGame` determinism assertion (same seed+policy, no almanac, twice → equal `RunResult`).
+- [ ] **7.5** `test/integration/almanac_run_history_test.dart` (§13.2), including the two-sequential-runs / stale-subscription assertions. Commit: `feat(almanac): headless bridge + opt-in runGame wiring`.
 
 ### Phase 8 — architecture tests
 
@@ -927,9 +1052,12 @@ Each task = one commit, builds & tests green standalone. `dart format .` + `dart
 - [ ] `(runId, usageEventId)` / `(affixId, affixEventId)` / `(runId, trainingEventId)` keys; global id uniqueness not assumed.
 - [ ] Canonical facts monotonic; conflicting write-once value → `AlmanacIntegrityException`; no silent overwrite/merge.
 - [ ] `Minted`↔`Inspired` either order → one technique record, ancestry verbatim, `origin` `base`→`inspired` only.
-- [ ] Snapshots deeply isolated; query results unmodifiable; source/result mutation can't alter `AlmanacState`.
+- [ ] Snapshots deeply isolated; query results unmodifiable; source/result mutation can't alter `AlmanacState`; a valid later completion creates a new record instance, never mutates an exposed one.
 - [ ] Fight / build-snapshot identity is `(runId, opaque id)` + explicit `sequence`/`phase`; duplicates stay distinct; replay adds none.
 - [ ] Projections recomputable from ledgers; never updated without a ledger append.
+- [ ] **Run lifecycle** (§11.3): construct → attach (after `character`) → observe init → `setRunProfile` (lineage from composition, physique from `PhysiqueAssigned`) → `beginRun` once both known → passive observation → `RunEnded` finalize → `detach` in `buildResult` (single funnel for all 4 returns) → caller `repo.save`. `RunStarted` carries no metadata and is ignored.
+- [ ] **Subscription disposal** (§11.4): bridge owns every subscription; fresh bridge per `runGame`; `detach()` cancels all + `_disposed` guard; idempotent; no static listeners; two sequential runs never cross-observe; N attach/run/detach cycles scale ×N.
+- [ ] **Repository atomicity** (§8.5): whole-state `load`/`save` only, no incremental API; `JsonFileAlmanacRepository.save` serializes fully then temp-file + `renameSync`; a failed `save` leaves the prior complete file; no transactions/DB.
 - [ ] Affix model + queries + serialization present; **no** harness affix wiring (deliberate v1).
 - [ ] `BuildDna` deterministic, order-normalized, RNG/ML-free, `signature != buildId`, recomputable.
 - [ ] Serialization: schema version 1; missing file → empty; mismatch → `AlmanacSchemaVersionError`; round-trip stable.
@@ -944,11 +1072,36 @@ Each task = one commit, builds & tests green standalone. `dart format .` + `dart
 
 **None.** The plan is implementation-ready. The two items below were resolved during planning and are recorded here so an executor does not mistake them for open questions:
 
-1. **Style / martial-tradition has no domain event.** `learnStyle` grants tags only; `game_run.dart` holds `styleId` / `traditionId` as locals. Resolution: the bridge exposes `setRunProfile(lineageId, physiqueId)` and `runGame` calls it once (guarded by `almanac != null`) right after `learnStyle` (~`game_run.dart:170`), forwarding values it already holds. This is composition wiring, not identity management, and is within the spec §11 "runGame forwards to the bridge" allowance. No new gameplay event is introduced (spec §16).
+1. **Style / martial-tradition has no domain event.** `learnStyle` grants tags only; `game_run.dart` holds `styleId` / `traditionId` as locals. Consequence: the spec's *preferred* wiring (§11 option 1 — the caller builds the bridge, `runGame` never sees it) is **not viable**, because lineage is chosen inside `runGame` and no event carries it, so the bridge could never learn it. Resolution: adopt the spec's explicitly-**permitted** alternative (§11 option 2) — `runGame` takes `almanac` / `runId` / `runNumber` and constructs the bridge, and calls `bridge.setRunProfile(lineageId, physiqueId)` once (guarded by `almanac != null`) right after `learnStyle` (~`game_run.dart:170`), forwarding values it already holds. Still forbidden and still honoured: `runGame` never generates an id, never reads a repository, never computes `runNumber`. No new gameplay event is introduced (spec §16). `runGame` remains byte-identical when `almanac == null`.
 2. **`RunStarted` fires before physique/style are chosen** (`game_run.dart:143`). Resolution: the bridge defers `beginRun` until `setRunProfile` supplies the profile; `_maybeBeginRun` is idempotent. `RunStarted` itself is a no-op for the bridge.
+
+3. **`EncounterResolved` carries no `turnsUsed`.** Resolution: the bridge keeps a per-encounter `_encounterTurns` counter — `0` on `EncounterStarted`, `+1` on each `ActionCompleted` — and passes it to `recordFight`. This matches `combat_stage.dart`'s own `turnsUsed` definition ("actions executed, either side") without touching the private `battle` id. Not a gameplay change.
 
 Watch-items (not blockers — verify in Phase 0 against the live branch):
 
-- `EncounterResolved` does not carry `turnsUsed`; the bridge reads it from the `EncounterOutcome` the harness already records, or records `0`. Confirm the accessible source in Phase 0.1.
-- Per-instance mastery accessor is `context.mastery.levelOf(owner, techniqueInstanceSubject(instanceId))` — confirm `techniqueInstanceSubject` is exported from `technique_plugin.dart` (it is used in `technique_variant_lifecycle.dart`); if not exported, the bridge computes `masteryAtDiscovery: null` and the field stays `UNKNOWN` (spec-legal).
+- Per-instance mastery accessor `context.mastery.levelOf(owner, techniqueInstanceSubject(instanceId))` — confirm `techniqueInstanceSubject` is exported from `technique_plugin.dart` (used in `technique_variant_lifecycle.dart`); if not exported, `_masteryLevelOrNull` returns `null` and `masteryAtDiscovery` stays `UNKNOWN` (spec-legal).
+- `SubjectDiscovered` subject-suffix helpers: confirm the Technique/Item plugins export `techniqueSubjectId` / `itemSubjectId` (or equivalent inverse of `techniqueSubject` / `itemSubject`). If neither exists, add the discovery-row wiring in a follow-up rather than parsing the subject string in Almanac code (§1.5). The bridge still records everything else.
 - `ItemInstance` field names for `ItemInstanceSnapshot` (`definitionId`, `owner`, `itemClass`, `statBonuses`) — verified in `lib/src/plugins/item/item_instance.dart`; re-confirm in Phase 0.1.
+- `PhysiqueAssigned` import path for the bridge — it lives in `lib/src/plugins/physique/physique_events.dart`; confirm it is re-exported from `package:build_engine/physique_plugin.dart` (add that export in a tiny separate commit if missing — a barrel-only change, not gameplay).
+
+---
+
+## Implementation Readiness Checklist
+
+- [ ] **Architecture boundaries** — Almanac imports Core only; no gameplay plugin imports Almanac; `HeadlessGameAlmanacBridge` is the sole in-repo file importing both a gameplay plugin and Almanac; Core is unaware of Almanac; `TomeClientAlmanacAdapter` stays an external boundary. (§2, §12; arch tests §13.1 + Phase 8)
+- [ ] **Web-safe barrel** — `lib/almanac.dart` transitively free of `dart:io`; `dart:io` only in `almanac_file_repository.dart` behind `lib/almanac_file.dart`; no conditional exports; no Flutter/Flame/Devvit/`dart:html`/`dart:ui`/DB/backend. (§3; `almanac_platform_neutral_test.dart`)
+- [ ] **Opaque IDs** — no `split`/`startsWith`/regex/prefix parsing anywhere in `almanac/`; every relationship is an explicit stored field; arch test scans `almanac_recorder.dart` + `almanac_queries.dart`. (Global Constraints, §6; `almanac_id_opacity_test.dart`)
+- [ ] **Idempotency** — structural keys `(runId, usageEventId)`, `(affixId, affixEventId)`, `(runId, trainingEventId)`, plus `runId` / `fightId`-in-run / `buildId` / `instanceId` / `resultInstanceId` / `discoveryId` / `milestoneId`; no concatenated-string key whose parsing carries meaning; global uniqueness not assumed. (§6; `almanac_usage_uniqueness_domain_test.dart`)
+- [ ] **Monotonic history** — `UNKNOWN → KNOWN → FINAL`, `base → inspired`; contradictory established value → `AlmanacIntegrityException`; no silent overwrite; no merge/recovery subsystem. (§5.1, §5; `almanac_monotonic_completion_test.dart`, `almanac_contradiction_test.dart`)
+- [ ] **Deep immutability** — every stored `List`/`Set`/`Map` defensive-copied; query results `unmodifiable` / copies; a later completion yields a new value, never mutates a previously exposed record. (§7; `almanac_models_test.dart`, `almanac_immutability_test.dart`)
+- [ ] **Serialization** — schema version 1; `stateFromJson` version-checks first (`AlmanacSchemaVersionError`); `encode`/`decode` round-trip stable incl. every ledger; missing file → `const AlmanacState()`. (§8; `almanac_serialization_test.dart`)
+- [ ] **Run lifecycle** — explicit sequence construct → attach → observe-init → `setRunProfile` → `beginRun` (physique from `PhysiqueAssigned`, lineage from composition, either order) → observe → `RunEnded` finalize → `detach` (single `buildResult` funnel) → caller `save`; `RunStarted` ignored; recorder never sees `PluginContext`/repo. (§11.3; `almanac_bridge_run_profile_test.dart`)
+- [ ] **Subscription disposal** — bridge owns every `EventSubscription`; fresh bridge per `runGame`; `detach()` cancels all, sets `_disposed`, is idempotent; no static/module listeners; two sequential runs never cross-observe; repeated attach/run/detach scales exactly. (§11.4; `almanac_bridge_lifecycle_test.dart`)
+- [ ] **Repository atomicity** — whole-state `load`/`save` only, no incremental API; `JsonFileAlmanacRepository.save` = serialize-complete → `<path>.tmp` → `renameSync`; failed `save` leaves the prior complete file; no transactions/DB. (§8.5; `almanac_repository_test.dart`)
+- [ ] **SP0b ancestry** — `TechniqueVariantInspired` stored verbatim (`resultInstanceId`, `runId`, `familyId`, `descriptorIds`, `inspirerInstanceIds`), order preserved; never re-resolved, re-queried, or recomputed; no RNG in `almanac/`. (§6 of spec, §11.2; `almanac_inspiration_test.dart`)
+- [ ] **Build DNA** — deterministic, order-normalized, RNG-free, ML-free, `signature != buildId`, recomputable from the snapshot, never a uniqueness key. (§10; `almanac_build_dna_test.dart`)
+- [ ] **Headless adapter** — `_buildSnapshot` reads live Tome/component/mastery state in the bridge and passes only completed value objects; `TomeChanged` alone is not treated as sufficient — the bridge inspects `context.tome.inspect(character)` at snapshot time; no manufactured gameplay events; missing telemetry handled by bridge-local sequence/counter or `setRunProfile`. (§11.1–§11.2)
+- [ ] **`runGame` opt-in behavior** — 4 guarded edits only; `almanac == null` ⇒ no bridge, no subscriptions, no repo IO, byte-identical `RunResult`, determinism and `DecisionLog` replay unaffected. (§11.5; §13.2, §13.3)
+- [ ] **Architecture tests** — new `almanac_architecture_test.dart` + `almanac_platform_neutral_test.dart` + extended `architecture_dependency_test.dart` (`_pluginBarrels` += `almanac.dart`, `almanac_file.dart`; gameplay-plugin dirs vs `almanac`); no existing architecture test weakened. (Phase 8)
+- [ ] **Integration tests** — 3-run chronicle; same-seed-two-`runId` disjointness; two full `runGame(almanac:)` calls sharing one recorder with no cross-run leakage and no surviving subscriptions; whole-chronicle `JsonFile` round-trip with no `.tmp` residue. (§13.2)
+- [ ] **Determinism / regression tests** — pre-Phase-7 golden list captured; `almanac == null` output byte-identical before/after; `runGame` determinism assertion (same seed+policy twice → equal `RunResult`); no Almanac-caused gameplay-state mutation. (§13.3, Phase 7.4)
