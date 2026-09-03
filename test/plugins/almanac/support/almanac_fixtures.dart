@@ -145,3 +145,154 @@ DiscoverySnapshot discoverySnapshot({
 
 /// A fixed timestamp, so tests never depend on the wall clock.
 DateTime at(int day) => DateTime.utc(2026, 1, day);
+
+// -----------------------------------------------------------------------------
+// Record builders (added for the Phase 5 query API tests). Additive only:
+// every parameter is an opaque `String` id or a plain scalar so a test can
+// state a relationship as an argument and assert it as an explicit field.
+// -----------------------------------------------------------------------------
+
+AlmanacRunRecord runRecord({
+  required String runId,
+  int runNumber = 1,
+  int? seed,
+  String lineageId = 'lin-a',
+  String physiqueId = 'phy-a',
+  DateTime? startedAt,
+  DateTime? completedAt,
+  RunOutcome outcome = RunOutcome.won,
+  List<AlmanacFightRecord> fights = const [],
+  List<String> discoveryIds = const [],
+  List<TrainingObservation> trainingObservations = const [],
+  String? finalBuildId,
+  int enemiesDefeated = 0,
+  int techniquesUsed = 0,
+  int trainingSessions = 0,
+}) => AlmanacRunRecord(
+  runId: runId,
+  runNumber: runNumber,
+  seed: seed,
+  lineageId: lineageId,
+  physiqueId: physiqueId,
+  startedAt: startedAt ?? at(1),
+  completedAt: completedAt,
+  outcome: outcome,
+  fights: fights,
+  discoveryIds: discoveryIds,
+  trainingObservations: trainingObservations,
+  finalBuildId: finalBuildId,
+  enemiesDefeated: enemiesDefeated,
+  techniquesUsed: techniquesUsed,
+  trainingSessions: trainingSessions,
+);
+
+TechniqueUsageObservation usageObservation({
+  required String usageEventId,
+  required String runId,
+  int runNumber = 1,
+  required String instanceId,
+}) => TechniqueUsageObservation(
+  usageEventId: usageEventId,
+  runId: runId,
+  runNumber: runNumber,
+  instanceId: instanceId,
+);
+
+/// A technique record; `totalUsage` defaults to the number of usage
+/// observations and `runsUsed` defaults to their distinct run numbers.
+AlmanacTechniqueRecord techniqueRecord({
+  required String instanceId,
+  String baseFamilyId = 'fam-a',
+  String? styleId,
+  List<String> descriptorIds = const [],
+  Map<String, num> axisProfile = const {},
+  String? discoveredRunId,
+  int? discoveredRunNumber,
+  int? masteryAtDiscovery,
+  List<TechniqueUsageObservation> usageObservations = const [],
+  int? totalUsage,
+  List<int>? runsUsed,
+  TechniqueOrigin origin = TechniqueOrigin.base,
+}) => AlmanacTechniqueRecord(
+  instanceId: instanceId,
+  baseFamilyId: baseFamilyId,
+  styleId: styleId,
+  descriptorIds: descriptorIds,
+  axisProfile: axisProfile,
+  discoveredRunId: discoveredRunId,
+  discoveredRunNumber: discoveredRunNumber,
+  masteryAtDiscovery: masteryAtDiscovery,
+  usageObservations: usageObservations,
+  totalUsage: totalUsage ?? usageObservations.length,
+  runsUsed:
+      runsUsed ?? {for (final o in usageObservations) o.runNumber}.toList(),
+  origin: origin,
+);
+
+TechniqueInspirationHistory inspirationHistory({
+  required String resultInstanceId,
+  String runId = 'run-1',
+  String familyId = 'fam-a',
+  List<String> descriptorIds = const [],
+  List<String> inspirerInstanceIds = const [],
+}) => TechniqueInspirationHistory(
+  resultInstanceId: resultInstanceId,
+  runId: runId,
+  familyId: familyId,
+  descriptorIds: descriptorIds,
+  inspirerInstanceIds: inspirerInstanceIds,
+);
+
+AffixObservation affixObservation({
+  required String affixEventId,
+  required String runId,
+  int runNumber = 1,
+  String? lineageId,
+}) => AffixObservation(
+  affixEventId: affixEventId,
+  runId: runId,
+  runNumber: runNumber,
+  lineageId: lineageId,
+);
+
+/// An affix record; `timesDiscovered` / `timesUsed` default to the length of
+/// the matching observation ledger.
+AlmanacAffixRecord affixRecord({
+  required String affixId,
+  List<AffixObservation> discoveryObservations = const [],
+  List<AffixObservation> usageObservations = const [],
+  int? timesDiscovered,
+  int? timesUsed,
+  String? firstDiscoveredRunId,
+  List<String> associatedLineageIds = const [],
+  AffixSnapshot? snapshot,
+}) => AlmanacAffixRecord(
+  affixId: affixId,
+  discoveryObservations: discoveryObservations,
+  usageObservations: usageObservations,
+  timesDiscovered: timesDiscovered ?? discoveryObservations.length,
+  timesUsed: timesUsed ?? usageObservations.length,
+  firstDiscoveredRunId: firstDiscoveredRunId,
+  associatedLineageIds: associatedLineageIds,
+  snapshot: snapshot ?? AffixSnapshot(affixId: affixId, stat: 'atk', value: 1),
+);
+
+AlmanacDiscoveryRecord discoveryRecord({
+  required String discoveryId,
+  AlmanacDiscoveryType type = AlmanacDiscoveryType.technique,
+  required String contentId,
+  String? instanceId,
+  String runId = 'run-1',
+  int runNumber = 1,
+  DateTime? timestamp,
+  DiscoverySnapshot? snapshot,
+}) => AlmanacDiscoveryRecord(
+  discoveryId: discoveryId,
+  type: type,
+  contentId: contentId,
+  instanceId: instanceId,
+  runId: runId,
+  runNumber: runNumber,
+  timestamp: timestamp ?? at(1),
+  snapshot: snapshot ?? discoverySnapshot(),
+);
