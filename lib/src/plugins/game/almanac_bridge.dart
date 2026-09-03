@@ -265,6 +265,10 @@ class HeadlessGameAlmanacBridge {
 
   void _onRunEnded(RunEnded e) {
     if (_disposed) return;
+    // A driver that publishes `RunEnded` without ever supplying a run profile
+    // (no `setRunProfile` / `PhysiqueAssigned`) never began a run — clean
+    // no-op rather than a null-check throw on `_lineageId!`.
+    if (!_begun) return;
     final DateTime now = DateTime.now();
     final RunOutcome outcome = e.won ? RunOutcome.won : RunOutcome.lost;
     final AlmanacBuildRecord s = _buildSnapshot(

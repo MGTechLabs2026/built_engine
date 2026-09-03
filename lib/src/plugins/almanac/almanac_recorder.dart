@@ -576,10 +576,14 @@ class AlmanacRecorder {
   /// Records the first sighting of a technique instance. Re-delivering it is a
   /// no-op; a conflicting value for an already-set field throws.
   ///
-  /// `timestamp` is accepted for symmetry with the other discovery entry points
-  /// and deliberately goes nowhere: [AlmanacTechniqueRecord] carries no
-  /// timestamp, and `discoveredRunId` / `discoveredRunNumber` are the run
-  /// context the history actually keeps.
+  /// Folds the technique entry, then emits the `techniqueVariant` discovery row
+  /// (§7.1) keyed on the instance — a personalized variant is a distinct
+  /// historical discovery and is never collapsed onto its base family. The
+  /// technique fold runs first so a conflicting field rejects the write before
+  /// any row is emitted. `timestamp` flows into that emitted discovery row;
+  /// [AlmanacTechniqueRecord] itself carries no timestamp, and
+  /// `discoveredRunId` / `discoveredRunNumber` are the run context the technique
+  /// history keeps.
   void recordTechniqueDiscovered({
     required String instanceId,
     required String baseFamilyId,
@@ -591,17 +595,43 @@ class AlmanacRecorder {
     required String runId,
     required int runNumber,
     required DateTime timestamp,
-  }) => _upsertTechnique(
-    instanceId: instanceId,
-    baseFamilyId: baseFamilyId,
-    styleId: styleId,
-    descriptorIds: descriptorIds,
-    axisProfile: axisProfile,
-    discoveredRunId: runId,
-    discoveredRunNumber: runNumber,
-    masteryAtDiscovery: masteryAtDiscovery,
-    origin: origin,
-  );
+  }) {
+    _upsertTechnique(
+      instanceId: instanceId,
+      baseFamilyId: baseFamilyId,
+      styleId: styleId,
+      descriptorIds: descriptorIds,
+      axisProfile: axisProfile,
+      discoveredRunId: runId,
+      discoveredRunNumber: runNumber,
+      masteryAtDiscovery: masteryAtDiscovery,
+      origin: origin,
+    );
+    _upsertDiscovery(
+      AlmanacDiscoveryRecord(
+        discoveryId: _discoveryId(
+          AlmanacDiscoveryType.techniqueVariant,
+          instanceId,
+        ),
+        type: AlmanacDiscoveryType.techniqueVariant,
+        contentId: instanceId,
+        instanceId: instanceId,
+        runId: runId,
+        runNumber: runNumber,
+        timestamp: timestamp,
+        snapshot: DiscoverySnapshot(
+          label: baseFamilyId,
+          values: <String, Object?>{
+            'baseFamilyId': baseFamilyId,
+            if (styleId != null) 'styleId': styleId,
+            'descriptorIds': [...descriptorIds],
+            'axisProfile': {...axisProfile},
+            'origin': origin.name,
+          },
+        ),
+      ),
+    );
+  }
 
   /// Appends one technique use, keyed structurally by
   /// `(runId, usageEventId)` — the same opaque `usageEventId` under two runs is
@@ -879,8 +909,15 @@ class AlmanacRecorder {
       usageObservations: usage,
       timesDiscovered: discoveries.length,
       timesUsed: usage.length,
+      // §5.6/§7.1: the discovery observation with the smallest `runNumber`
+      // (not merely the first delivered). `reduce` keeps `a` on a tie, so the
+      // earlier-inserted observation wins a `runNumber` draw.
       firstDiscoveredRunId:
-          discoveries.isEmpty ? null : discoveries.first.runId,
+          discoveries.isEmpty
+              ? null
+              : discoveries
+                  .reduce((a, b) => b.runNumber < a.runNumber ? b : a)
+                  .runId,
       associatedLineageIds: lineageIds,
       snapshot:
           entry.snapshot ??
@@ -996,12 +1033,10 @@ class AlmanacRecorder {
     // milestones appear in a stable order in `state.milestones`.
     mint(MilestoneType.firstRun);
     if (won) mint(MilestoneType.firstVictory);
-    if (_discoveries.values.any(
-      (AlmanacDiscoveryRecord d) =>
-          d.type == AlmanacDiscoveryType.techniqueVariant,
-    )) {
-      mint(MilestoneType.firstTechniqueVariant);
-    }
+    // §7.3: "first technique record ever." Defined on the technique ledger
+    // itself, not on row emission (Fix 1 makes the two equivalent in a real
+    // run, but this is the spec's stated definition).
+    if (_techniques.isNotEmpty) mint(MilestoneType.firstTechniqueVariant);
     if (_inspirations.isNotEmpty) mint(MilestoneType.firstInspiredTechnique);
     if (_affixes.isNotEmpty) mint(MilestoneType.firstAffix);
     if (won) mint(MilestoneType.firstWinWithLineage, contextId: lineageId);

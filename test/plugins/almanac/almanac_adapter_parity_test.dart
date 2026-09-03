@@ -148,8 +148,9 @@ class _EndRun extends _Step {
   final bool won;
 }
 
-/// A small but complete run: 2 fights, 1 base technique with 2 uses, 1
-/// inspiration, 1 training session, 2 item discoveries, an `initial` /
+/// A small but complete run: 2 fights, 1 base technique with 2 uses (also
+/// emitting its `techniqueVariant` discovery row), 1 inspiration, 1 training
+/// session, 2 item discoveries, an `initial` /
 /// `postReward` / `postTraining` / `finalBuild` snapshot each, plus run
 /// completion and standard-milestone evaluation.
 List<_Step> _demoScript() => <_Step>[
@@ -805,8 +806,16 @@ List<String> _project(AlmanacState s) {
   }
 
   for (final AlmanacDiscoveryRecord d in s.discoveries) {
+    // A `techniqueVariant` row is keyed on the per-adapter opaque instance id
+    // (contentId == instanceId), so canonicalize it to the technique ordinal
+    // the same way `d.instanceId` is — the projection never compares raw
+    // adapter ids.
+    final String content =
+        d.type == AlmanacDiscoveryType.techniqueVariant
+            ? tech(d.contentId)
+            : d.contentId;
     rows.add(
-      'disc|${d.type.name}|${d.contentId}|${tech(d.instanceId)}|${d.runNumber}|'
+      'disc|${d.type.name}|$content|${tech(d.instanceId)}|${d.runNumber}|'
       '${d.snapshot.label}',
     );
   }
@@ -878,7 +887,9 @@ void main() {
     expect(rs.runs.single.fights, hasLength(2));
     expect(rs.techniques, hasLength(2));
     expect(rs.inspirations, hasLength(1));
-    expect(rs.discoveries, hasLength(2));
+    // 2 item discoveries + 1 techniqueVariant row from the base technique's
+    // `recordTechniqueDiscovered` (§7.1).
+    expect(rs.discoveries, hasLength(3));
     expect(rs.builds, hasLength(4));
     expect(rs.milestones, isNotEmpty);
     expect(rs.runs.single.trainingSessions, equals(1));

@@ -134,8 +134,21 @@ void main() {
     expect(run.trainingObservations, hasLength(1));
     expect(run.outcome, equals(RunOutcome.won));
     expect(run.finalBuildId, isNotNull);
-    expect(state.discoveries, hasLength(1));
-    expect(state.discoveries.single.contentId, equals('knife'));
+    // The item discovery plus the `techniqueVariant` row emitted by the
+    // minted technique (§7.1).
+    expect(state.discoveries, hasLength(2));
+    expect(
+      state.discoveries
+          .firstWhere((d) => d.type == AlmanacDiscoveryType.item)
+          .contentId,
+      equals('knife'),
+    );
+    expect(
+      state.discoveries
+          .firstWhere((d) => d.type == AlmanacDiscoveryType.techniqueVariant)
+          .contentId,
+      equals('50'),
+    );
     expect(state.inspirations, hasLength(1));
     // minted (50) + inspired result (60) + usage-created (70)
     expect(

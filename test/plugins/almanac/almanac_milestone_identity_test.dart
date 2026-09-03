@@ -6,6 +6,7 @@
 library;
 
 import 'package:build_engine/src/plugins/almanac/almanac_models.dart';
+import 'package:build_engine/src/plugins/almanac/almanac_queries.dart';
 import 'package:build_engine/src/plugins/almanac/almanac_recorder.dart';
 import 'package:test/test.dart';
 
@@ -297,6 +298,107 @@ void main() {
         ).single.runNumber,
         4,
       );
+    });
+  });
+
+  group('techniqueVariant discovery row (§7.1) + firstTechniqueVariant', () {
+    void discoverTechnique(
+      AlmanacRecorder recorder, {
+      required String instanceId,
+      String runId = 'run-1',
+      int runNumber = 1,
+    }) => recorder.recordTechniqueDiscovered(
+      instanceId: instanceId,
+      baseFamilyId: 'fam-a',
+      styleId: 'style-x',
+      descriptorIds: const ['d1'],
+      axisProfile: const {'power': 2},
+      origin: TechniqueOrigin.base,
+      masteryAtDiscovery: 1,
+      runId: runId,
+      runNumber: runNumber,
+      timestamp: at(runNumber),
+    );
+
+    test('recordTechniqueDiscovered emits one run-linked techniqueVariant row, '
+        'keyed on the instance; a re-mint of the same instance is a no-op', () {
+      final recorder = AlmanacRecorder();
+      discoverTechnique(recorder, instanceId: 'ti-1');
+
+      final variants =
+          AlmanacQueries(recorder.state)
+              .getDiscoveries()
+              .where((d) => d.type == AlmanacDiscoveryType.techniqueVariant)
+              .toList();
+      expect(variants, hasLength(1));
+      final row = variants.single;
+      expect(row.contentId, 'ti-1');
+      expect(row.instanceId, 'ti-1');
+      expect(row.snapshot.label, 'fam-a');
+      // Linked to the run it was discovered in.
+      final run = recorder.state.runs.firstWhere((r) => r.runId == 'run-1');
+      expect(run.discoveryIds, contains('techniqueVariant:ti-1'));
+
+      // Second call for the same instance: still exactly one row.
+      discoverTechnique(recorder, instanceId: 'ti-1');
+      expect(
+        AlmanacQueries(recorder.state)
+            .getDiscoveries()
+            .where((d) => d.type == AlmanacDiscoveryType.techniqueVariant)
+            .length,
+        1,
+      );
+    });
+
+    test('evaluateStandardMilestones mints firstTechniqueVariant after the '
+        'first technique record ever, and never again', () {
+      final recorder = AlmanacRecorder();
+
+      // No technique yet -> no firstTechniqueVariant.
+      recorder.evaluateStandardMilestones(
+        runId: 'run-1',
+        runNumber: 1,
+        outcome: RunOutcome.lost,
+        lineageId: 'western',
+        timestamp: at(1),
+      );
+      expect(_matching(recorder, MilestoneType.firstTechniqueVariant), isEmpty);
+
+      // First technique -> milestone minted at run 2.
+      discoverTechnique(
+        recorder,
+        instanceId: 'ti-1',
+        runId: 'run-2',
+        runNumber: 2,
+      );
+      recorder.evaluateStandardMilestones(
+        runId: 'run-2',
+        runNumber: 2,
+        outcome: RunOutcome.lost,
+        lineageId: 'western',
+        timestamp: at(2),
+      );
+      final earned = _matching(recorder, MilestoneType.firstTechniqueVariant);
+      expect(earned, hasLength(1));
+      expect(earned.single.runNumber, 2);
+
+      // A later technique + evaluation leaves the established record untouched.
+      discoverTechnique(
+        recorder,
+        instanceId: 'ti-2',
+        runId: 'run-5',
+        runNumber: 5,
+      );
+      recorder.evaluateStandardMilestones(
+        runId: 'run-5',
+        runNumber: 5,
+        outcome: RunOutcome.won,
+        lineageId: 'western',
+        timestamp: at(5),
+      );
+      final still = _matching(recorder, MilestoneType.firstTechniqueVariant);
+      expect(still, hasLength(1));
+      expect(still.single.runNumber, 2);
     });
   });
 }

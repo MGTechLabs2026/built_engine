@@ -84,6 +84,19 @@ void main() {
     expect(recorder.state.runs.single.physiqueId, equals('phy-a'));
   });
 
+  test(
+    'RunEnded before any run profile is a clean no-op, not a null throw',
+    () {
+      expect(
+        () => events.publish(RunEnded(won: true, encounterCount: 0)),
+        returnsNormally,
+      );
+      expect(recorder.state.runs, isEmpty);
+      expect(recorder.state.milestones, isEmpty);
+      expect(recorder.state.builds, isEmpty);
+    },
+  );
+
   test('beginRun is emitted only once even with repeated profile signals', () {
     events.publish(PhysiqueAssigned(character, 'phy-a'));
     bridge.setRunProfile(lineageId: 'western', physiqueId: 'phy-a');

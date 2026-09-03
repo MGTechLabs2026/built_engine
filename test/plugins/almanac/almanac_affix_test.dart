@@ -53,6 +53,26 @@ void main() {
       expect(affix.snapshot, _snapshot);
     });
 
+    test('firstDiscoveredRunId is the observation with the smallest runNumber, '
+        'not the first delivered', () {
+      final recorder = AlmanacRecorder();
+      // Delivered out of runNumber order: 3, then 1, then 2.
+      for (final observation in [
+        _seen('ae-run3', runId: 'run-3', runNumber: 3, lineageId: 'western'),
+        _seen('ae-run1', runId: 'run-1', runNumber: 1, lineageId: 'western'),
+        _seen('ae-run2', runId: 'run-2', runNumber: 2, lineageId: 'eastern'),
+      ]) {
+        recorder.recordAffixDiscovered(
+          affixId: 'af-1',
+          observation: observation,
+          snapshot: _snapshot,
+          timestamp: at(1),
+        );
+      }
+
+      expect(recorder.state.affixes.single.firstDiscoveredRunId, 'run-1');
+    });
+
     test('repeating an affixEventId leaves the record unchanged', () {
       final recorder =
           AlmanacRecorder()

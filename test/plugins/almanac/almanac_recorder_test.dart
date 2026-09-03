@@ -356,6 +356,7 @@ void main() {
       expect(state.inspirations, hasLength(1));
       expect(state.affixes, hasLength(1));
       expect(state.discoveries.map((d) => d.discoveryId).toList(), [
+        'techniqueVariant:ti-1',
         'item:iron_sword',
         'lineage:western',
       ]);
@@ -401,7 +402,11 @@ void main() {
 
     test('the run index links the discoveries recorded during it', () {
       final run = driveEverything().state.runs.single;
-      expect(run.discoveryIds, ['item:iron_sword', 'lineage:western']);
+      expect(run.discoveryIds, [
+        'techniqueVariant:ti-1',
+        'item:iron_sword',
+        'lineage:western',
+      ]);
     });
   });
 
