@@ -324,6 +324,18 @@ void main() {
     bus.subscribe<RewardSelected>(rewardsSelected.add);
     bus.subscribe<RunEnded>(runEnded.add);
 
+    // M3 (§13.2): probe how many postReward records exist for this run at the
+    // instant each RewardSelected is published — proving RewardSelected
+    // precedes the postReward record's creation, not just the Tome mutation.
+    final postRewardCountAtSelection = <int>[];
+    bus.subscribe<RewardSelected>((_) {
+      postRewardCountAtSelection.add(
+        recorder.state.builds
+            .where((b) => b.runId == 'rw' && b.phase == BuildPhase.postReward)
+            .length,
+      );
+    });
+
     runGame(
       1,
       policy: const _ForceItemReward(),
@@ -359,6 +371,27 @@ void main() {
     // mutation — never the snapshot trigger); RunEnded fired once.
     expect(rewardsSelected, isNotEmpty);
     expect(runEnded, hasLength(1));
+
+    // M3 (§13.2): at the k-th RewardSelected the recorder holds at most k-1
+    // postReward records for this run — this cycle's record is created only
+    // later, by recordBuildPhase(postReward) after the Tome mutation. The
+    // count is monotonic non-decreasing and starts at 0.
+    expect(postRewardCountAtSelection, isNotEmpty);
+    expect(postRewardCountAtSelection.first, equals(0));
+    for (var i = 0; i < postRewardCountAtSelection.length; i++) {
+      expect(postRewardCountAtSelection[i], lessThanOrEqualTo(i));
+      if (i > 0) {
+        expect(
+          postRewardCountAtSelection[i],
+          greaterThanOrEqualTo(postRewardCountAtSelection[i - 1]),
+        );
+      }
+    }
+    // …and by run end those postReward records do exist (non-zero after).
+    expect(
+      postRewards.length,
+      greaterThanOrEqualTo(postRewardCountAtSelection.length),
+    );
     // postReward sequences are 0,1,2,… in first-seen order.
     expect(
       postRewards.map((b) => b.sequence),
@@ -420,6 +453,47 @@ void main() {
         expect(_occupants(finalBuild), contains(evolved));
       }
     }
+
+    // M4 (§13.2 "Full-run ordering by contents"): order this run's build
+    // records by phase progression then per-phase sequence, and assert the
+    // full monotonic superset chain
+    //   initial ⊆ postReward₁ ⊆ … ⊆ postTraining ⊆ finalBuild
+    // over the occupied (slotId → occupantRefId) set — no equipped
+    // item/technique is silently lost between two snapshots within a run.
+    // Selected and ordered by explicit fields only; no buildId is parsed.
+    final chain =
+        state.builds.where((b) => b.runId == 'tr').toList()..sort((x, y) {
+          final byPhase = x.phase.index.compareTo(y.phase.index);
+          return byPhase != 0 ? byPhase : x.sequence.compareTo(y.sequence);
+        });
+    // initial + at least one postTraining + finalBuild.
+    expect(chain.length, greaterThanOrEqualTo(3));
+    Map<String, String?> occupied(AlmanacBuildRecord b) => {
+      for (final s in b.tome.slots)
+        if (s.occupantRefId != null) s.slotId: s.occupantRefId,
+    };
+    for (var i = 1; i < chain.length; i++) {
+      final prev = occupied(chain[i - 1]);
+      final curr = occupied(chain[i]);
+      for (final entry in prev.entries) {
+        // The fixture (TrainAfterFirstCombatPolicy) only ever grows the kit —
+        // no manageTome() unequip — so every prior (slotId → occupant) pair
+        // survives verbatim into the next snapshot.
+        expect(
+          curr[entry.key],
+          equals(entry.value),
+          reason:
+              'occupant ${entry.value} in slot ${entry.key} vanished between '
+              '${chain[i - 1].phase.name}#${chain[i - 1].sequence} and '
+              '${chain[i].phase.name}#${chain[i].sequence}',
+        );
+      }
+      // Weaker whole-set monotonicity too (an occupant may change slots).
+      expect(
+        _occupants(chain[i]).containsAll(_occupants(chain[i - 1])),
+        isTrue,
+      );
+    }
   });
 
   test('almanac == null: runGame does no repo IO and constructs no bridge; '
@@ -450,6 +524,31 @@ void main() {
       equals(
         a.encounters.map(
           (e) => (e.name, e.enemyId, e.won, e.playerHealthAfter),
+        ),
+      ),
+    );
+
+    // M2 (§13.2): the opt-in params default to a byte-identical run — proven
+    // in this file, not by leaning on test/game/game_run_test.dart.
+    // `decisionLog` has no value `==`, so compare its canonical text form;
+    // `tomeHistory` / `trainingRecords` via explicit-field projections.
+    expect(
+      saveDecisionLog(b.decisionLog),
+      equals(saveDecisionLog(a.decisionLog)),
+    );
+    List<String> tomeHistory(RunResult r) => [
+      for (final s in r.tomeHistory)
+        '${s.afterStep}|'
+            '${[for (final c in s.components) '${c.referenceType}:${c.contentId}'].join(",")}',
+    ];
+    expect(tomeHistory(b), equals(tomeHistory(a)));
+    expect(
+      b.trainingRecords.map(
+        (t) => (t.subject, t.attemptCount, t.averageQuality, t.gain),
+      ),
+      equals(
+        a.trainingRecords.map(
+          (t) => (t.subject, t.attemptCount, t.averageQuality, t.gain),
         ),
       ),
     );
