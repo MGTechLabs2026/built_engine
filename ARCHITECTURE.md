@@ -538,10 +538,12 @@ consulted during play.
 **Passive-observer / adapter model.** There is one shared
 `AlmanacRecorder`. In this repo the only adapter is
 `HeadlessGameAlmanacBridge` (`lib/src/plugins/game/almanac_bridge.dart`)
-— a composition-layer object, and the *only* in-repo file that imports
-both a gameplay plugin and the Almanac. It subscribes to 9
-domain/composition events and translates each into a recorder call; it
-carries no Almanac logic of its own. The real client repo holds its own
+— a composition-layer object, and the *only* in-repo file that carries
+Almanac translation logic while importing a gameplay plugin (`game_run.dart`
+imports the neutral `almanac.dart` barrel too, but only for the
+`AlmanacRecorder?` parameter type it passes straight through). It
+subscribes to 9 domain/composition events and translates each into a
+recorder call; it carries no Almanac logic of its own. The real client repo holds its own
 `TomeClientAlmanacAdapter` honouring the identical recorder contract —
 this repo defines that contract and proves parity with a synthetic
 adapter test, but does not ship the client adapter.
@@ -565,7 +567,7 @@ is handed everything it needs.
 
 **Canonical facts are identity-stable and monotonic.** A later
 observation of the same fact may fill a field that was `UNKNOWN`, append
-an element to a ledger, or advance a build's `origin` from `base` to
+an element to a ledger, or advance a technique's `origin` from `base` to
 `inspired`. A *conflicting* write to an already-established write-once
 value is rejected: the established value is retained and an
 `AlmanacIntegrityException` is raised. There is no silent overwrite and
