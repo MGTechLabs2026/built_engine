@@ -34,6 +34,7 @@
 /// already established.
 library;
 
+export 'src/plugins/game/almanac_bridge.dart';
 export 'src/plugins/game/balance_signals.dart';
 export 'src/plugins/game/combat_stage.dart';
 export 'src/plugins/game/decision_log.dart';
