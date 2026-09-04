@@ -281,4 +281,125 @@ void main() {
       );
     });
   });
+
+  group('run-linked runNumber consistency', () {
+    var useSeq = 0;
+    TechniqueUsageObservation use(String runId, int runNumber) =>
+        TechniqueUsageObservation(
+          usageEventId: 'u${useSeq++}',
+          runId: runId,
+          runNumber: runNumber,
+          instanceId: 'ti-1',
+        );
+
+    test('an observation runNumber that disagrees with the run is refused', () {
+      final recorder =
+          AlmanacRecorder()..beginRun(
+            runId: 'run-1',
+            runNumber: 10,
+            lineageId: 'western',
+            physiqueId: 'phy-a',
+            startedAt: at(1),
+          );
+      final before = recorder.state;
+
+      expect(
+        () => recorder.recordTechniqueUsed(use('run-1', 999)),
+        throwsA(
+          isA<AlmanacIntegrityException>().having(
+            (e) => e.field,
+            'field',
+            'runNumber',
+          ),
+        ),
+      );
+      expect(recorder.state, before);
+    });
+
+    test('order-independent: observation first, then a disagreeing beginRun '
+        'is refused', () {
+      final recorder = AlmanacRecorder()..recordTechniqueUsed(use('run-1', 7));
+
+      expect(
+        () => recorder.beginRun(
+          runId: 'run-1',
+          runNumber: 8,
+          lineageId: 'western',
+          physiqueId: 'phy-a',
+          startedAt: at(1),
+        ),
+        throwsA(
+          isA<AlmanacIntegrityException>().having(
+            (e) => e.field,
+            'field',
+            'runNumber',
+          ),
+        ),
+      );
+    });
+
+    test('two observations for one run with different runNumbers are '
+        'refused', () {
+      final recorder = AlmanacRecorder()..recordTechniqueUsed(use('run-1', 3));
+      expect(
+        () => recorder.recordTechniqueUsed(use('run-1', 4)),
+        throwsA(isA<AlmanacIntegrityException>()),
+      );
+    });
+
+    test('a consistent runNumber in any order is accepted', () {
+      final recorder =
+          AlmanacRecorder()
+            ..recordTechniqueUsed(use('run-1', 5))
+            ..beginRun(
+              runId: 'run-1',
+              runNumber: 5,
+              lineageId: 'western',
+              physiqueId: 'phy-a',
+              startedAt: at(1),
+            )
+            ..recordTechniqueUsed(use('run-1', 5))
+            ..recordTrainingSession(
+              const TrainingObservation(
+                trainingEventId: 't0',
+                runId: 'run-1',
+                runNumber: 5,
+              ),
+            );
+
+      final run = recorder.state.runs.single;
+      expect(run.runNumber, 5);
+      expect(recorder.state.techniques.single.totalUsage, 2);
+    });
+
+    test('recordTechniqueDiscovered is atomic — a run-number clash leaves '
+        'neither the technique nor the discovery committed', () {
+      final recorder =
+          AlmanacRecorder()..beginRun(
+            runId: 'run-1',
+            runNumber: 10,
+            lineageId: 'western',
+            physiqueId: 'phy-a',
+            startedAt: at(1),
+          );
+      final before = recorder.state;
+
+      expect(
+        () => recorder.recordTechniqueDiscovered(
+          instanceId: 'ti-1',
+          baseFamilyId: 'fam-a',
+          descriptorIds: ['d1'],
+          axisProfile: {'power': 1},
+          origin: TechniqueOrigin.base,
+          runId: 'run-1',
+          runNumber: 999,
+          timestamp: at(2),
+        ),
+        throwsA(isA<AlmanacIntegrityException>()),
+      );
+      expect(recorder.state, before);
+      expect(recorder.state.techniques, isEmpty);
+      expect(recorder.state.discoveries, isEmpty);
+    });
+  });
 }

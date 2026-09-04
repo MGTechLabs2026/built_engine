@@ -176,7 +176,15 @@ void main() {
         'run-1',
         'run-2',
       ]);
-      expect(recorder.state.runs.map((r) => r.runId).toList(), isEmpty);
+      // Each usage observation now materialises its run provisionally (as a
+      // fight / training observation already does), carrying only the
+      // runNumber it supplied — bound by the explicit `runId`, never by the
+      // `run-9` text in the `usageEventId`.
+      expect(recorder.state.runs.map((r) => r.runId).toList(), [
+        'run-1',
+        'run-2',
+      ]);
+      expect(recorder.state.runs.map((r) => r.runNumber).toList(), [1, 2]);
     });
 
     test('a fightId naming another run binds to its explicit runId', () {

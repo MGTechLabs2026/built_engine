@@ -147,6 +147,13 @@ class _AffixEntry {
 /// still unknown, and the later declaration fills them through the ordinary
 /// monotonic path.
 ///
+/// Order-independent does not mean contradiction-tolerant. A run-linked record
+/// carries an explicit `runNumber` (§5.6.1); the first one seen for a `runId` —
+/// an observation, a discovery row, or [beginRun] — fixes that run's number,
+/// and every later run-linked record, [beginRun] included, must supply the same
+/// value or an [AlmanacIntegrityException] is raised. A caller therefore passes
+/// one consistent `runNumber` for a run's whole lifetime, in any order.
+///
 /// That tolerance does **not** survive persistence. [AlmanacState] and the
 /// model records it holds have no representation for "unknown", so
 /// [AlmanacRecorder.state] materialises an undeclared field as a sentinel —
@@ -459,16 +466,19 @@ class AlmanacRecorder {
     json: (AlmanacFightRecord record) => record.toJson(),
   );
 
-  void _addTrainingObservation(TrainingObservation observation) =>
-      _appendUnique(
-        _runEntry(observation.runId).training,
-        observation.trainingEventId,
-        observation,
-        label:
-            'TrainingObservation(runId=${observation.runId},'
-            'trainingEventId=${observation.trainingEventId})',
-        identityField: 'trainingEventId',
-      );
+  void _addTrainingObservation(TrainingObservation observation) {
+    final String label =
+        'TrainingObservation(runId=${observation.runId},'
+        'trainingEventId=${observation.trainingEventId})';
+    _noteRunNumber(label, observation.runId, observation.runNumber);
+    _appendUnique(
+      _runEntry(observation.runId).training,
+      observation.trainingEventId,
+      observation,
+      label: label,
+      identityField: 'trainingEventId',
+    );
+  }
 
   /// Indexes [discoveryId] under its run. The run entry is created on demand,
   /// exactly as [_addFight] and [_addTrainingObservation] do, so a discovery
@@ -482,6 +492,21 @@ class AlmanacRecorder {
 
   _RunEntry _runEntry(String runId) =>
       _runs.putIfAbsent(runId, () => _RunEntry(runId));
+
+  /// Reconciles a run-linked record's `runNumber` with the run's own, in
+  /// whichever order they arrive. The first run-linked record — an observation,
+  /// a discovery row, or `beginRun` — fixes the run's number; every later one,
+  /// `beginRun` included, must supply the same value or an
+  /// [AlmanacIntegrityException] is raised (via [_fill], the same write-once
+  /// rule every other canonical field uses). `runNumber` is explicit relational
+  /// metadata (§5.6.1), never parsed out of an id. The run entry is
+  /// materialised on demand, exactly as [_addFight] / [_addTrainingObservation]
+  /// already do, so a run seen only through observations still carries a
+  /// coherent number.
+  void _noteRunNumber(String record, String runId, int runNumber) {
+    final _RunEntry entry = _runEntry(runId);
+    entry.runNumber = _fill(record, 'runNumber', entry.runNumber, runNumber);
+  }
 
   AlmanacRunRecord _runRecord(_RunEntry entry, int techniquesUsed) {
     final List<AlmanacFightRecord> fights = entry.fights.values.toList();
@@ -578,10 +603,14 @@ class AlmanacRecorder {
   ///
   /// Folds the technique entry, then emits the `techniqueVariant` discovery row
   /// (§7.1) keyed on the instance — a personalized variant is a distinct
-  /// historical discovery and is never collapsed onto its base family. The
-  /// technique fold runs first so a conflicting field rejects the write before
-  /// any row is emitted. `timestamp` flows into that emitted discovery row;
-  /// [AlmanacTechniqueRecord] itself carries no timestamp, and
+  /// historical discovery and is never collapsed onto its base family.
+  ///
+  /// Every conflict is checked before anything is committed: the technique fold
+  /// ([_mergeTechnique], pure) and the `runNumber` reconciliation both throw
+  /// while the maps are still untouched, so a rejected call leaves the recorder
+  /// exactly as it was — the same validate-then-commit shape as
+  /// [recordTechniqueInspired]. `timestamp` flows into the emitted discovery
+  /// row; [AlmanacTechniqueRecord] itself carries no timestamp, and
   /// `discoveredRunId` / `discoveredRunNumber` are the run context the technique
   /// history keeps.
   void recordTechniqueDiscovered({
@@ -596,7 +625,9 @@ class AlmanacRecorder {
     required int runNumber,
     required DateTime timestamp,
   }) {
-    _upsertTechnique(
+    // 1. Validate the technique fold — pure, throws on a write-once conflict,
+    //    touches no map.
+    final _TechniqueEntry merged = _mergeTechnique(
       instanceId: instanceId,
       baseFamilyId: baseFamilyId,
       styleId: styleId,
@@ -607,30 +638,38 @@ class AlmanacRecorder {
       masteryAtDiscovery: masteryAtDiscovery,
       origin: origin,
     );
-    _upsertDiscovery(
-      AlmanacDiscoveryRecord(
-        discoveryId: _discoveryId(
-          AlmanacDiscoveryType.techniqueVariant,
-          instanceId,
-        ),
-        type: AlmanacDiscoveryType.techniqueVariant,
-        contentId: instanceId,
-        instanceId: instanceId,
-        runId: runId,
-        runNumber: runNumber,
-        timestamp: timestamp,
-        snapshot: DiscoverySnapshot(
-          label: baseFamilyId,
-          values: <String, Object?>{
-            'baseFamilyId': baseFamilyId,
-            if (styleId != null) 'styleId': styleId,
-            'descriptorIds': [...descriptorIds],
-            'axisProfile': {...axisProfile},
-            'origin': origin.name,
-          },
-        ),
+    final AlmanacDiscoveryRecord row = AlmanacDiscoveryRecord(
+      discoveryId: _discoveryId(
+        AlmanacDiscoveryType.techniqueVariant,
+        instanceId,
+      ),
+      type: AlmanacDiscoveryType.techniqueVariant,
+      contentId: instanceId,
+      instanceId: instanceId,
+      runId: runId,
+      runNumber: runNumber,
+      timestamp: timestamp,
+      snapshot: DiscoverySnapshot(
+        label: baseFamilyId,
+        values: <String, Object?>{
+          'baseFamilyId': baseFamilyId,
+          if (styleId != null) 'styleId': styleId,
+          'descriptorIds': [...descriptorIds],
+          'axisProfile': {...axisProfile},
+          'origin': origin.name,
+        },
       ),
     );
+    // 2. Validate the run-number relation for the row we are about to emit.
+    _noteRunNumber(
+      'AlmanacDiscoveryRecord(discoveryId=${row.discoveryId})',
+      runId,
+      runNumber,
+    );
+    // 3. Both checks passed — commit. Neither step can throw now: the merge is
+    //    done, and a re-encountered discovery row is a silent no-op (§6).
+    _techniques[instanceId] = merged;
+    _upsertDiscovery(row);
   }
 
   /// Appends one technique use, keyed structurally by
@@ -775,6 +814,10 @@ class AlmanacRecorder {
   }
 
   void _consumeUsageObservation(TechniqueUsageObservation observation) {
+    final String label =
+        'TechniqueUsageObservation(runId=${observation.runId},'
+        'usageEventId=${observation.usageEventId})';
+    _noteRunNumber(label, observation.runId, observation.runNumber);
     final _TechniqueEntry entry = _techniques.putIfAbsent(
       observation.instanceId,
       () => _TechniqueEntry(observation.instanceId),
@@ -783,9 +826,7 @@ class AlmanacRecorder {
       entry.usage,
       (runId: observation.runId, usageEventId: observation.usageEventId),
       observation,
-      label:
-          'TechniqueUsageObservation(runId=${observation.runId},'
-          'usageEventId=${observation.usageEventId})',
+      label: label,
       identityField: 'usageEventId',
     );
   }
@@ -877,6 +918,10 @@ class AlmanacRecorder {
     AffixObservation observation, {
     required bool discovered,
   }) {
+    final String label =
+        'AffixObservation(affixId=$affixId,'
+        'affixEventId=${observation.affixEventId})';
+    _noteRunNumber(label, observation.runId, observation.runNumber);
     final _AffixEntry entry = _affixes.putIfAbsent(
       affixId,
       () => _AffixEntry(affixId),
@@ -885,9 +930,7 @@ class AlmanacRecorder {
       discovered ? entry.discoveries : entry.usage,
       observation.affixEventId,
       observation,
-      label:
-          'AffixObservation(affixId=$affixId,'
-          'affixEventId=${observation.affixEventId})',
+      label: label,
       identityField: 'affixEventId',
     );
   }
@@ -968,6 +1011,11 @@ class AlmanacRecorder {
   /// snapshot copy lives here rather than in [recordDiscovery] so that
   /// hydration gets it too (§5.1 item 1), mirroring where [_withDna] sits.
   void _upsertDiscovery(AlmanacDiscoveryRecord record) {
+    _noteRunNumber(
+      'AlmanacDiscoveryRecord(discoveryId=${record.discoveryId})',
+      record.runId,
+      record.runNumber,
+    );
     final AlmanacDiscoveryRecord candidate = AlmanacDiscoveryRecord(
       discoveryId: record.discoveryId,
       type: record.type,
