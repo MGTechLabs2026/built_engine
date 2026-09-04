@@ -141,14 +141,23 @@ void main() {
 
       expect(result.techniquesLearned, isNotEmpty);
       if (result.techniquesEvolved.isNotEmpty) {
-        // SP1: finalBuild's technique occupants are base-family ids now;
-        // the evolved identity lives in the placed variant's descriptors
-        // (Tome ref carries instanceEntityId, contentId is the base family).
+        // SP1: RunResult.finalBuild only carries BuildComponentRef (no
+        // descriptor data), so this level can only confirm A technique
+        // instance remains equipped after the run — it cannot itself
+        // distinguish "the evolved variant" from "a re-learned base
+        // instance of the same/another family." The evolution-specific
+        // claim (the equipped instance actually carries the evolved
+        // descriptors) is verified at the Almanac level instead, in
+        // test/integration/almanac_run_history_test.dart's
+        // "postTraining snapshot..." test (finalTechniques descriptorIds
+        // non-empty).
         final techRefs = result.finalBuild.where((c) =>
             c.referenceType == techniqueReferenceType &&
             c.instanceEntityId != null);
         expect(techRefs, isNotEmpty,
-            reason: 'an evolved variant instance must be equipped');
+            reason: 'a technique variant instance must remain equipped '
+                '(evolution-specific verification lives at the Almanac '
+                'level — see almanac_run_history_test.dart)');
       }
     });
   });
