@@ -191,20 +191,27 @@ class AlmanacQueries {
     for (final a in _state.affixes) MapEntry(a.affixId, a.timesUsed),
   ], limit);
 
-  /// For each [AlmanacDiscoveryType] key in [known], how many DISTINCT
-  /// `contentId`s of that type have been discovered vs how many the caller
-  /// listed as knowable. `fraction` is `0.0` when the known total is `0`.
+  /// For each [AlmanacDiscoveryType] key in [known], how many of the caller's
+  /// knowable `contentId`s of that type appear in discovery history, against
+  /// how many the caller listed. `discovered` is the intersection of history
+  /// and `known[type]`, so `discovered <= total` and `fraction` stays in
+  /// `[0.0, 1.0]` — a discovery of content the caller did not list (legacy or
+  /// since-removed content) does not inflate the ratio. `fraction` is `0.0`
+  /// when the known total is `0`.
   Map<AlmanacDiscoveryType, DiscoveryCompletion> discoveryCompletion({
     required Map<AlmanacDiscoveryType, Set<String>> known,
   }) {
     final result = <AlmanacDiscoveryType, DiscoveryCompletion>{};
     for (final entry in known.entries) {
       final type = entry.key;
-      final total = entry.value.length;
+      final knownIds = entry.value;
+      final total = knownIds.length;
       final discovered =
           <String>{
             for (final discovery in _state.discoveries)
-              if (discovery.type == type) discovery.contentId,
+              if (discovery.type == type &&
+                  knownIds.contains(discovery.contentId))
+                discovery.contentId,
           }.length;
       result[type] = DiscoveryCompletion(
         discovered: discovered,
@@ -336,13 +343,14 @@ class DiscoveryCompletion {
     required this.fraction,
   });
 
-  /// Distinct `contentId`s of this type seen in the state.
+  /// How many of the caller's knowable `contentId`s of this type appear in
+  /// discovery history (the intersection — never more than [total]).
   final int discovered;
 
   /// Size of the caller-supplied knowable set for this type.
   final int total;
 
-  /// `discovered / total`, or `0.0` when [total] is `0`.
+  /// `discovered / total` in `[0.0, 1.0]`, or `0.0` when [total] is `0`.
   final double fraction;
 
   @override

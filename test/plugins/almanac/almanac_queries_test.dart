@@ -372,6 +372,41 @@ void main() {
         AlmanacDiscoveryType.lineage,
       });
     });
+
+    test(
+      'discoveryCompletion clamps to the known set — never exceeds 100%',
+      () {
+        // History has 2 distinct technique contentIds (fam-a, fam-b) and 1 item
+        // (item-sword). Ask about a SMALLER / DISJOINT knowable set each time.
+        final completion = queries.discoveryCompletion(
+          known: {
+            // Strict subset: only fam-a is knowable, and it is discovered.
+            AlmanacDiscoveryType.technique: {'fam-a'},
+            // Disjoint: none of these are in history.
+            AlmanacDiscoveryType.item: {'item-axe', 'item-bow'},
+          },
+        );
+
+        final tech = completion[AlmanacDiscoveryType.technique]!;
+        expect(tech.discovered, 1); // fam-b is discovered but not knowable here
+        expect(tech.total, 1);
+        expect(tech.fraction, 1.0); // exactly complete, not 2.0
+
+        final item = completion[AlmanacDiscoveryType.item]!;
+        expect(
+          item.discovered,
+          0,
+        ); // item-sword is discovered but not requested
+        expect(item.total, 2);
+        expect(item.fraction, 0.0);
+
+        // The invariant, stated directly.
+        for (final c in completion.values) {
+          expect(c.discovered, lessThanOrEqualTo(c.total));
+          expect(c.fraction, inInclusiveRange(0.0, 1.0));
+        }
+      },
+    );
   });
 
   group('purity + determinism', () {
