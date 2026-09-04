@@ -234,8 +234,10 @@ void main() {
     });
 
     test('deep-copies a nested payload inside a hydrated discovery', () {
-      // `DiscoverySnapshot` freezes only the top level of `values`, so a `List`
-      // nested inside it is still the caller's until the recorder copies it.
+      // `DiscoverySnapshot` now deep-freezes `values` on its own, and the
+      // recorder additionally deep-copies on ingress — this locks the second
+      // guarantee: a hydrated recorder's state never aliases a caller's
+      // collection even if a raw (unfrozen) snapshot somehow reached it.
       final nested = <String>['a'];
       final deeper = <String, Object?>{
         'inner': <String>['x'],

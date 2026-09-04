@@ -353,6 +353,37 @@ void main() {
       expect(DiscoverySnapshot.fromJson(original.toJson()), equals(original));
     });
 
+    test('DiscoverySnapshot is deep-immutable on its own', () {
+      final nestedList = <String>['a'];
+      final nestedMap = <String, Object?>{
+        'inner': <int>[1],
+      };
+      final snapshot = DiscoverySnapshot(
+        label: 'l',
+        values: {'list': nestedList, 'map': nestedMap},
+      );
+
+      // Mutating the collections the caller still holds must not reach in.
+      nestedList.add('b');
+      (nestedMap['inner']! as List<int>).add(2);
+      expect((snapshot.values['list']! as List).length, 1);
+      expect(((snapshot.values['map']! as Map)['inner']! as List).length, 1);
+
+      // And the nested views are themselves unmodifiable, at every depth.
+      expect(
+        () => (snapshot.values['list']! as List).add('z'),
+        throwsUnsupportedError,
+      );
+      expect(
+        () => ((snapshot.values['map']! as Map)['inner']! as List).add(9),
+        throwsUnsupportedError,
+      );
+      expect(
+        () => (snapshot.values['map']! as Map)['x'] = 1,
+        throwsUnsupportedError,
+      );
+    });
+
     test('BuildDna', () {
       final original = BuildDna(tokens: ['a', 'b'], signature: 'sig');
       expect(BuildDna.fromJson(original.toJson()), equals(original));

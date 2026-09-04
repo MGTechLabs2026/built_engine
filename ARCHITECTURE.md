@@ -614,6 +614,17 @@ API. `JsonFileAlmanacRepository.save` serialises the entire state, writes
 `<path>.tmp`, then `renameSync`s it into place — a failed save leaves the
 previous complete file intact.
 
+**Reproducibility is structural, not temporal.** Two runs of the same
+seed, policy, and `runId` produce *semantically equivalent* history —
+identical runs, fights, builds, discoveries, milestones, and every
+derived projection. The one axis that legitimately differs is wall-clock
+metadata: `timestamp` / `startedAt` / `completedAt` come from
+`DateTime.now()` at record time. Replay and round-trip tests compare a
+timestamp-free projection for exactly this reason; "byte-identical"
+elsewhere in this section refers only to `runGame`'s `RunResult` when
+`almanac == null`, and to persist→reload of a *single* execution's
+history (where the timestamps were captured once and never regenerated).
+
 **SP0b relationship.** When the technique layer publishes
 `TechniqueVariantInspired`, the Almanac stores the ancestry *verbatim* —
 no re-resolution, no re-query, no RNG. A `Minted` and an `Inspired`

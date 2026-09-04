@@ -83,6 +83,26 @@ int _deepHash(Object? value) {
   return value.hashCode;
 }
 
+/// Recursively copies a JSON-like value into unmodifiable views: every nested
+/// `Map` / `List` / `Set` is rebuilt as an unmodifiable copy at every depth,
+/// scalars pass through. A caller that keeps a reference to a collection it
+/// nested inside the input can therefore never mutate what the value object
+/// ends up holding.
+Object? _deepFreeze(Object? value) {
+  if (value is Map) {
+    return Map<Object?, Object?>.unmodifiable({
+      for (final entry in value.entries) entry.key: _deepFreeze(entry.value),
+    });
+  }
+  if (value is Set) {
+    return Set<Object?>.unmodifiable(value.map(_deepFreeze));
+  }
+  if (value is List) {
+    return List<Object?>.unmodifiable(value.map(_deepFreeze));
+  }
+  return value;
+}
+
 /// Resolves [raw] (an enum `.name` string) against [values]. Throws
 /// [ArgumentError] on a missing, null, non-string, or unknown name —
 /// matching the repo idiom of `ArgumentError` for invalid data
@@ -474,12 +494,15 @@ class BuildPerformanceSnapshot extends _AlmanacValue {
 }
 
 /// A free-form labelled payload captured with a discovery. [values] holds
-/// JSON-safe scalars/collections only. The constructor freezes only the top
-/// level of [values]; any nested `List`/`Map` inside the payload is frozen by
-/// the recorder's recursive ingress copy (a later task), not here.
+/// JSON-safe scalars/collections only, and is deep-frozen on construction —
+/// every nested `List`/`Map`/`Set` is copied into an unmodifiable view at
+/// every depth (via [_deepFreeze]), so the snapshot is fully immutable on its
+/// own, independent of the recorder's separate ingress copy.
 class DiscoverySnapshot extends _AlmanacValue {
   DiscoverySnapshot({required this.label, required Map<String, Object?> values})
-    : values = Map<String, Object?>.unmodifiable(values);
+    : values = Map<String, Object?>.unmodifiable({
+        for (final entry in values.entries) entry.key: _deepFreeze(entry.value),
+      });
 
   final String label;
   final Map<String, Object?> values;
@@ -492,9 +515,7 @@ class DiscoverySnapshot extends _AlmanacValue {
   factory DiscoverySnapshot.fromJson(Map<String, dynamic> json) =>
       DiscoverySnapshot(
         label: json['label'] as String,
-        values: Map<String, Object?>.unmodifiable(
-          json['values'] as Map<String, dynamic>,
-        ),
+        values: json['values'] as Map<String, dynamic>,
       );
 
   @override
