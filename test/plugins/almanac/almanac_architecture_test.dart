@@ -73,6 +73,42 @@ void main() {
       },
     );
 
+    // §13.1 (airtight form) — enumerate every `import` / `export` DIRECTIVE
+    // target in the module and assert it is one of exactly three shapes:
+    //   * a `dart:` core library,
+    //   * `package:build_engine/build_engine.dart` (Core, the one allowed
+    //     first-party barrel), or
+    //   * a bare `<name>.dart` with no `/` — a same-directory sibling.
+    // This closes the gap the substring list alone leaves open: a relative
+    // escape such as `import '../item/item_instance.dart';` contains neither a
+    // gameplay-barrel filename nor the segment `plugins/`, yet still reaches
+    // into a sibling plugin. Nothing here may import another plugin by ANY
+    // path.
+    test('every import/export target is dart:, Core, or a same-dir sibling', () {
+      final directive = RegExp(
+        r'''^\s*(?:import|export)\s+['"]([^'"]+)['"]''',
+        multiLine: true,
+      );
+      for (final file in _almanacDartFiles()) {
+        final code = _codeOnly(file.readAsStringSync());
+        for (final match in directive.allMatches(code)) {
+          final target = match.group(1)!;
+          final ok =
+              target.startsWith('dart:') ||
+              target == 'package:build_engine/build_engine.dart' ||
+              (!target.contains('/') && target.endsWith('.dart'));
+          expect(
+            ok,
+            isTrue,
+            reason:
+                '${file.path} imports "$target" — the Almanac may depend only '
+                'on dart: libraries, Core (build_engine.dart), and its own '
+                'same-directory files',
+          );
+        }
+      }
+    });
+
     // §13.2 — the neutral barrel must not re-export the `dart:io` file repo.
     // Directive-shaped: the barrel's header names `almanac_file.dart` in prose.
     test('lib/almanac.dart does not export almanac_file*', () {
