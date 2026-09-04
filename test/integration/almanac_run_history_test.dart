@@ -447,11 +447,16 @@ void main() {
       (b) => b.phase == BuildPhase.finalBuild,
     );
     expect(_occupants(finalBuild).containsAll(_occupants(initial)), isTrue);
-    for (final evolved in result.techniquesEvolved) {
-      // The most recent evolution is guaranteed still active in finalBuild.
-      if (evolved == result.techniquesEvolved.last) {
-        expect(_occupants(finalBuild), contains(evolved));
-      }
+    // SP1: finalBuild's technique occupants are base-family ids; the
+    // evolved identity is the variant's descriptor set. Assert the final
+    // build carries at least one technique instance snapshot with
+    // descriptors when the run evolved.
+    if (result.techniquesEvolved.isNotEmpty) {
+      expect(finalBuild.techniques, isNotEmpty);
+      expect(
+        finalBuild.techniques.any((t) => t.descriptorIds.isNotEmpty),
+        isTrue,
+      );
     }
 
     // M4 (§13.2 "Full-run ordering by contents"): order this run's build

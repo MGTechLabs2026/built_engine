@@ -141,15 +141,14 @@ void main() {
 
       expect(result.techniquesLearned, isNotEmpty);
       if (result.techniquesEvolved.isNotEmpty) {
-        // Only the *most recent* evolution is guaranteed still active —
-        // with just 2 Tome slots ever unlocked in this test (this policy
-        // always prefers item/technique rewards over unlocking a slot),
-        // a later technique placement can bump an earlier evolution back
-        // out, exactly like any other Tome slot contention.
-        expect(
-          result.finalBuild.map((c) => c.contentId),
-          contains(result.techniquesEvolved.last),
-        );
+        // SP1: finalBuild's technique occupants are base-family ids now;
+        // the evolved identity lives in the placed variant's descriptors
+        // (Tome ref carries instanceEntityId, contentId is the base family).
+        final techRefs = result.finalBuild.where((c) =>
+            c.referenceType == techniqueReferenceType &&
+            c.instanceEntityId != null);
+        expect(techRefs, isNotEmpty,
+            reason: 'an evolved variant instance must be equipped');
       }
     });
   });

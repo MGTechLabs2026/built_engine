@@ -3,8 +3,6 @@ import 'package:build_engine/game.dart';
 import 'package:build_engine/technique_plugin.dart';
 import 'package:test/test.dart';
 
-import '../../support/policies.dart';
-
 // Minimal harness: a real PluginContext with Technique + a tome, and a
 // RecordingDecisionPolicy wrapping DefaultRunDecisionPolicy.
 ({PluginContext ctx, EntityId character, TomeManager mgr}) _setup() {
