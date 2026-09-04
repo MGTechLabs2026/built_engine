@@ -1,7 +1,7 @@
 # Tiered Component Effects — SP1 design
 
-**Date:** 2026-09-02
-**Status:** draft — awaiting review
+**Date:** 2026-09-02 (validated against the codebase 2026-09-05 — see §15)
+**Status:** validated — approved for planning
 **Repo:** `build_engine` (`Tome:RougelikeGame`)
 **Consumers:** `Tome_client` (SP4), any future content plugin
 
@@ -563,3 +563,118 @@ Following `claude.md`'s per-service and per-plugin requirements.
    forwards it to `BuildResolver.resolve`. Callers that only have
    placements (pure placement preview, tests) can call `BuildResolver`
    directly with `ownedRefs: const []`. Confirmed during planning.
+
+---
+
+## 15. Validation against the codebase (2026-09-05)
+
+This design was written 2026-09-02, before SP1 "TechniqueVariant-first
+game run" (a *different*, separately-numbered SP1 — see
+`2026-09-04-sp1-techniquevariant-first-game-run-design.md`) landed on
+`main`. That migration touched several files this design also plans to
+change. Re-validated section by section before planning; corrections
+below. Everything not listed here was re-checked and still matches the
+codebase exactly (`BuildResolver.resolve(owner, placements) ->
+ActiveBuild` today; `ItemInstance.statBonuses` -> per-instance `affix:` (
+Modifier`s in `item_action_interpreter.dart`, exactly as §9 describes).
+
+### 15.1 Naming corrections (resolves §14.1's "provisional" naming)
+
+§5 names the two `EffectContributor` implementers `MartialItemDefinition`
+and `MartialTechniqueDefinition`. Neither type exists. The actual,
+*live*, Tome-equippable Item and Technique plugins — the ones
+`game_run.dart`'s headless run actually loads and the ones
+`TechniqueActionInterpreter`/`ItemActionInterpreter` actually resolve —
+are the fully decoupled generic plugins:
+
+- **Item** → `lib/src/plugins/item/item_definition.dart`'s
+  `ItemDefinition`, paired with `ItemInstance` for the per-copy
+  `statBonuses`/`itemClass` this design already reads (§9). This matches
+  §5's own hedge: "`MartialItemDefinition` (or a small wrapper over
+  `ItemDefinition` + `ItemInstance`)".
+- **Technique** → `lib/src/plugins/technique/technique_definition.dart`'s
+  `TechniqueDefinition`, paired with `TechniqueVariant`
+  (`lib/src/plugins/technique/technique_variant.dart` — SP0a) for the
+  per-instance `axisProfile`/mastery this design's §6.1/§8 already
+  anticipate reading.
+
+`lib/src/plugins/martial_arts/martial_item.dart` /
+`martial_technique_content.dart` (a separate, style/stance-specific
+content set, loaded by `MartialArtsPlugin` but not interpreted into
+`runGame`'s actual combat path — nothing in `build_interpretation/`
+consumes it; it's exercised only by its own plugin tests and
+`cross_plugin_synergy_test.dart`) are **not** in scope for `SP1`'s
+`EffectContributor` wiring. If a later pass wants tiered effects on
+MartialArts' own stance techniques, that's an explicit, separate
+extension, not implied by this doc.
+
+### 15.2 `sourceRef`, not a new `sourceProfile` field
+
+§7.2 proposes adding `final EffectProfile? sourceProfile;` to
+`CombatAction`. Unneeded: `CombatAction` already carries `sourceRef`
+(`lib/src/plugins/combat/combat_action.dart`), added during SP0a/SP0b —
+and its own doc comment already says *"Consumers: SP0b per-variant
+usage, **SP1 active tier**"*, i.e. this exact design was anticipated as
+`sourceRef`'s second consumer. `sourceRef.instanceEntityId` is exactly
+what resolves to the acting `TechniqueVariant`/`ItemInstance` needed for
+the `active` fold. §7.2's mechanism stands with `sourceRef` in place of
+`sourceProfile`: the interpreter resolves the acting component's
+`EffectProfile` (via the same `context.content.find(ref.contentId)` /
+`context.components.get<TechniqueVariant>(ref.instanceEntityId)` lookups
+it already performs) and folds `.amount(EffectTier.active, damageStat)`
+into `baseDamage` before constructing the action — no new field on
+`CombatAction`, no new field on `AttackAction`.
+
+Also: §12 lists `lib/src/plugins/combat/attack_action.dart` as a changed
+file. That file does not exist — `AttackAction` is defined inline in
+`combat_action.dart`. The change lands there instead.
+
+### 15.3 Resolved: the `active` tier absorbs SP1's power-fold (does not run alongside it)
+
+The TechniqueVariant migration (§15 intro) already added a narrow,
+single-purpose version of exactly this design's `active` tier, ad hoc,
+directly in `TechniqueActionInterpreter._actionFor`:
+
+```dart
+final power = variant?.axisProfile['power'] ?? 0;
+final damage = (base + power) < 1 ? 1 : base + power;
+```
+
+**Decision (confirmed 2026-09-05): the general mechanism replaces this,
+it does not run alongside it** — one path, no parallel system, per this
+design's own §9 principle already applied to item affixes. Concretely:
+
+- `TechniqueVariant` implements `EffectContributor.effectProfile()`,
+  mapping `axisProfile['power']` to
+  `EffectProfile({EffectTier.active: {damageStat: power}})` — same
+  number, same tier, same only-consumed-key (`damage`, per §14.2's "no
+  new stat keys"), now expressed through the general primitive instead
+  of a hardcoded field read. Other `axisProfile` axes (`speed`,
+  `precision`, `endurance`) still map to nothing — SP1 (tiered effects)
+  introduces no new stat keys, matching the migration's own documented
+  scope ("only `power` is read... in SP1" — now "in tiered-effects SP1"
+  by the same rule).
+- `TechniqueActionInterpreter._actionFor` stops reading
+  `variant.axisProfile` directly; it resolves `variant.effectProfile()`
+  (or the definition's, when `ref.instanceEntityId == null` — a
+  descriptor-less/pre-instancing placement, `EffectProfile.empty`, same
+  as today's `variant == null` case) and folds
+  `.amount(EffectTier.active, damageStat)` into `baseDamage`, floored at
+  `1` exactly as today.
+- Combat numbers for every existing test are unchanged — this is a
+  representation consolidation, not a balance change. The
+  `technique_action_interpreter_variant_test.dart` suite (SP1) continues
+  to hold; its assertions describe the *outcome* ("baseDamage folds
+  power"), which is preserved, not the mechanism.
+- Guard-tagged techniques (`SelfEffectAction`) are unaffected — the
+  `active` tier only ever feeds `AttackAction.baseDamage`, matching
+  today's guard/attack branch split.
+
+### 15.4 Everything else
+
+`BuildResolver.resolve(owner, placements) -> ActiveBuild`,
+`TomeService.resolve`'s current signature, and
+`item_action_interpreter.dart`'s `statBonuses` -> `affix:` modifier path
+are all exactly as this design describes as "today" — unaffected by the
+TechniqueVariant migration, no further correction needed. §2, §3, §6,
+§9, §10, §11, §13 stand as written.
