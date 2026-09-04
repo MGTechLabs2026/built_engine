@@ -74,9 +74,32 @@ class TomeManager {
       if (!recordingPolicy.chooseReplace(slot, existing.single.buildComponentRef, ref)) return;
       context.tome.remove(character, slot);
     }
-    addItemToTome(character, slot, item, context);
+    addItemToTome(character, slot, item, context,
+        instanceEntityId: _ownedUnplacedItemInstance(item.id));
     if (!itemsUnlocked.contains(item.id)) itemsUnlocked.add(item.id);
     snapshot(stepName);
+  }
+
+  /// An owned [ItemInstance] of [definitionId] not already referenced by
+  /// any current Tome placement, or `null` if every owned copy is
+  /// already placed (or none is owned). Mirrors the technique-variant
+  /// "find an unplaced owned instance" pattern
+  /// (`TrainingStage._ownedBaseVariantFor`).
+  EntityId? _ownedUnplacedItemInstance(String definitionId) {
+    final placedInstances = {
+      for (final p in context.tome.inspect(character))
+        if (p.buildComponentRef.instanceEntityId != null)
+          p.buildComponentRef.instanceEntityId!,
+    };
+    for (final e in context.components.entitiesWith<ItemInstance>()) {
+      final instance = context.components.get<ItemInstance>(e)!;
+      if (instance.owner == character &&
+          instance.definitionId == definitionId &&
+          !placedInstances.contains(e)) {
+        return e;
+      }
+    }
+    return null;
   }
 
   void placeTechnique(TechniqueDefinition technique, String stepName) {
