@@ -121,7 +121,12 @@ class TrainingStage {
         final learning = attemptToLearnTechnique(character, technique, gain, context);
         if (learning.learned) {
           techniquesLearned.add(familyId);
-          tomeManager.placeTechnique(technique, 'Training (technique learned)');
+          final baseInstance = _ownedBaseVariantFor(familyId) ??
+              mintTechniqueVariant(character, familyId, const {}, context);
+          if (tomeManager.slotOfTechniqueVariant(baseInstance) == null) {
+            tomeManager.placeTechniqueVariant(
+                baseInstance, 'Training (technique learned)');
+          }
 
           // The evolution decision + the TechniqueEvolved publish are owned
           // by the Technique domain now — this stage only reacts with its
@@ -153,5 +158,19 @@ class TrainingStage {
           );
         }
     }
+  }
+
+  /// The owner's existing descriptor-less, style-less base variant for
+  /// [familyId], if one is already owned (SP1 §5 — never mint a duplicate).
+  EntityId? _ownedBaseVariantFor(String familyId) {
+    for (final e in ownedTechniqueVariants(character, context)) {
+      final v = context.components.get<TechniqueVariant>(e)!;
+      if (v.baseFamilyId == familyId &&
+          v.descriptorIds.isEmpty &&
+          v.styleId == null) {
+        return e;
+      }
+    }
+    return null;
   }
 }
