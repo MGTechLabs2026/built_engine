@@ -6,6 +6,7 @@ import 'package:build_engine/item_plugin.dart';
 import 'package:build_engine/technique_plugin.dart';
 
 import 'enemy.dart';
+import 'game_run.dart' show ownedComponentRefs;
 import 'run_events.dart';
 import 'run_result.dart';
 
@@ -68,10 +69,11 @@ class CombatStage {
   bool runFight(String name, Enemy enemy) {
     events.publish(EncounterStarted(name: name, enemyId: enemy.id));
     final enemyEntity = spawnEnemy(enemy);
-    final build = context.tome.resolve(character);
-    events.publish(ActiveBuildResolved(build.components));
-    final playerActions =
-        interpreter.interpret(build: build, actor: character, targets: [enemyEntity], context: context);
+    final build = context.tome
+        .resolve(character, ownedRefs: ownedComponentRefs(character, context));
+    events.publish(ActiveBuildResolved(build.asActiveBuild.components));
+    final playerActions = interpreter.interpret(
+        build: build.asActiveBuild, actor: character, targets: [enemyEntity], context: context);
     // With no technique active in the Tome (the run's own starting state,
     // and any cycle where training hasn't produced one yet), `interpreter`
     // returns no player action at all — `AutoCombatController.step`
@@ -79,7 +81,7 @@ class CombatStage {
     // the battle would stall at full health rather than resolve. A
     // minimal always-available strike keeps the player able to act.
     final effectivePlayerActions = playerActions.isEmpty
-        ? [AttackAction(actor: character, targets: [enemyEntity], baseDamage: 4, damageStat: fallbackStrikeStat(build))]
+        ? [AttackAction(actor: character, targets: [enemyEntity], baseDamage: 4, damageStat: fallbackStrikeStat(build.asActiveBuild))]
         : playerActions;
     final battle = combatPlugin.system.startBattle([character, enemyEntity]);
     final controller = AutoCombatController(

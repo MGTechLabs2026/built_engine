@@ -75,8 +75,8 @@ void main() {
     combineItems(owner, [a, b], context);
 
     const interpreter = ItemActionInterpreter();
-    final build = context.tome.resolve(owner);
-    interpreter.interpret(build: build, actor: owner, targets: const [], context: context);
+    final build = context.tome.resolve(owner, ownedRefs: const []);
+    interpreter.interpret(build: build.asActiveBuild, actor: owner, targets: const [], context: context);
 
     final active = context.modifiers.activeModifiersFor(owner, 'blade', context.components).toList();
     expect(active, hasLength(1));

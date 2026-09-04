@@ -39,6 +39,27 @@ Set<String> knownTechniqueIds(EntityId character, PluginContext context) => {
         context.components.get<TechniqueVariant>(e)!.baseFamilyId,
     };
 
+/// Every component instance [character] owns, hung or not — one
+/// [BuildComponentRef] per owned [ItemInstance]/`TechniqueVariant`
+/// entity, each carrying that entity's own id as `instanceEntityId`.
+/// Passed as `ResolvedBuild.ownedRefs`; the single place in this run
+/// that turns "who owns what" into the ref shape `BuildResolver` wants.
+List<BuildComponentRef> ownedComponentRefs(EntityId character, PluginContext context) => [
+      for (final e in context.components.entitiesWith<ItemInstance>())
+        if (context.components.get<ItemInstance>(e)!.owner == character)
+          BuildComponentRef(
+            referenceType: itemReferenceType,
+            contentId: context.components.get<ItemInstance>(e)!.definitionId,
+            instanceEntityId: e,
+          ),
+      for (final e in ownedTechniqueVariants(character, context))
+        BuildComponentRef(
+          referenceType: techniqueReferenceType,
+          contentId: context.components.get<TechniqueVariant>(e)!.baseFamilyId,
+          instanceEntityId: e,
+        ),
+    ];
+
 void restoreHealth(EntityId character, PluginContext context) {
   const Heal(9999).apply(context.ruleContextFor(character));
 }
@@ -286,7 +307,9 @@ RunResult runGame(
       encounters: combatStage.encounters,
       rewardsGranted: rewardStage.rewardsGranted,
       trainingRecords: trainingStage.trainingRecords,
-      finalBuild: context.tome.resolve(character).components,
+      finalBuild: context.tome
+          .resolve(character, ownedRefs: ownedComponentRefs(character, context))
+          .active,
       won: won,
       cyclesCompleted: cycleIndex,
       firstRewardStep: rewardStage.firstRewardStep,

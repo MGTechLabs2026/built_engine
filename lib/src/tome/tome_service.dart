@@ -4,7 +4,6 @@ import '../entity/entity_registry.dart';
 import '../spatial/placement_exception.dart';
 import '../spatial/position.dart';
 import '../spatial/slot.dart';
-import 'active_build.dart';
 import 'build_component_ref.dart';
 import 'build_resolver.dart';
 import 'tome_definition.dart';
@@ -17,8 +16,8 @@ import 'tome_placement.dart';
 ///
 /// The Tome is not an inventory; it's an active build configuration. This
 /// class contains no combat logic and knows nothing about Combat — the
-/// only thing it produces for anything else to consume is an
-/// [ActiveBuild] snapshot via [resolve].
+/// only thing it produces for anything else to consume is a
+/// [ResolvedBuild] snapshot via [resolve].
 class TomeService {
   TomeService({required EntityRegistry entities, required ComponentStore components})
       : _entities = entities,
@@ -179,8 +178,15 @@ class TomeService {
     ];
   }
 
-  /// Resolves [owner]'s current Tome contents into an [ActiveBuild]
+  /// Resolves [owner]'s current Tome contents into a [ResolvedBuild]
   /// snapshot via [BuildResolver] — the only thing anything outside the
   /// Tome (e.g. Combat) is meant to consume. Empty if [owner] has no Tome.
-  ActiveBuild resolve(EntityId owner) => _resolver.resolve(owner, inspect(owner));
+  ///
+  /// [ownedRefs] is every component instance [owner] has, hung or not —
+  /// derived by the caller from each instance's own `owner` field
+  /// (`ItemInstance.owner`/`TechniqueVariant.owner`; see `ResolvedBuild`'s
+  /// own doc comment). `TomeService` itself never queries those
+  /// plugin-owned component types — Core doesn't know they exist.
+  ResolvedBuild resolve(EntityId owner, {required List<BuildComponentRef> ownedRefs}) =>
+      _resolver.resolve(owner, inspect(owner), ownedRefs: ownedRefs);
 }

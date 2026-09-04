@@ -1,7 +1,6 @@
 import 'package:build_engine/src/entity/entity_id.dart';
 import 'package:build_engine/src/spatial/position.dart';
 import 'package:build_engine/src/spatial/slot.dart';
-import 'package:build_engine/src/tome/active_build.dart';
 import 'package:build_engine/src/tome/build_component_ref.dart';
 import 'package:build_engine/src/tome/build_resolver.dart';
 import 'package:build_engine/src/tome/tome_placement.dart';

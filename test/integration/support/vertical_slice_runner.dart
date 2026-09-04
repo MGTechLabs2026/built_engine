@@ -206,7 +206,7 @@ VerticalSliceOutcome runVerticalSlice(int seed) {
   milestone('tomeBuilt');
 
   // ---- 6. Resolve ActiveBuild -------------------------------------------
-  var activeBuild = context.tome.resolve(character);
+  var activeBuild = context.tome.resolve(character, ownedRefs: const []);
   milestone('activeBuildResolved');
 
   // ---- 7 & 8. Start auto combat, win/lose (vs Training Dummy) -----------
@@ -217,7 +217,7 @@ VerticalSliceOutcome runVerticalSlice(int seed) {
   );
   var battle = combatPlugin.system.startBattle([character, dummy]);
   var availableActions = [
-    for (final ref in activeBuild.components)
+    for (final ref in activeBuild.active)
       if (_actionFor(ref, character, [dummy]) case final action?) action,
     AttackAction(
       actor: dummy,
@@ -327,11 +327,11 @@ VerticalSliceOutcome runVerticalSlice(int seed) {
   milestone('tomeRebuilt');
 
   // ---- 14. Run combat again (vs Bandit) -------------------------------------
-  activeBuild = context.tome.resolve(character);
+  activeBuild = context.tome.resolve(character, ownedRefs: const []);
   final bandit = _spawnEnemy(context, health: _bandit.health, initiative: _bandit.initiative);
   battle = combatPlugin.system.startBattle([character, bandit]);
   availableActions = [
-    for (final ref in activeBuild.components)
+    for (final ref in activeBuild.active)
       if (_actionFor(ref, character, [bandit]) case final action?) action,
     AttackAction(
       actor: bandit,

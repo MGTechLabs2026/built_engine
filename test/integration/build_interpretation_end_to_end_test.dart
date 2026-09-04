@@ -71,8 +71,8 @@ void main() {
     context.tome.createTome(character, 'basic_tome');
     addTechniqueToTome(character, const SlotId('technique'), basicPunch, context);
     addItemToTome(character, const SlotId('weapon'), gloves, context);
-    final build = context.tome.resolve(character);
-    expect(build.components, hasLength(2));
+    final build = context.tome.resolve(character, ownedRefs: const []);
+    expect(build.active, hasLength(2));
 
     // Real Build Interpreter -> Available Actions.
     const interpreter = CompositeBuildActionInterpreter([
@@ -80,7 +80,7 @@ void main() {
       ItemActionInterpreter(),
     ]);
     final playerActions = interpreter.interpret(
-      build: build,
+      build: build.asActiveBuild,
       actor: character,
       targets: [enemy],
       context: context,
@@ -135,11 +135,11 @@ void main() {
       );
       context.tome.createTome(character, 'basic_tome');
       addTechniqueToTome(character, const SlotId('technique'), basicPunch, context);
-      final build = context.tome.resolve(character);
+      final build = context.tome.resolve(character, ownedRefs: const []);
 
       const interpreter = TechniqueActionInterpreter();
       final actions = interpreter.interpret(
-        build: build,
+        build: build.asActiveBuild,
         actor: character,
         targets: [enemy],
         context: context,

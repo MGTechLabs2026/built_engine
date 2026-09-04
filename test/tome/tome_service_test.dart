@@ -181,19 +181,19 @@ void main() {
       tomeService.insert(owner, const SlotId('core'), jab);
       tomeService.insert(owner, const SlotId('socket_1'), ironSword);
 
-      final build = tomeService.resolve(owner);
+      final build = tomeService.resolve(owner, ownedRefs: const []);
 
       expect(build.owner, equals(owner));
-      expect(build.components, containsAll([jab, ironSword]));
-      expect(build.components, hasLength(2));
+      expect(build.active, containsAll([jab, ironSword]));
+      expect(build.active, hasLength(2));
     });
 
     test('resolve on an owner with no Tome yields an empty ActiveBuild', () {
       final owner = entities.create();
 
-      final build = tomeService.resolve(owner);
+      final build = tomeService.resolve(owner, ownedRefs: const []);
 
-      expect(build.components, isEmpty);
+      expect(build.active, isEmpty);
     });
   });
 
@@ -221,12 +221,12 @@ void main() {
       tomeService2.remove(owner2, const SlotId('socket_1'));
       tomeService2.insert(owner2, const SlotId('socket_2'), ironSword);
 
-      final build1 = tomeService.resolve(owner1);
-      final build2 = tomeService2.resolve(owner2);
+      final build1 = tomeService.resolve(owner1, ownedRefs: const []);
+      final build2 = tomeService2.resolve(owner2, ownedRefs: const []);
 
       expect(
-        build1.components.map((c) => (c.referenceType, c.contentId)),
-        equals(build2.components.map((c) => (c.referenceType, c.contentId))),
+        build1.active.map((c) => (c.referenceType, c.contentId)),
+        equals(build2.active.map((c) => (c.referenceType, c.contentId))),
       );
     });
   });

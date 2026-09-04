@@ -66,9 +66,9 @@ void main() {
 
     // -> Tome
     addItemToTome(character, const SlotId('weapon'), ironSword, context);
-    final build = context.tome.resolve(character);
+    final build = context.tome.resolve(character, ownedRefs: const []);
     expect(
-      build.components.any((c) =>
+      build.active.any((c) =>
           c.referenceType == itemReferenceType && c.contentId == ItemIds.ironSword),
       isTrue,
     );
@@ -91,8 +91,8 @@ void main() {
       addItemToTome(character, const SlotId('weapon'), ironSword, context);
 
       return context.tome
-          .resolve(character)
-          .components
+          .resolve(character, ownedRefs: const [])
+          .active
           .map((c) => (c.referenceType, c.contentId))
           .toList();
     }

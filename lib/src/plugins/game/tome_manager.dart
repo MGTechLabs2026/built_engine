@@ -5,6 +5,7 @@ import 'package:build_engine/item_plugin.dart';
 import 'package:build_engine/technique_plugin.dart';
 
 import 'decision_log.dart';
+import 'game_run.dart' show ownedComponentRefs;
 import 'run_content.dart';
 import 'run_events.dart';
 import 'run_result.dart';
@@ -48,7 +49,9 @@ class TomeManager {
   bool get hasLockedSlot => _nextLockedSlotIndex < RunTomeSlots.all.length;
 
   void snapshot(String stepName) {
-    final snapshotComponents = context.tome.resolve(character).components;
+    final snapshotComponents = context.tome
+        .resolve(character, ownedRefs: ownedComponentRefs(character, context))
+        .active;
     tomeHistory.add(TomeSnapshot(afterStep: stepName, components: snapshotComponents));
     events.publish(TomeChanged(stepName: stepName, components: snapshotComponents));
   }

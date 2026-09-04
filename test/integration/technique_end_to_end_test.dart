@@ -61,9 +61,9 @@ void main() {
 
     // Tome
     addTechniqueToTome(character, const SlotId('technique'), basicPunch, context);
-    final build = context.tome.resolve(character);
+    final build = context.tome.resolve(character, ownedRefs: const []);
     expect(
-      build.components.any((c) =>
+      build.active.any((c) =>
           c.referenceType == techniqueReferenceType && c.contentId == TechniqueIds.basicPunch),
       isTrue,
     );
