@@ -80,13 +80,16 @@ void main() {
       expect(io.printed, contains('  [2] +1 upgrade point'));
     });
 
-    test('chooseTrainingTarget returns the chosen candidate string', () {
-      final io = ScriptedIO(['technique:basic_slash']);
+    test('chooseTrainingTarget returns the chosen candidate', () {
+      final io = ScriptedIO(['1']);
       final policy = ConsoleDecisionPolicy(print: io.print, readLine: io.readLine);
 
-      final choice = policy.chooseTrainingTarget(const ['item:iron_knuckle', 'technique:basic_slash']);
+      final choice = policy.chooseTrainingTarget(const [
+        TrainItemTarget('iron_knuckle'),
+        TrainTechniqueTarget('basic_slash'),
+      ]);
 
-      expect(choice, equals('technique:basic_slash'));
+      expect(choice, const TrainTechniqueTarget('basic_slash'));
     });
 
     test('chooseSlot returns the SlotId at the chosen index', () {
@@ -198,6 +201,27 @@ void main() {
       expect(loaded.replaceChoices, equals(log.replaceChoices));
       expect(loaded.upgradeSpendChoices, equals(log.upgradeSpendChoices));
       expect(loaded.tomeActionChoices, equals(log.tomeActionChoices));
+    });
+
+    test('trainingChoices survive a text round-trip as typed targets', () {
+      const log = DecisionLog(
+        martialTradition: 'western',
+        startingStyle: 'polearming',
+        combatOrTrainingChoices: ['training'],
+        rewardChoices: [0],
+        trainingChoices: [
+          TrainItemTarget('iron_sword'),
+          TrainTechniqueTarget('basic_punch'),
+          TrainTechniqueTarget('basic_punch',
+              variantInstanceId: EntityId(7)),
+        ],
+        slotChoices: [],
+        replaceChoices: [],
+        upgradeSpendChoices: [],
+        tomeActionChoices: [],
+      );
+      final loaded = loadDecisionLog(saveDecisionLog(log));
+      expect(loaded.trainingChoices, log.trainingChoices);
     });
   });
 }

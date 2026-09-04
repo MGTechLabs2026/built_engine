@@ -25,7 +25,7 @@ class DecisionLog {
   final String startingStyle;
   final List<String> combatOrTrainingChoices;
   final List<int> rewardChoices;
-  final List<String> trainingChoices;
+  final List<RunTrainingTarget> trainingChoices;
   final List<SlotId> slotChoices;
   final List<bool> replaceChoices;
   final List<String> upgradeSpendChoices;
@@ -45,7 +45,7 @@ class RecordingDecisionPolicy implements RunDecisionPolicy {
   String _startingStyle = MartialStyles.polearming;
   final List<String> _combatOrTrainingChoices = [];
   final List<int> _rewardChoices = [];
-  final List<String> _trainingChoices = [];
+  final List<RunTrainingTarget> _trainingChoices = [];
   final List<SlotId> _slotChoices = [];
   final List<bool> _replaceChoices = [];
   final List<String> _upgradeSpendChoices = [];
@@ -80,7 +80,7 @@ class RecordingDecisionPolicy implements RunDecisionPolicy {
   }
 
   @override
-  String chooseTrainingTarget(List<String> candidates) {
+  RunTrainingTarget chooseTrainingTarget(List<RunTrainingTarget> candidates) {
     final choice = inner.chooseTrainingTarget(candidates);
     _trainingChoices.add(choice);
     return choice;
@@ -161,7 +161,8 @@ class ReplayDecisionPolicy implements RunDecisionPolicy {
   int chooseReward(List<RewardKind> candidates) => log.rewardChoices[_rewardIndex++];
 
   @override
-  String chooseTrainingTarget(List<String> candidates) => log.trainingChoices[_trainingIndex++];
+  RunTrainingTarget chooseTrainingTarget(List<RunTrainingTarget> candidates) =>
+      log.trainingChoices[_trainingIndex++];
 
   @override
   SlotId chooseSlot(BuildComponentRef component, List<SlotId> candidateSlots) =>
@@ -189,7 +190,7 @@ String saveDecisionLog(DecisionLog log) {
     ..writeln('startingStyle: ${log.startingStyle}')
     ..writeln('combatOrTrainingChoices: ${log.combatOrTrainingChoices.join(',')}')
     ..writeln('rewardChoices: ${log.rewardChoices.join(',')}')
-    ..writeln('trainingChoices: ${log.trainingChoices.join(',')}')
+    ..writeln('trainingChoices: ${log.trainingChoices.map((t) => t.encode()).join(',')}')
     ..writeln('slotChoices: ${log.slotChoices.map((s) => s.id).join(',')}')
     ..writeln('replaceChoices: ${log.replaceChoices.join(',')}')
     ..writeln('upgradeSpendChoices: ${log.upgradeSpendChoices.join(',')}')
@@ -215,7 +216,9 @@ DecisionLog loadDecisionLog(String text) {
     startingStyle: fields['startingStyle'] ?? '',
     combatOrTrainingChoices: values('combatOrTrainingChoices'),
     rewardChoices: [for (final v in values('rewardChoices')) int.parse(v)],
-    trainingChoices: values('trainingChoices'),
+    trainingChoices: [
+      for (final v in values('trainingChoices')) RunTrainingTarget.decode(v),
+    ],
     slotChoices: [for (final v in values('slotChoices')) SlotId(v)],
     replaceChoices: [for (final v in values('replaceChoices')) v == 'true'],
     upgradeSpendChoices: values('upgradeSpendChoices'),
