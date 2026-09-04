@@ -5,6 +5,7 @@ import 'package:build_engine/technique_plugin.dart';
 
 import 'decision_log.dart';
 import 'run_content.dart';
+import 'run_decision_policy.dart';
 import 'run_events.dart';
 import 'run_result.dart';
 import 'tome_manager.dart';
@@ -47,16 +48,16 @@ class TrainingStage {
   /// [ownedItemIds] is passed in rather than called as a free function
   /// from here, so this class has no dependency beyond what it already
   /// needs for the reward-pool technique roster.
-  List<String> trainingCandidates(Set<String> Function() ownedItemIds) {
-    final candidates = <String>[
+  List<RunTrainingTarget> trainingCandidates(Set<String> Function() ownedItemIds) {
+    final candidates = <RunTrainingTarget>[
       for (final id in ownedItemIds())
-        if (!isItemUsable(character, itemDefinition(id, context), context)) itemSubject(id),
+        if (!isItemUsable(character, itemDefinition(id, context), context)) TrainItemTarget(id),
     ];
     for (final id in rewardPoolTechniqueIds) {
       final technique = techniqueDefinition(id, context);
       if (isTechniqueDiscovered(character, technique, context) &&
           !isTechniqueLearned(character, technique, context)) {
-        candidates.add(techniqueSubject(id));
+        candidates.add(TrainTechniqueTarget(id));
       }
     }
     return candidates;
@@ -66,90 +67,91 @@ class TrainingStage {
     final candidates = trainingCandidates(ownedItemIds);
     if (candidates.isEmpty) return;
     final target = recordingPolicy.chooseTrainingTarget(candidates);
-    events.publish(TrainingStarted(target));
+    events.publish(TrainingStarted(target.encode()));
     final attempts = generateTrainingAttempts(rng);
 
-    if (target.startsWith('item:')) {
-      final itemId = target.substring('item:'.length);
-      final item = itemDefinition(itemId, context);
-      final wasUsable = isItemUsable(character, item, context);
-      final exercise = itemTrainingExerciseFor(item, const TimingExercise());
-      final session = TrainingSession(trainee: character, subject: itemSubject(itemId), exercise: exercise);
-      for (final attempt in attempts) {
-        session.submitAttempt(attempt);
-      }
-      final result = session.complete();
-      final gain = trainingGain(result.profile);
-      events.publish(TrainingResultRecorded(subject: target, profile: result.profile, gain: gain));
-      trainingRecords.add(TrainingRecord(
-        subject: target,
-        attemptCount: attempts.length,
-        averageQuality: result.profile.dimensions.isEmpty
-            ? 0
-            : TrainingStatistics.average(result.profile.dimensions.values.toList()),
-        gain: gain,
-      ));
-      context.mastery.increase(character, itemSubject(itemId), gain);
-      final nowUsable = isItemUsable(character, item, context);
-      if (!wasUsable && nowUsable) {
-        itemsMastered.add(itemId);
-        firstItemMasteryStep ??= cycleIndex;
-        tomeManager.placeItem(item, 'Training (item mastered)');
-      }
-    } else {
-      final techniqueId = target.substring('technique:'.length);
-      final technique = techniqueDefinition(techniqueId, context);
-      final exercise = techniqueTrainingExerciseFor(technique, const TimingExercise());
-      final session =
-          TrainingSession(trainee: character, subject: techniqueSubject(techniqueId), exercise: exercise);
-      for (final attempt in attempts) {
-        session.submitAttempt(attempt);
-      }
-      final result = session.complete();
-      final gain = trainingGain(result.profile);
-      events.publish(TrainingResultRecorded(subject: target, profile: result.profile, gain: gain));
-      trainingRecords.add(TrainingRecord(
-        subject: target,
-        attemptCount: attempts.length,
-        averageQuality: result.profile.dimensions.isEmpty
-            ? 0
-            : TrainingStatistics.average(result.profile.dimensions.values.toList()),
-        gain: gain,
-      ));
-      final learning = attemptToLearnTechnique(character, technique, gain, context);
-      if (learning.learned) {
-        techniquesLearned.add(techniqueId);
-        tomeManager.placeTechnique(technique, 'Training (technique learned)');
-
-        // The evolution decision + the TechniqueEvolved publish are owned
-        // by the Technique domain now — this stage only reacts with its
-        // own telemetry + Tome swap.
-        final evolution = resolveTechniqueEvolutionAfterTraining(
-            character, technique, result.profile, context);
-        if (evolution.evolved) {
-          final evolvedId = evolution.chosenCandidate!.targetId;
-          techniquesEvolved.add(evolvedId);
-          firstTechniqueEvolutionStep ??= cycleIndex;
-          tomeManager.replaceWithEvolved(techniqueId, evolvedId, 'Training (evolved)');
+    switch (target) {
+      case TrainItemTarget(:final itemId):
+        final item = itemDefinition(itemId, context);
+        final wasUsable = isItemUsable(character, item, context);
+        final exercise = itemTrainingExerciseFor(item, const TimingExercise());
+        final session = TrainingSession(trainee: character, subject: itemSubject(itemId), exercise: exercise);
+        for (final attempt in attempts) {
+          session.submitAttempt(attempt);
         }
+        final result = session.complete();
+        final gain = trainingGain(result.profile);
+        events.publish(
+            TrainingResultRecorded(subject: target.encode(), profile: result.profile, gain: gain));
+        trainingRecords.add(TrainingRecord(
+          subject: target.encode(),
+          attemptCount: attempts.length,
+          averageQuality: result.profile.dimensions.isEmpty
+              ? 0
+              : TrainingStatistics.average(result.profile.dimensions.values.toList()),
+          gain: gain,
+        ));
+        context.mastery.increase(character, itemSubject(itemId), gain);
+        final nowUsable = isItemUsable(character, item, context);
+        if (!wasUsable && nowUsable) {
+          itemsMastered.add(itemId);
+          firstItemMasteryStep ??= cycleIndex;
+          tomeManager.placeItem(item, 'Training (item mastered)');
+        }
+      case TrainTechniqueTarget(:final familyId):
+        final technique = techniqueDefinition(familyId, context);
+        final exercise = techniqueTrainingExerciseFor(technique, const TimingExercise());
+        final session =
+            TrainingSession(trainee: character, subject: techniqueSubject(familyId), exercise: exercise);
+        for (final attempt in attempts) {
+          session.submitAttempt(attempt);
+        }
+        final result = session.complete();
+        final gain = trainingGain(result.profile);
+        events.publish(
+            TrainingResultRecorded(subject: target.encode(), profile: result.profile, gain: gain));
+        trainingRecords.add(TrainingRecord(
+          subject: target.encode(),
+          attemptCount: attempts.length,
+          averageQuality: result.profile.dimensions.isEmpty
+              ? 0
+              : TrainingStatistics.average(result.profile.dimensions.values.toList()),
+          gain: gain,
+        ));
+        final learning = attemptToLearnTechnique(character, technique, gain, context);
+        if (learning.learned) {
+          techniquesLearned.add(familyId);
+          tomeManager.placeTechnique(technique, 'Training (technique learned)');
 
-        // SP0b: a training session may also *inspire* a brand-new loose
-        // variant, seeded by the player's high-mastery / high-usage
-        // variants. Parallel to evolution, never a replacement. In this
-        // harness the player holds no TechniqueVariant instances yet
-        // (the legacy learn/evolve path is still used), so this is inert
-        // until a later pass migrates the harness — the call is here to
-        // keep the one-authoritative-post-training-step shape visible and
-        // compiled.
-        final family = techniqueFamilyOf(technique.id, context);
-        resolveTechniqueInspirationAfterTraining(
-          character,
-          technique,
-          styleCentre(styleId, family),
-          context,
-          styleId: styleId,
-        );
-      }
+          // The evolution decision + the TechniqueEvolved publish are owned
+          // by the Technique domain now — this stage only reacts with its
+          // own telemetry + Tome swap.
+          final evolution = resolveTechniqueEvolutionAfterTraining(
+              character, technique, result.profile, context);
+          if (evolution.evolved) {
+            final evolvedId = evolution.chosenCandidate!.targetId;
+            techniquesEvolved.add(evolvedId);
+            firstTechniqueEvolutionStep ??= cycleIndex;
+            tomeManager.replaceWithEvolved(familyId, evolvedId, 'Training (evolved)');
+          }
+
+          // SP0b: a training session may also *inspire* a brand-new loose
+          // variant, seeded by the player's high-mastery / high-usage
+          // variants. Parallel to evolution, never a replacement. In this
+          // harness the player holds no TechniqueVariant instances yet
+          // (the legacy learn/evolve path is still used), so this is inert
+          // until a later pass migrates the harness — the call is here to
+          // keep the one-authoritative-post-training-step shape visible and
+          // compiled.
+          final family = techniqueFamilyOf(technique.id, context);
+          resolveTechniqueInspirationAfterTraining(
+            character,
+            technique,
+            styleCentre(styleId, family),
+            context,
+            styleId: styleId,
+          );
+        }
     }
   }
 }
