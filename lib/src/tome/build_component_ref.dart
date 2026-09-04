@@ -27,4 +27,14 @@ class BuildComponentRef {
   final String referenceType;
   final String contentId;
   final EntityId? instanceEntityId;
+
+  @override
+  bool operator ==(Object other) =>
+      other is BuildComponentRef &&
+      other.referenceType == referenceType &&
+      other.contentId == contentId &&
+      other.instanceEntityId == instanceEntityId;
+
+  @override
+  int get hashCode => Object.hash(referenceType, contentId, instanceEntityId);
 }

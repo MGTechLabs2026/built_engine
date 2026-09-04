@@ -21,6 +21,9 @@ void main() {
         rotation: Rotation.deg0,
       );
 
+  BuildComponentRef ref(String type, String id) =>
+      BuildComponentRef(referenceType: type, contentId: id); // non-const call — a fresh object each time
+
   test('active is exactly the hung refs, as ActiveBuild is today', () {
     final resolved = resolver.resolve(owner, [placement(slotA, itemRef)]);
     expect(resolved.active, [itemRef]);
@@ -51,6 +54,19 @@ void main() {
     final compat = resolved.asActiveBuild;
     expect(compat.owner, owner);
     expect(compat.components, [itemRef]);
+  });
+
+  test('a hung ref that is also separately listed in ownedRefs (same fields, '
+      'different object) appears in owned exactly once', () {
+    final placedRef = ref('item', 'knife');
+    final separatelyConstructedSameRef = ref('item', 'knife');
+    expect(identical(placedRef, separatelyConstructedSameRef), isFalse); // genuinely distinct objects
+    final resolved = resolver.resolve(
+      owner,
+      [placement(slotA, placedRef)],
+      ownedRefs: [separatelyConstructedSameRef],
+    );
+    expect(resolved.owned.where((r) => r == placedRef), hasLength(1));
   });
 
   test('empty placements + empty ownedRefs -> both lists empty', () {
