@@ -88,6 +88,50 @@ class TomeManager {
     snapshot(stepName);
   }
 
+  /// The slot holding the placement whose instance id is [instanceId], or
+  /// `null` if that variant is not currently in the Tome.
+  SlotId? slotOfTechniqueVariant(EntityId instanceId) {
+    for (final p in context.tome.inspect(character)) {
+      if (p.buildComponentRef.instanceEntityId == instanceId) return p.slot;
+    }
+    return null;
+  }
+
+  /// Hangs owned technique-variant [instanceId] in the Tome — the
+  /// instance-identity replacement for [placeTechnique]. Mirrors
+  /// [placeItem]'s slot/replace flow; `hangTechniqueVariant` itself writes
+  /// the `BuildComponentRef` (with `instanceEntityId`) and publishes
+  /// `TechniqueAddedToTome`.
+  void placeTechniqueVariant(EntityId instanceId, String stepName) {
+    final variant = context.components.get<TechniqueVariant>(instanceId)!;
+    final ref = BuildComponentRef(
+      referenceType: techniqueReferenceType,
+      contentId: variant.baseFamilyId,
+      instanceEntityId: instanceId,
+    );
+    final slot = recordingPolicy.chooseSlot(ref, orderedUnlockedSlots());
+    final existing = context.tome.inspect(character).where((p) => p.slot == slot);
+    if (existing.isNotEmpty) {
+      if (!recordingPolicy.chooseReplace(
+          slot, existing.single.buildComponentRef, ref)) {
+        return;
+      }
+      context.tome.remove(character, slot);
+    }
+    hangTechniqueVariant(slot, instanceId, context);
+    snapshot(stepName);
+  }
+
+  /// Drops whatever is in [slot] and hangs variant [instanceId] there —
+  /// the evolution/unlock entry point (an evolved branch enters at the
+  /// exact slot its base occupied).
+  void replaceWithTechniqueVariant(
+      SlotId slot, EntityId instanceId, String stepName) {
+    context.tome.remove(character, slot);
+    hangTechniqueVariant(slot, instanceId, context);
+    snapshot(stepName);
+  }
+
   /// Evolution is the unlock mechanism for an evolved branch — it enters
   /// the Tome directly at whichever slot its base technique already
   /// occupied.
