@@ -149,8 +149,9 @@ void main() {
         // claim (the equipped instance actually carries the evolved
         // descriptors) is verified at the Almanac level instead, in
         // test/integration/almanac_run_history_test.dart's
-        // "postTraining snapshot..." test (finalTechniques descriptorIds
-        // non-empty).
+        // "postTraining snapshot..." test, which keys the check on the
+        // specific evolved family's baseFamilyId + non-empty
+        // descriptorIds — not just any non-empty descriptor set.
         final techRefs = result.finalBuild.where((c) =>
             c.referenceType == techniqueReferenceType &&
             c.instanceEntityId != null);

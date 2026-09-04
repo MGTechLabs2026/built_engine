@@ -13,6 +13,7 @@ import 'package:build_engine/almanac.dart';
 import 'package:build_engine/almanac_file.dart';
 import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/game.dart';
+import 'package:build_engine/technique_plugin.dart';
 import 'package:test/test.dart';
 
 import '../support/policies.dart';
@@ -33,6 +34,36 @@ Set<String?> _occupants(AlmanacBuildRecord b) => {
   for (final s in b.tome.slots)
     if (s.occupantRefId != null) s.occupantRefId,
 };
+
+/// A throwaway `PluginContext` with technique content loaded — just
+/// enough for [techniqueFamilyOf] to resolve a legacy evolved id to its
+/// base family. `runGame` doesn't hand back the context it built
+/// internally, so this test builds its own read-only one purely to
+/// classify an id string; it plays no part in the run itself.
+PluginContext _techniqueLookupContext() {
+  final events = EventBus();
+  final entities = EntityRegistry(events);
+  final components = ComponentStore();
+  final rng = RngService(1);
+  final shared = CoreServices(components: components, events: events);
+  return PluginContext(
+    entities: entities,
+    components: components,
+    events: events,
+    rng: rng,
+    rules: RuleEngine(
+      entities: entities,
+      components: components,
+      events: events,
+      rng: rng,
+      shared: shared,
+    ),
+    queries: QueryEngine(QueryScope(components: components)),
+    modifiers: ModifierCollection(),
+    content: ContentRegistry(),
+    shared: shared,
+  )..content.loadAll(techniqueContentDefinitions);
+}
 
 void main() {
   test(
@@ -452,10 +483,21 @@ void main() {
     // build carries at least one technique instance snapshot with
     // descriptors when the run evolved.
     if (result.techniquesEvolved.isNotEmpty) {
+      final evolvedFamily = techniqueFamilyOf(
+        result.techniquesEvolved.last,
+        _techniqueLookupContext(),
+      );
       expect(finalBuild.techniques, isNotEmpty);
       expect(
-        finalBuild.techniques.any((t) => t.descriptorIds.isNotEmpty),
+        finalBuild.techniques.any(
+          (t) => t.baseFamilyId == evolvedFamily && t.descriptorIds.isNotEmpty,
+        ),
         isTrue,
+        reason:
+            "the evolved family's equipped instance should carry the "
+            'evolved descriptors specifically, not just any non-empty '
+            'descriptor set (which an inspired variant would also '
+            'satisfy)',
       );
     }
 

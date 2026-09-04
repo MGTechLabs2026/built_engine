@@ -66,7 +66,7 @@ class _TrainHard extends DefaultRunDecisionPolicy {
 /// seed-sweep convention `test/plugins/game/training_stage_variant_test.dart`
 /// (Tasks 7-9) already established for a resolver whose discovery roll has
 /// no other lever to pin deterministically.
-int? _seedThatInspires({int start = 1, int count = 40}) {
+int _seedThatInspires({int start = 1, int count = 40}) {
   for (var seed = start; seed < start + count; seed++) {
     final events = EventBus();
     var hit = false;
@@ -74,7 +74,7 @@ int? _seedThatInspires({int start = 1, int count = 40}) {
     runGame(seed, policy: _TrainHard(), eventBus: events);
     if (hit) return seed;
   }
-  return null;
+  fail('no seed produced an inspiration within the swept range');
 }
 
 void main() {
@@ -121,9 +121,13 @@ void main() {
     // and 48 all inspire under this policy — kMinMasteryToInspire == 1
     // and kMinUsageToInspire == 3 are both easily reached organically
     // once `chooseTrainingTarget` keeps pushing a learned variant's own
-    // mastery up). Falls back to seed 9 (and a conditional inspiration
-    // assertion) only if the sweep somehow finds nothing.
-    final inspiringSeed = _seedThatInspires() ?? 9;
+    // mastery up). Fails loudly (matching `_seedThatDiscovers` in
+    // technique_inspiration_flow_test.dart and `_seedThatInspires` in
+    // training_stage_variant_test.dart) rather than silently falling back
+    // to a fixed seed if the sweep somehow finds nothing — a silent
+    // fallback would turn the inspiration-ancestry assertion below into a
+    // conditional no-op instead of surfacing a real regression.
+    final inspiringSeed = _seedThatInspires();
 
     final recorder = AlmanacRecorder();
     final events = EventBus();
@@ -159,14 +163,14 @@ void main() {
       }
     }
 
-    // Inspiration ancestry — asserted unconditionally when the swept seed
-    // actually inspired; otherwise (fallback path only) conditional on the
-    // observed event, per the task's guidance.
-    if (inspired.isNotEmpty) {
-      expect(state.inspirations, isNotEmpty);
-      for (final ins in state.inspirations) {
-        expect(ins.inspirerInstanceIds, isNotEmpty);
-      }
+    // Inspiration ancestry — `_seedThatInspires` guarantees this seed
+    // inspires (it fails the test loudly if the sweep can't find one), so
+    // this is asserted unconditionally rather than gated behind an `if`
+    // that a re-baseline could quietly satisfy by never entering it.
+    expect(inspired, isNotEmpty);
+    expect(state.inspirations, isNotEmpty);
+    for (final ins in state.inspirations) {
+      expect(ins.inspirerInstanceIds, isNotEmpty);
     }
 
     // Queries expose it too.

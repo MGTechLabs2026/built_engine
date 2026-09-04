@@ -70,7 +70,8 @@ bool canCombine(
 /// exactly one input entity survives (the rest destroyed), mutated in
 /// place. If the survivor is currently Tome-placed, its placement is
 /// transparently updated to the new definitionId via `TomeService.replace`
-/// — mirrors `game_run.dart`'s `replaceWithEvolved` pattern exactly.
+/// — mirrors `tome_manager.dart`'s `replaceWithTechniqueVariant` pattern
+/// exactly.
 /// Returns the surviving instance's entity id. See
 /// `docs/superpowers/specs/2026-08-24-item-combine-design.md`.
 ///
@@ -230,10 +231,11 @@ EntityId combineItems(
 
 /// Updates [owner]'s Tome placement for [survivorInstance] (if any) to
 /// point at [newId] instead — a no-op if the survivor wasn't placed.
-/// Adapted from `game_run.dart`'s `replaceWithEvolved` pattern, but
-/// matches by [instanceEntityId] rather than `contentId`: Combine's own
-/// precondition is owning 2+ copies of the *same* `definitionId`, so
-/// matching by `contentId` alone (as `replaceWithEvolved` does for
+/// Adapted from `tome_manager.dart`'s `replaceWithTechniqueVariant`
+/// pattern, but matches by [instanceEntityId] rather than `contentId`:
+/// Combine's own precondition is owning 2+ copies of the *same*
+/// `definitionId`, so matching by `contentId` alone (as
+/// `replaceWithTechniqueVariant`'s caller resolves the target slot for
 /// techniques, which have no per-copy instances) risks either hitting
 /// `.single`'s `StateError` when more than one of the combined copies is
 /// currently placed, or silently reassigning some unrelated third

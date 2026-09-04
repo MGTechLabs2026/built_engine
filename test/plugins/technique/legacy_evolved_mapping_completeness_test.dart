@@ -25,7 +25,7 @@ PluginContext _ctx() {
   return c;
 }
 
-/// Every id declared on TechniqueIds via reflbefore-free enumeration:
+/// Every id declared on TechniqueIds via reflection-free enumeration:
 /// the static list the plugin itself loads.
 Iterable<String> _allTechniqueContentIds() =>
     techniqueContentDefinitions.map((d) => d['id'] as String);

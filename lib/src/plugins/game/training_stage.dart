@@ -194,6 +194,18 @@ class TrainingStage {
   /// Whether the Tome occupant at [slot] is a descriptor-less, style-less
   /// base `TechniqueVariant` — the only state in which evolution may still
   /// roll for that family (SP1 decision C).
+  ///
+  /// SP1 scope note: the spec's decision C also describes a retry path
+  /// from a variant-MASTERY session (train an already-owned base variant
+  /// again before it evolves) — this guard is only actually consulted
+  /// from the LEARNING sub-case today, because `EvolutionResolver`'s
+  /// candidates in shipped content carry no `conditions`, so evolution
+  /// always succeeds in the same session that crosses the learning
+  /// threshold; the "trained again before it evolved" case cannot arise
+  /// with current content. If a future evolution candidate ever gains a
+  /// condition that can make a roll miss, this guard would need to be
+  /// consulted from the variant-mastery branch too, or a near-miss family
+  /// could become permanently un-evolvable.
   bool _occupantIsBaseVariant(SlotId slot) {
     final placements =
         context.tome.inspect(character).where((p) => p.slot == slot);
