@@ -248,6 +248,21 @@ const _legacyEvolvedDescriptors = <String, Set<String>>{
   TechniqueIds.thrustKick: {'strong'},
   TechniqueIds.spinningKick: {'strong'},
   TechniqueIds.whirlwindKick: {'swift', 'strong'},
+  TechniqueIds.counterPunch: {'focused'},
+  TechniqueIds.preciseJab: {'bullseye'},
+  TechniqueIds.flashingSlash: {'flash'},
+  TechniqueIds.cleavingSlash: {'strong', 'iron'},
+  TechniqueIds.fastGuard: {'fast'},
+  TechniqueIds.counterGuard: {'focused'},
+  TechniqueIds.rollingGuard: {'swift'},
+  TechniqueIds.turningGuard: {'focused'},
+  TechniqueIds.stillWaterGuard: {'mountain'},
+  TechniqueIds.focusedPalm: {'focused'},
+  TechniqueIds.pushingPalm: {'wall'},
+  TechniqueIds.stillPalm: {'rooted'},
+  TechniqueIds.fingerStrike: {'focused'},
+  TechniqueIds.snapKick: {'fast'},
+  TechniqueIds.crescentKick: {'swift'},
 };
 
 /// The base family for [legacyId], read from its content's family tag.

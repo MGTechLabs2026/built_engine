@@ -309,6 +309,21 @@ void main() {
       TechniqueIds.thrustKick,
       TechniqueIds.spinningKick,
       TechniqueIds.whirlwindKick,
+      TechniqueIds.counterPunch,
+      TechniqueIds.preciseJab,
+      TechniqueIds.flashingSlash,
+      TechniqueIds.cleavingSlash,
+      TechniqueIds.fastGuard,
+      TechniqueIds.counterGuard,
+      TechniqueIds.rollingGuard,
+      TechniqueIds.turningGuard,
+      TechniqueIds.stillWaterGuard,
+      TechniqueIds.focusedPalm,
+      TechniqueIds.pushingPalm,
+      TechniqueIds.stillPalm,
+      TechniqueIds.fingerStrike,
+      TechniqueIds.snapKick,
+      TechniqueIds.crescentKick,
     ];
 
     test('T2: every legacy mapping mints a real base family with resolvable '
@@ -327,16 +342,23 @@ void main() {
 
     test('Test B: an unmapped evolved id is rejected, not collapsed to a basic',
         () {
+      // SP1 §5.1: every shipped evolved id is now mapped, so the loud-fail
+      // path is proven with a throwaway evolved-shaped content def.
+      context.content.loadAll(const [
+        {
+          'id': 'sp1_unmapped_probe',
+          'type': 'technique',
+          'name': 'Unmapped Probe',
+          'tier': 'intermediate',
+          'tags': ['technique', 'fist'],
+          'properties': {'damage': 7},
+        },
+      ]);
       final before = context.entities.all.length;
-      // counter_punch is an evolved id (tier intermediate) with no entry in
-      // _legacyEvolvedDescriptors — it must fail loudly.
       expect(
-        () => mintVariantForLegacyEvolvedId(
-            owner, TechniqueIds.counterPunch, context),
+        () => mintVariantForLegacyEvolvedId(owner, 'sp1_unmapped_probe', context),
         throwsA(isA<LegacyTechniqueMigrationException>()),
       );
-      // Test E: the failed migration left no orphan entity and no variant
-      // component behind.
       expect(context.entities.all.length, before);
       expect(context.components.entitiesWith<TechniqueVariant>(), isEmpty);
     });
