@@ -73,7 +73,7 @@ class CombatStage {
         .resolve(character, ownedRefs: ownedComponentRefs(character, context));
     events.publish(ActiveBuildResolved(build.asActiveBuild.components));
     final playerActions = interpreter.interpret(
-        build: build.asActiveBuild, actor: character, targets: [enemyEntity], context: context);
+        build: build, actor: character, targets: [enemyEntity], context: context);
     // With no technique active in the Tome (the run's own starting state,
     // and any cycle where training hasn't produced one yet), `interpreter`
     // returns no player action at all — `AutoCombatController.step`

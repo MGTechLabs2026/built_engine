@@ -22,6 +22,9 @@ PluginContext _newContext() {
   );
 }
 
+ResolvedBuild _build(EntityId owner, List<BuildComponentRef> refs) =>
+    ResolvedBuild(owner: owner, active: refs, owned: refs);
+
 void main() {
   test('multiple build components combine: an item boosts a technique\'s resolved damage', () {
     final context = _newContext();
@@ -37,7 +40,7 @@ void main() {
     // Basic Punch ('fist', damage 6) + Gloves ('fist', attack 1) — both
     // tag 'fist', so Gloves' modifier lands on exactly the stat Basic
     // Punch's AttackAction reads.
-    final build = ActiveBuild(owner: actor, components: const [
+    final build = _build(actor, const [
       BuildComponentRef(referenceType: techniqueReferenceType, contentId: TechniqueIds.basicPunch),
       BuildComponentRef(referenceType: itemReferenceType, contentId: ItemIds.gloves),
     ]);
@@ -67,7 +70,7 @@ void main() {
       ItemActionInterpreter(),
     ]);
     final actor = context.entities.create();
-    final build = ActiveBuild(owner: actor, components: const [
+    final build = _build(actor, const [
       BuildComponentRef(referenceType: 'currency', contentId: 'gold'),
     ]);
 

@@ -21,6 +21,9 @@ PluginContext _newContext() {
   );
 }
 
+ResolvedBuild _build(EntityId owner, List<BuildComponentRef> refs) =>
+    ResolvedBuild(owner: owner, active: refs, owned: refs);
+
 void main() {
   const interpreter = TechniqueActionInterpreter();
 
@@ -29,7 +32,7 @@ void main() {
     context.content.loadAll(techniqueContentDefinitions);
     final actor = context.entities.create();
     final target = context.entities.create();
-    final build = ActiveBuild(owner: actor, components: const [
+    final build = _build(actor, const [
       BuildComponentRef(referenceType: techniqueReferenceType, contentId: TechniqueIds.basicPunch),
     ]);
 
@@ -49,7 +52,7 @@ void main() {
     final context = _newContext();
     context.content.loadAll(techniqueContentDefinitions);
     final actor = context.entities.create();
-    final build = ActiveBuild(owner: actor, components: const [
+    final build = _build(actor, const [
       BuildComponentRef(referenceType: techniqueReferenceType, contentId: TechniqueIds.basicGuard),
     ]);
 
@@ -70,7 +73,7 @@ void main() {
     context.content.loadAll(techniqueContentDefinitions);
     final actor = context.entities.create();
     final target = context.entities.create();
-    final build = ActiveBuild(owner: actor, components: const [
+    final build = _build(actor, const [
       BuildComponentRef(referenceType: techniqueReferenceType, contentId: TechniqueIds.basicSlash),
     ]);
 
@@ -89,7 +92,7 @@ void main() {
     context.content.loadAll(techniqueContentDefinitions);
     final actor = context.entities.create();
     final target = context.entities.create();
-    final build = ActiveBuild(owner: actor, components: const [
+    final build = _build(actor, const [
       BuildComponentRef(referenceType: techniqueReferenceType, contentId: 'not_a_real_technique'),
       BuildComponentRef(referenceType: techniqueReferenceType, contentId: TechniqueIds.basicPunch),
     ]);
@@ -110,7 +113,7 @@ void main() {
     final context = _newContext();
     context.content.loadAll(techniqueContentDefinitions);
     final actor = context.entities.create();
-    final build = ActiveBuild(owner: actor, components: const [
+    final build = _build(actor, const [
       BuildComponentRef(referenceType: 'item', contentId: 'knife'),
     ]);
 
@@ -125,7 +128,7 @@ void main() {
     context.content.loadAll(techniqueContentDefinitions);
     final actor = context.entities.create();
     final target = context.entities.create();
-    final build = ActiveBuild(owner: actor, components: const [
+    final build = _build(actor, const [
       BuildComponentRef(referenceType: techniqueReferenceType, contentId: TechniqueIds.basicPunch),
     ]);
 

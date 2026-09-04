@@ -80,7 +80,7 @@ void main() {
       ItemActionInterpreter(),
     ]);
     final playerActions = interpreter.interpret(
-      build: build.asActiveBuild,
+      build: build,
       actor: character,
       targets: [enemy],
       context: context,
@@ -139,7 +139,7 @@ void main() {
 
       const interpreter = TechniqueActionInterpreter();
       final actions = interpreter.interpret(
-        build: build.asActiveBuild,
+        build: build,
         actor: character,
         targets: [enemy],
         context: context,

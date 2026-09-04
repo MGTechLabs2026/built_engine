@@ -20,6 +20,9 @@ PluginContext _newContext() {
   );
 }
 
+ResolvedBuild _build(EntityId owner, List<BuildComponentRef> refs) =>
+    ResolvedBuild(owner: owner, active: refs, owned: refs);
+
 void main() {
   const interpreter = ItemActionInterpreter();
 
@@ -27,7 +30,7 @@ void main() {
     final context = _newContext();
     context.content.loadAll(itemContentDefinitions);
     final actor = context.entities.create();
-    final build = ActiveBuild(owner: actor, components: const [
+    final build = _build(actor, const [
       BuildComponentRef(referenceType: itemReferenceType, contentId: ItemIds.ironSword),
     ]);
 
@@ -49,7 +52,7 @@ void main() {
     final context = _newContext();
     context.content.loadAll(itemContentDefinitions);
     final actor = context.entities.create();
-    final build = ActiveBuild(owner: actor, components: const [
+    final build = _build(actor, const [
       BuildComponentRef(referenceType: itemReferenceType, contentId: ItemIds.ironSword),
     ]);
 
@@ -66,7 +69,7 @@ void main() {
     final context = _newContext();
     context.content.loadAll(itemContentDefinitions);
     final actor = context.entities.create();
-    final build = ActiveBuild(owner: actor, components: const [
+    final build = _build(actor, const [
       BuildComponentRef(referenceType: itemReferenceType, contentId: 'not_a_real_item'),
     ]);
 
@@ -80,7 +83,7 @@ void main() {
     final context = _newContext();
     context.content.loadAll(itemContentDefinitions);
     final actor = context.entities.create();
-    final build = ActiveBuild(owner: actor, components: const [
+    final build = _build(actor, const [
       BuildComponentRef(referenceType: 'technique', contentId: 'basic_punch'),
     ]);
 
@@ -98,7 +101,7 @@ void main() {
       instanceEntity,
       ItemInstance(definitionId: ItemIds.ironSword, owner: actor, itemClass: 3),
     );
-    final build = ActiveBuild(owner: actor, components: [
+    final build = _build(actor, [
       BuildComponentRef(
         referenceType: itemReferenceType,
         contentId: ItemIds.ironSword,
@@ -118,7 +121,7 @@ void main() {
     final context = _newContext();
     context.content.loadAll(itemContentDefinitions);
     final actor = context.entities.create();
-    final build = ActiveBuild(owner: actor, components: const [
+    final build = _build(actor, const [
       BuildComponentRef(referenceType: itemReferenceType, contentId: ItemIds.ironSword),
     ]);
 
@@ -136,7 +139,7 @@ void main() {
     final copy = ownItem(actor, ItemIds.ironSword, context);
     addItemStatBonuses(copy, {'blade': 5}, context);
 
-    final build = ActiveBuild(owner: actor, components: [
+    final build = _build(actor, [
       BuildComponentRef(
         referenceType: itemReferenceType,
         contentId: ItemIds.ironSword,
@@ -169,7 +172,7 @@ void main() {
 
     // empty build — the copy is owned but not on the Tome
     interpreter.interpret(
-        build: ActiveBuild(owner: actor, components: const []),
+        build: _build(actor, const []),
         actor: actor,
         targets: const [],
         context: context);

@@ -33,9 +33,10 @@ PluginContext _ctx() {
 // The real `ActiveBuild` constructor is
 // `ActiveBuild({required owner, required components})` — the brief's
 // `ActiveBuild([ref])` shorthand does not exist, so the helper threads the
-// owner through.
-ActiveBuild _build(EntityId owner, BuildComponentRef ref) =>
-    ActiveBuild(owner: owner, components: [ref]);
+// owner through. Now wraps as `ResolvedBuild` (`active == owned` — none of
+// these tests exercise ownership-based tiers).
+ResolvedBuild _build(EntityId owner, BuildComponentRef ref) =>
+    ResolvedBuild(owner: owner, active: [ref], owned: [ref]);
 
 void main() {
   const interp = TechniqueActionInterpreter();

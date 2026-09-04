@@ -32,13 +32,13 @@ class TechniqueActionInterpreter implements BuildActionInterpreter {
 
   @override
   List<CombatAction> interpret({
-    required ActiveBuild build,
+    required ResolvedBuild build,
     required EntityId actor,
     required List<EntityId> targets,
     required PluginContext context,
   }) {
     final actions = <CombatAction>[];
-    for (final ref in build.components) {
+    for (final ref in build.active) {
       if (ref.referenceType != techniqueReferenceType) continue;
       final definition = context.content.find(ref.contentId);
       if (definition == null) continue; // unknown/invalid technique -> no action, not a crash

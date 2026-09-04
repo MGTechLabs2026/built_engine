@@ -11,7 +11,7 @@ import 'package:build_engine/combat_plugin.dart';
 ///
 /// This is the "Build Interpreter" stage of the target pipeline:
 ///
-///   Tome -> ActiveBuild -> Build Interpreter -> Available Actions ->
+///   Tome -> ResolvedBuild -> Build Interpreter -> Available Actions ->
 ///   AutoCombat -> CombatSystem
 ///
 /// Lives in its own module (`lib/src/plugins/build_interpretation/`),
@@ -22,7 +22,7 @@ import 'package:build_engine/combat_plugin.dart';
 /// only this bridging layer does.
 abstract class BuildActionInterpreter {
   List<CombatAction> interpret({
-    required ActiveBuild build,
+    required ResolvedBuild build,
     required EntityId actor,
     required List<EntityId> targets,
     required PluginContext context,

@@ -31,6 +31,9 @@ PluginContext _ctx() {
   return c;
 }
 
+ResolvedBuild _build(EntityId owner, List<BuildComponentRef> refs) =>
+    ResolvedBuild(owner: owner, active: refs, owned: refs);
+
 void main() {
   test('an attack action carries the sourceRef of its technique component', () {
     final ctx = _ctx();
@@ -41,7 +44,7 @@ void main() {
       contentId: TechniqueIds.basicPunch,
       instanceEntityId: EntityId(99),
     );
-    final build = ActiveBuild(owner: actor, components: const [
+    final build = _build(actor, const [
       BuildComponentRef(
         referenceType: techniqueReferenceType,
         contentId: TechniqueIds.basicPunch,
@@ -70,7 +73,7 @@ void main() {
       contentId: TechniqueIds.basicGuard,
       instanceEntityId: EntityId(7),
     );
-    final build = ActiveBuild(owner: actor, components: const [
+    final build = _build(actor, const [
       BuildComponentRef(
         referenceType: techniqueReferenceType,
         contentId: TechniqueIds.basicGuard,

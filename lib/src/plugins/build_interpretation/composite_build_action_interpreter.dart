@@ -17,7 +17,7 @@ class CompositeBuildActionInterpreter implements BuildActionInterpreter {
 
   @override
   List<CombatAction> interpret({
-    required ActiveBuild build,
+    required ResolvedBuild build,
     required EntityId actor,
     required List<EntityId> targets,
     required PluginContext context,
