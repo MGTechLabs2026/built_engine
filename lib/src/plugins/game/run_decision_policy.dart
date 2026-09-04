@@ -9,6 +9,75 @@ import 'package:build_engine/build_engine.dart';
 /// (`RunTomeSlots.all`, a high fixed ceiling) is unlocked.
 enum RewardKind { unlockSlot, itemOrTechnique, upgradePoint }
 
+/// A typed "what to train this session" target — replaces the opaque
+/// `item:<id>` / `technique:<id>` strings so `TrainingStage` never parses
+/// an id and a `TechniqueVariant` instance can be named directly
+/// (SP1 §5.3 / §15). The encoded forms are kept identical to the old
+/// strings (`item:<id>`, `technique:<familyId>`) so `saveDecisionLog`
+/// text stays human-readable; a variant instance adds `#<entityValue>`.
+sealed class RunTrainingTarget {
+  const RunTrainingTarget();
+
+  /// Stable text form for `DecisionLog` serialization.
+  String encode();
+
+  /// Inverse of [encode]. Throws [FormatException] on an unknown prefix.
+  factory RunTrainingTarget.decode(String s) {
+    if (s.startsWith('item:')) {
+      return TrainItemTarget(s.substring('item:'.length));
+    }
+    if (s.startsWith('technique:')) {
+      final rest = s.substring('technique:'.length);
+      final hash = rest.indexOf('#');
+      if (hash < 0) return TrainTechniqueTarget(rest);
+      return TrainTechniqueTarget(
+        rest.substring(0, hash),
+        variantInstanceId: EntityId(int.parse(rest.substring(hash + 1))),
+      );
+    }
+    throw FormatException('Not a RunTrainingTarget: $s');
+  }
+}
+
+/// Train an owned-but-not-yet-usable item, keyed by its definition id.
+class TrainItemTarget extends RunTrainingTarget {
+  const TrainItemTarget(this.itemId);
+  final String itemId;
+
+  @override
+  String encode() => 'item:$itemId';
+
+  @override
+  bool operator ==(Object other) =>
+      other is TrainItemTarget && other.itemId == itemId;
+
+  @override
+  int get hashCode => Object.hash('item', itemId);
+}
+
+/// Train a technique. [variantInstanceId] is `null` for the base-family
+/// *learning* candidate and non-null for a specific owned `TechniqueVariant`
+/// whose per-instance mastery is being drilled.
+class TrainTechniqueTarget extends RunTrainingTarget {
+  const TrainTechniqueTarget(this.familyId, {this.variantInstanceId});
+  final String familyId;
+  final EntityId? variantInstanceId;
+
+  @override
+  String encode() => variantInstanceId == null
+      ? 'technique:$familyId'
+      : 'technique:$familyId#${variantInstanceId!.value}';
+
+  @override
+  bool operator ==(Object other) =>
+      other is TrainTechniqueTarget &&
+      other.familyId == familyId &&
+      other.variantInstanceId == variantInstanceId;
+
+  @override
+  int get hashCode => Object.hash('technique', familyId, variantInstanceId);
+}
+
 /// Every meaningful choice a player makes across a run — the endless
 /// combat/training loop's own minimum: martial tradition/style, combat
 /// vs. training, reward, what to train, Tome arrangement, whether to
@@ -46,10 +115,10 @@ abstract class RunDecisionPolicy {
   int chooseReward(List<RewardKind> candidates);
 
   /// Picks which subject to spend a training session on, from
-  /// [candidates] — each entry an `item:<id>`/`technique:<id>` subject
-  /// string (`itemSubject`/`techniqueSubject`), naming something already
-  /// owned/discovered but not yet usable/learned.
-  String chooseTrainingTarget(List<String> candidates);
+  /// [candidates] — each a typed [RunTrainingTarget] naming something
+  /// owned/discovered but not yet usable/learned, or an owned technique
+  /// variant still below its top mastery rank.
+  RunTrainingTarget chooseTrainingTarget(List<RunTrainingTarget> candidates);
 
   /// Picks which Tome slot [component] should occupy, from
   /// [candidateSlots] (already narrowed to the currently-unlocked slots,
@@ -108,7 +177,8 @@ class DefaultRunDecisionPolicy implements RunDecisionPolicy {
   int chooseReward(List<RewardKind> candidates) => 0;
 
   @override
-  String chooseTrainingTarget(List<String> candidates) => candidates.first;
+  RunTrainingTarget chooseTrainingTarget(List<RunTrainingTarget> candidates) =>
+      candidates.first;
 
   @override
   SlotId chooseSlot(BuildComponentRef component, List<SlotId> candidateSlots) => candidateSlots.first;

@@ -64,9 +64,10 @@ class ConsoleDecisionPolicy implements RunDecisionPolicy {
       };
 
   @override
-  String chooseTrainingTarget(List<String> candidates) {
+  RunTrainingTarget chooseTrainingTarget(List<RunTrainingTarget> candidates) {
     _print('\n=== Choose what to train ===');
-    return candidates[_promptIndex(candidates)];
+    final labels = [for (final t in candidates) t.encode()];
+    return candidates[_promptIndex(labels)];
   }
 
   @override
