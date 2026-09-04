@@ -31,11 +31,12 @@ Set<String> ownedItemIds(EntityId character, PluginContext context) {
   return ids;
 }
 
-/// [character]'s currently learned technique ids, among the reward
-/// pool's roster — pure query, no stored state of its own.
+/// Base families [character] owns at least one `TechniqueVariant` on —
+/// pure query. Replaces the pre-SP1 "reward-roster family that is
+/// isTechniqueLearned" set (SP1 Task 10).
 Set<String> knownTechniqueIds(EntityId character, PluginContext context) => {
-      for (final id in rewardPoolTechniqueIds)
-        if (isTechniqueLearned(character, techniqueDefinition(id, context), context)) id,
+      for (final e in ownedTechniqueVariants(character, context))
+        context.components.get<TechniqueVariant>(e)!.baseFamilyId,
     };
 
 void restoreHealth(EntityId character, PluginContext context) {

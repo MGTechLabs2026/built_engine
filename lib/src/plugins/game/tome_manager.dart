@@ -254,12 +254,21 @@ class TomeManager {
                 !rejectedThisVisit.contains('equip:item:$id'))
               id,
       ];
-      final benchedTechniqueIds = [
+      // Benched technique-variant instances: owned variants not currently
+      // hung anywhere — instance-keyed, not family-keyed, since two
+      // variants of the same family share a contentId (SP1 Task 10).
+      final placedVariantInstances = {
+        for (final p in placements)
+          if (p.buildComponentRef.referenceType == techniqueReferenceType &&
+              p.buildComponentRef.instanceEntityId != null)
+            p.buildComponentRef.instanceEntityId!,
+      };
+      final benchedVariantIds = [
         if (hasEmptySlot)
-          for (final id in knownTechniqueIds())
-            if (!placedRefs.contains((techniqueReferenceType, id)) &&
-                !rejectedThisVisit.contains('equip:technique:$id'))
-              id,
+          for (final e in ownedTechniqueVariants(character, context))
+            if (!placedVariantInstances.contains(e) &&
+                !rejectedThisVisit.contains('equip:techniqueVariant:${e.value}'))
+              e,
       ];
       // `'done'` sits between the equip/unequip options — every equip:
       // option before it, every unequip: option after — so
@@ -268,7 +277,7 @@ class TomeManager {
       // own gear for no reason."
       final candidates = <String>[
         for (final id in benchedItemIds) 'equip:item:$id',
-        for (final id in benchedTechniqueIds) 'equip:technique:$id',
+        for (final e in benchedVariantIds) 'equip:techniqueVariant:${e.value}',
         'done',
         for (final p in placements)
           'unequip:${p.slot.id}:${p.buildComponentRef.referenceType}:${p.buildComponentRef.contentId}',
@@ -283,13 +292,15 @@ class TomeManager {
             (p) => p.buildComponentRef.referenceType == itemReferenceType && p.buildComponentRef.contentId == id)) {
           rejectedThisVisit.add(choice);
         }
-      } else if (choice.startsWith('equip:technique:')) {
-        final id = choice.substring('equip:technique:'.length);
-        placeTechnique(techniqueDefinition(id, context), 'Manage Tome (equip)');
-        if (!context.tome.inspect(character).any((p) =>
-            p.buildComponentRef.referenceType == techniqueReferenceType && p.buildComponentRef.contentId == id)) {
-          rejectedThisVisit.add(choice);
-        }
+      } else if (choice.startsWith('equip:techniqueVariant:')) {
+        final value =
+            int.parse(choice.substring('equip:techniqueVariant:'.length));
+        final instanceId = EntityId(value);
+        placeTechniqueVariant(instanceId, 'Manage Tome (equip)');
+        final placed = context.tome
+            .inspect(character)
+            .any((p) => p.buildComponentRef.instanceEntityId == instanceId);
+        if (!placed) rejectedThisVisit.add(choice);
       } else if (choice.startsWith('unequip:')) {
         final slotId = choice.substring('unequip:'.length).split(':').first;
         context.tome.remove(character, SlotId(slotId));
