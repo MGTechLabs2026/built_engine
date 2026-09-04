@@ -53,11 +53,24 @@ class TrainingStage {
       for (final id in ownedItemIds())
         if (!isItemUsable(character, itemDefinition(id, context), context)) TrainItemTarget(id),
     ];
+
+    // Base-family LEARNING candidates (reward roster, discovered, not learned).
     for (final id in rewardPoolTechniqueIds) {
       final technique = techniqueDefinition(id, context);
       if (isTechniqueDiscovered(character, technique, context) &&
           !isTechniqueLearned(character, technique, context)) {
         candidates.add(TrainTechniqueTarget(id));
+      }
+    }
+
+    // Per-instance variant-MASTERY candidates: any owned variant below the
+    // top rank, on any family (SP1 decision B — owned variants stay
+    // trainable after their base family is learned).
+    final topRank = techniqueMasteryThresholds.length;
+    for (final e in ownedTechniqueVariants(character, context)) {
+      if (techniqueVariantMasteryLevel(e, context) < topRank) {
+        final v = context.components.get<TechniqueVariant>(e)!;
+        candidates.add(TrainTechniqueTarget(v.baseFamilyId, variantInstanceId: e));
       }
     }
     return candidates;
@@ -69,6 +82,8 @@ class TrainingStage {
     final target = recordingPolicy.chooseTrainingTarget(candidates);
     events.publish(TrainingStarted(target.encode()));
     final attempts = generateTrainingAttempts(rng);
+
+    String? trainedFamilyId;
 
     switch (target) {
       case TrainItemTarget(:final itemId):
@@ -98,7 +113,8 @@ class TrainingStage {
           firstItemMasteryStep ??= cycleIndex;
           tomeManager.placeItem(item, 'Training (item mastered)');
         }
-      case TrainTechniqueTarget(:final familyId):
+      case TrainTechniqueTarget(:final familyId, :final variantInstanceId):
+        trainedFamilyId = familyId;
         final technique = techniqueDefinition(familyId, context);
         final exercise = techniqueTrainingExerciseFor(technique, const TimingExercise());
         final session =
@@ -118,54 +134,60 @@ class TrainingStage {
               : TrainingStatistics.average(result.profile.dimensions.values.toList()),
           gain: gain,
         ));
-        final learning = attemptToLearnTechnique(character, technique, gain, context);
-        if (learning.learned) {
-          techniquesLearned.add(familyId);
-          final baseInstance = _ownedBaseVariantFor(familyId) ??
-              mintTechniqueVariant(character, familyId, const {}, context);
-          if (tomeManager.slotOfTechniqueVariant(baseInstance) == null) {
-            tomeManager.placeTechniqueVariant(
-                baseInstance, 'Training (technique learned)');
-          }
 
-          // Evolution replaces base -> evolved exactly once per family per
-          // run: only roll while the family's Tome occupant is still the
-          // descriptor-less base variant (SP1 decision C). Once evolved,
-          // this family's occupant stops being "the base variant" so
-          // subsequent training sessions on it won't re-roll.
-          final baseSlot = tomeManager.slotOfTechniqueVariant(baseInstance);
-          if (baseSlot != null && _occupantIsBaseVariant(baseSlot)) {
-            final evolution = resolveTechniqueEvolutionAfterTraining(
-                character, technique, result.profile, context);
-            if (evolution.evolved) {
-              final evolvedId = evolution.chosenCandidate!.targetId;
-              final evolvedInstance = mintVariantForLegacyEvolvedId(
-                  character, evolvedId, context, styleId: styleId);
-              tomeManager.replaceWithTechniqueVariant(
-                  baseSlot, evolvedInstance, 'Training (evolved)');
-              removeTechniqueVariant(baseInstance, context);
-              techniquesEvolved.add(evolvedId);
-              firstTechniqueEvolutionStep ??= cycleIndex;
+        if (variantInstanceId == null) {
+          final learning = attemptToLearnTechnique(character, technique, gain, context);
+          if (learning.learned) {
+            techniquesLearned.add(familyId);
+            final baseInstance = _ownedBaseVariantFor(familyId) ??
+                mintTechniqueVariant(character, familyId, const {}, context);
+            if (tomeManager.slotOfTechniqueVariant(baseInstance) == null) {
+              tomeManager.placeTechniqueVariant(
+                  baseInstance, 'Training (technique learned)');
+            }
+
+            // Evolution replaces base -> evolved exactly once per family per
+            // run: only roll while the family's Tome occupant is still the
+            // descriptor-less base variant (SP1 decision C). Once evolved,
+            // this family's occupant stops being "the base variant" so
+            // subsequent training sessions on it won't re-roll.
+            final baseSlot = tomeManager.slotOfTechniqueVariant(baseInstance);
+            if (baseSlot != null && _occupantIsBaseVariant(baseSlot)) {
+              final evolution = resolveTechniqueEvolutionAfterTraining(
+                  character, technique, result.profile, context);
+              if (evolution.evolved) {
+                final evolvedId = evolution.chosenCandidate!.targetId;
+                final evolvedInstance = mintVariantForLegacyEvolvedId(
+                    character, evolvedId, context, styleId: styleId);
+                tomeManager.replaceWithTechniqueVariant(
+                    baseSlot, evolvedInstance, 'Training (evolved)');
+                removeTechniqueVariant(baseInstance, context);
+                techniquesEvolved.add(evolvedId);
+                firstTechniqueEvolutionStep ??= cycleIndex;
+              }
             }
           }
-
-          // SP0b: a training session may also *inspire* a brand-new loose
-          // variant, seeded by the player's high-mastery / high-usage
-          // variants. Parallel to evolution, never a replacement. In this
-          // harness the player holds no TechniqueVariant instances yet
-          // (the legacy learn/evolve path is still used), so this is inert
-          // until a later pass migrates the harness — the call is here to
-          // keep the one-authoritative-post-training-step shape visible and
-          // compiled.
-          final family = techniqueFamilyOf(technique.id, context);
-          resolveTechniqueInspirationAfterTraining(
-            character,
-            technique,
-            styleCentre(styleId, family),
-            context,
-            styleId: styleId,
-          );
+        } else {
+          // Per-instance MASTERY only — never the base family's own axes
+          // (SP1 decision G: base-family LEARNING/MASTERY and per-instance
+          // variant MASTERY are never collapsed together).
+          trainTechniqueVariantMastery(variantInstanceId, gain, context);
         }
+    }
+
+    // Inspiration — one roll per training session, EVERY target type,
+    // at the true post-training boundary (SP1 decision D). No longer
+    // nested under first-time learning.
+    final familyForInspiration = trainedFamilyId ?? _topOwnedVariantFamily();
+    if (familyForInspiration != null) {
+      final familyDef = techniqueDefinition(familyForInspiration, context);
+      resolveTechniqueInspirationAfterTraining(
+        character,
+        familyDef,
+        styleCentre(styleId, familyForInspiration),
+        context,
+        styleId: styleId,
+      );
     }
   }
 
@@ -195,5 +217,25 @@ class TrainingStage {
       }
     }
     return null;
+  }
+
+  /// The family of the owner's "best" owned variant — highest per-instance
+  /// mastery, then highest usage this run, then lowest instance id — or
+  /// `null` if the owner holds no variants. Used to seed inspiration for
+  /// an item-training session, which has no technique family of its own
+  /// (SP1 decision D).
+  String? _topOwnedVariantFamily() {
+    final owned = ownedTechniqueVariants(character, context);
+    if (owned.isEmpty) return null;
+    owned.sort((a, b) {
+      final byMastery = techniqueVariantMasteryLevel(b, context)
+          .compareTo(techniqueVariantMasteryLevel(a, context));
+      if (byMastery != 0) return byMastery;
+      final byUsage = techniqueVariantUsage(b, context)
+          .compareTo(techniqueVariantUsage(a, context));
+      if (byUsage != 0) return byUsage;
+      return a.value.compareTo(b.value);
+    });
+    return context.components.get<TechniqueVariant>(owned.first)!.baseFamilyId;
   }
 }
