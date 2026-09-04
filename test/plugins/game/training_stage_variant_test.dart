@@ -108,21 +108,33 @@ void main() {
 
       _trainUntilLearned(stage, familyId);
 
-      // Exactly one owned base variant for the family — the mint side of
-      // the rule.
-      final baseVariants = _baseVariantsFor(s.character, familyId, s.ctx);
-      expect(baseVariants, hasLength(1));
+      // The base variant's own `TechniqueVariantMinted` — the mint side
+      // of the rule. It's always the *first* same-family mint event
+      // (Task 7's mint-or-reuse rule mints the descriptor-less base
+      // before any evolution roll can happen), so `firstWhere` finds it
+      // reliably even when evolution mints its own (also same-family, by
+      // `mintVariantForLegacyEvolvedId`'s construction) second event.
+      final baseMints = minted.where((m) => m.baseFamilyId == familyId).toList();
+      expect(baseMints, isNotEmpty);
+      final baseInstance = baseMints.first.instanceId;
+      if (stage.techniquesEvolved.isEmpty) {
+        // No evolution this run — the only same-family mint is the base
+        // variant itself.
+        expect(baseMints, hasLength(1));
+      }
 
-      // TechniqueVariantMinted was published for it.
-      expect(
-        minted.where((m) =>
-            m.baseFamilyId == familyId && m.instanceId == baseVariants.single),
-        hasLength(1),
-      );
+      // Still owned as the descriptor-less base variant — UNLESS
+      // evolution also fired this run (Task 8: evolution now really
+      // mints an evolved variant and removes this one), in which case
+      // the mint/reuse rule is already proven by `baseMints` above, and
+      // the post-evolution shape is covered by its own test group.
+      if (stage.techniquesEvolved.isEmpty) {
+        final baseVariants = _baseVariantsFor(s.character, familyId, s.ctx);
+        expect(baseVariants, [baseInstance]);
+      }
 
-      // Hung in the Tome — UNLESS evolution also fired this run (still on
-      // the legacy `replaceWithEvolved` path per Ruling R1), which would
-      // have swapped the Tome slot's occupant away from the variant
+      // Hung in the Tome — UNLESS evolution also fired this run, which
+      // would have swapped the Tome slot's occupant away from the variant
       // placement. The placement mechanism itself is already proven by
       // Task 6's `tome_manager_variant_test.dart`; this test's unique job
       // is the mint/reuse rule, so the Tome-placement check is only made
@@ -130,8 +142,8 @@ void main() {
       if (stage.techniquesEvolved.isEmpty) {
         final placements = s.ctx.tome.inspect(s.character);
         expect(
-          placements.any((p) =>
-              p.buildComponentRef.instanceEntityId == baseVariants.single),
+          placements
+              .any((p) => p.buildComponentRef.instanceEntityId == baseInstance),
           isTrue,
         );
       }
@@ -170,9 +182,15 @@ void main() {
       _trainUntilLearned(stage, familyId);
 
       // Still exactly one base variant for the family, and it is the
-      // pre-seeded instance — not a freshly minted second one.
-      final baseVariants = _baseVariantsFor(s.character, familyId, s.ctx);
-      expect(baseVariants, [preseeded]);
+      // pre-seeded instance — not a freshly minted second one. UNLESS
+      // evolution also fired this run (Task 8: evolution now really
+      // removes the base instance it replaces), in which case the
+      // reuse-not-remint claim is already proven below by the absence of
+      // a second `TechniqueVariantMinted` for the base shape.
+      if (stage.techniquesEvolved.isEmpty) {
+        final baseVariants = _baseVariantsFor(s.character, familyId, s.ctx);
+        expect(baseVariants, [preseeded]);
+      }
 
       // No second `TechniqueVariantMinted` for this family's base shape:
       // the base-variant mint call is the reuse path, so `mintTechniqueVariant`
@@ -184,6 +202,98 @@ void main() {
             m.baseFamilyId == familyId && m.instanceId == preseeded),
         isEmpty,
       );
+    });
+  });
+
+  group('TrainingStage: evolution replaces the base occupant (SP1 decision C)',
+      () {
+    test(
+        'a learned base family evolves: base variant replaced by an '
+        'evolved variant, old instance removed', () {
+      final s = _setup();
+      const familyId = TechniqueIds.basicPunch;
+      final minted = <TechniqueVariantMinted>[];
+      s.events.subscribe<TechniqueVariantMinted>(minted.add);
+
+      discoverTechnique(
+          s.character, techniqueDefinition(familyId, s.ctx), s.ctx);
+
+      final stage = TrainingStage(
+        character: s.character,
+        context: s.ctx,
+        recordingPolicy:
+            RecordingDecisionPolicy(const DefaultRunDecisionPolicy()),
+        // `_setup()`'s context.rng is fixed at RngService(1), which is
+        // what `resolveTechniqueEvolutionAfterTraining`'s draw actually
+        // consumes; this `rng` only drives attempt generation. Swept
+        // 1-60 for `basic_punch`/'wrestling'/`DefaultRunDecisionPolicy`:
+        // every seed evolves (to `fast_punch`) within the cycle cap
+        // below, so seed 1 is picked with no special significance.
+        rng: RngService(1),
+        events: s.events,
+        tomeManager: s.mgr,
+        styleId: 'wrestling',
+      );
+
+      for (var cycle = 0; cycle < 200; cycle++) {
+        if (stage.techniquesEvolved.isNotEmpty) break;
+        stage.runTraining(() => const <String>{}, cycle);
+      }
+      if (stage.techniquesEvolved.isEmpty) {
+        fail('expected basic_punch to evolve within the cycle cap');
+      }
+
+      // The base variant minted at learn time — the instance evolution
+      // must have replaced. It's always the *first* mint for this family
+      // (Task 7's mint-or-reuse rule mints the descriptor-less base
+      // before any evolution roll can happen), so it's found reliably
+      // even though evolution can fire within the very same
+      // `runTraining` call that learned the family.
+      final baseInstance =
+          minted.firstWhere((m) => m.baseFamilyId == familyId).instanceId;
+
+      final placement = s.ctx.tome.inspect(s.character).firstWhere((p) =>
+          p.buildComponentRef.referenceType == techniqueReferenceType &&
+          p.buildComponentRef.contentId == familyId);
+      final currentInstance = placement.buildComponentRef.instanceEntityId;
+      expect(currentInstance, isNotNull);
+      expect(currentInstance, isNot(equals(baseInstance)));
+
+      final currentVariant =
+          s.ctx.components.get<TechniqueVariant>(currentInstance!)!;
+      expect(currentVariant.descriptorIds, isNotEmpty);
+
+      // The old base instance is gone: not alive, not owned any more.
+      expect(s.ctx.entities.isAlive(baseInstance), isFalse);
+      expect(
+        ownedTechniqueVariants(s.character, s.ctx),
+        isNot(contains(baseInstance)),
+      );
+    });
+
+    test('evolution does not re-fire once the occupant is an evolved variant',
+        () {
+      final events = EventBus();
+      final evolved = <TechniqueEvolved>[];
+      events.subscribe<TechniqueEvolved>(evolved.add);
+
+      // Seed 6 / `TrainAfterFirstCombatPolicy` (the train-heavy policy
+      // this file's own "runGame smoke test" group already uses) trains
+      // every cycle after the first combat and evolves multiple reward-
+      // pool families across one run — a real end-to-end exercise of the
+      // guard, not just a single family's single evolution.
+      runGame(6, policy: TrainAfterFirstCombatPolicy(), eventBus: events);
+
+      final perFamily = <String, int>{};
+      for (final e in evolved) {
+        perFamily[e.fromId] = (perFamily[e.fromId] ?? 0) + 1;
+      }
+      // Sanity: this run does exercise evolution at all.
+      expect(perFamily, isNotEmpty);
+      for (final entry in perFamily.entries) {
+        expect(entry.value, lessThanOrEqualTo(1),
+            reason: '${entry.key} evolved ${entry.value} times');
+      }
     });
   });
 

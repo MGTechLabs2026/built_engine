@@ -128,16 +128,25 @@ class TrainingStage {
                 baseInstance, 'Training (technique learned)');
           }
 
-          // The evolution decision + the TechniqueEvolved publish are owned
-          // by the Technique domain now — this stage only reacts with its
-          // own telemetry + Tome swap.
-          final evolution = resolveTechniqueEvolutionAfterTraining(
-              character, technique, result.profile, context);
-          if (evolution.evolved) {
-            final evolvedId = evolution.chosenCandidate!.targetId;
-            techniquesEvolved.add(evolvedId);
-            firstTechniqueEvolutionStep ??= cycleIndex;
-            tomeManager.replaceWithEvolved(familyId, evolvedId, 'Training (evolved)');
+          // Evolution replaces base -> evolved exactly once per family per
+          // run: only roll while the family's Tome occupant is still the
+          // descriptor-less base variant (SP1 decision C). Once evolved,
+          // this family's occupant stops being "the base variant" so
+          // subsequent training sessions on it won't re-roll.
+          final baseSlot = tomeManager.slotOfTechniqueVariant(baseInstance);
+          if (baseSlot != null && _occupantIsBaseVariant(baseSlot)) {
+            final evolution = resolveTechniqueEvolutionAfterTraining(
+                character, technique, result.profile, context);
+            if (evolution.evolved) {
+              final evolvedId = evolution.chosenCandidate!.targetId;
+              final evolvedInstance = mintVariantForLegacyEvolvedId(
+                  character, evolvedId, context, styleId: styleId);
+              tomeManager.replaceWithTechniqueVariant(
+                  baseSlot, evolvedInstance, 'Training (evolved)');
+              removeTechniqueVariant(baseInstance, context);
+              techniquesEvolved.add(evolvedId);
+              firstTechniqueEvolutionStep ??= cycleIndex;
+            }
           }
 
           // SP0b: a training session may also *inspire* a brand-new loose
@@ -158,6 +167,20 @@ class TrainingStage {
           );
         }
     }
+  }
+
+  /// Whether the Tome occupant at [slot] is a descriptor-less, style-less
+  /// base `TechniqueVariant` — the only state in which evolution may still
+  /// roll for that family (SP1 decision C).
+  bool _occupantIsBaseVariant(SlotId slot) {
+    final placements =
+        context.tome.inspect(character).where((p) => p.slot == slot);
+    final instanceId = placements.isEmpty
+        ? null
+        : placements.first.buildComponentRef.instanceEntityId;
+    if (instanceId == null) return false;
+    final v = context.components.get<TechniqueVariant>(instanceId);
+    return v != null && v.descriptorIds.isEmpty && v.styleId == null;
   }
 
   /// The owner's existing descriptor-less, style-less base variant for

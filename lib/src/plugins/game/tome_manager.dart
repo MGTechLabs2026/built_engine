@@ -132,22 +132,6 @@ class TomeManager {
     snapshot(stepName);
   }
 
-  /// Evolution is the unlock mechanism for an evolved branch — it enters
-  /// the Tome directly at whichever slot its base technique already
-  /// occupied.
-  void replaceWithEvolved(String baseId, String evolvedId, String stepName) {
-    final placement = context.tome.inspect(character).where((p) =>
-        p.buildComponentRef.referenceType == techniqueReferenceType &&
-        p.buildComponentRef.contentId == baseId).toList();
-    if (placement.isEmpty) return;
-    context.tome.replace(
-      character,
-      placement.single.slot,
-      BuildComponentRef(referenceType: techniqueReferenceType, contentId: evolvedId),
-    );
-    snapshot(stepName);
-  }
-
   /// Unlocks the next slot in `RunTomeSlots.all`'s fixed order — the
   /// `RewardKind.unlockSlot` reward's mutation, called from `RewardStage`
   /// rather than reached into directly, since slot-unlocking is this
