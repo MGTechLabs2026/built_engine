@@ -401,5 +401,119 @@ void main() {
       expect(recorder.state.techniques, isEmpty);
       expect(recorder.state.discoveries, isEmpty);
     });
+
+    test('recordTechniqueDiscovered after a conflicting recordDiscovery row — '
+        'a run-number clash still commits nothing', () {
+      final recorder =
+          AlmanacRecorder()
+            ..beginRun(
+              runId: 'run-1',
+              runNumber: 10,
+              lineageId: 'western',
+              physiqueId: 'phy-a',
+              startedAt: at(1),
+            )
+            ..recordDiscovery(
+              AlmanacDiscoveryRecord(
+                discoveryId: 'techniqueVariant:ti-1',
+                type: AlmanacDiscoveryType.techniqueVariant,
+                contentId: 'ti-1',
+                instanceId: 'ti-1',
+                runId: 'run-1',
+                runNumber: 10,
+                timestamp: at(2),
+                snapshot: DiscoverySnapshot(
+                  label: 'fam-a',
+                  values: const {'baseFamilyId': 'fam-a'},
+                ),
+              ),
+            );
+      final before = recorder.state;
+
+      // The technique fold would succeed, but the emitted row's runNumber
+      // clashes with run-1 → the whole call must reject with nothing committed.
+      expect(
+        () => recorder.recordTechniqueDiscovered(
+          instanceId: 'ti-1',
+          baseFamilyId: 'fam-a',
+          descriptorIds: ['d1'],
+          axisProfile: {'power': 1},
+          origin: TechniqueOrigin.base,
+          runId: 'run-1',
+          runNumber: 999,
+          timestamp: at(3),
+        ),
+        throwsA(isA<AlmanacIntegrityException>()),
+      );
+      expect(recorder.state, before);
+      expect(recorder.state.techniques, isEmpty);
+      expect(recorder.state.discoveries, hasLength(1));
+    });
+
+    test('recordAffixDiscovered is atomic — a run-number clash leaves no '
+        'affix record behind', () {
+      final recorder =
+          AlmanacRecorder()..beginRun(
+            runId: 'run-1',
+            runNumber: 10,
+            lineageId: 'western',
+            physiqueId: 'phy-a',
+            startedAt: at(1),
+          );
+      final before = recorder.state;
+
+      expect(
+        () => recorder.recordAffixDiscovered(
+          affixId: 'af-new',
+          observation: const AffixObservation(
+            affixEventId: 'ae0',
+            runId: 'run-1',
+            runNumber: 999,
+          ),
+          snapshot: const AffixSnapshot(
+            affixId: 'af-new',
+            stat: 'crit',
+            value: 1,
+          ),
+          timestamp: at(2),
+        ),
+        throwsA(
+          isA<AlmanacIntegrityException>().having(
+            (e) => e.field,
+            'field',
+            'runNumber',
+          ),
+        ),
+      );
+      expect(recorder.state, before);
+      expect(recorder.state.affixes, isEmpty);
+    });
+
+    test('recordAffixUsed is atomic — a run-number clash leaves no affix '
+        'record behind', () {
+      final recorder =
+          AlmanacRecorder()..beginRun(
+            runId: 'run-1',
+            runNumber: 10,
+            lineageId: 'western',
+            physiqueId: 'phy-a',
+            startedAt: at(1),
+          );
+      final before = recorder.state;
+
+      expect(
+        () => recorder.recordAffixUsed(
+          affixId: 'af-new',
+          observation: const AffixObservation(
+            affixEventId: 'ae0',
+            runId: 'run-1',
+            runNumber: 999,
+          ),
+        ),
+        throwsA(isA<AlmanacIntegrityException>()),
+      );
+      expect(recorder.state, before);
+      expect(recorder.state.affixes, isEmpty);
+    });
   });
 }

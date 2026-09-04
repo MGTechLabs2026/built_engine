@@ -493,10 +493,26 @@ class AlmanacRecorder {
   _RunEntry _runEntry(String runId) =>
       _runs.putIfAbsent(runId, () => _RunEntry(runId));
 
+  /// Throws if [runNumber] disagrees with the number already established for
+  /// [runId]; a no-op when the run is undeclared or the numbers match. Pure —
+  /// touches nothing — so a multi-step public method can call it to validate
+  /// before it makes any commit it could not take back.
+  void _checkRunNumber(String record, String runId, int runNumber) {
+    final int? established = _runs[runId]?.runNumber;
+    if (established != null && established != runNumber) {
+      throw AlmanacIntegrityException(
+        record: record,
+        field: 'runNumber',
+        established: established,
+        rejected: runNumber,
+      );
+    }
+  }
+
   /// Reconciles a run-linked record's `runNumber` with the run's own, in
-  /// whichever order they arrive. The first run-linked record — an observation,
-  /// a discovery row, or `beginRun` — fixes the run's number; every later one,
-  /// `beginRun` included, must supply the same value or an
+  /// whichever order they arrive, and commits it. The first run-linked record —
+  /// an observation, a discovery row, or `beginRun` — fixes the run's number;
+  /// every later one, `beginRun` included, must supply the same value or an
   /// [AlmanacIntegrityException] is raised (via [_fill], the same write-once
   /// rule every other canonical field uses). `runNumber` is explicit relational
   /// metadata (§5.6.1), never parsed out of an id. The run entry is
@@ -660,14 +676,18 @@ class AlmanacRecorder {
         },
       ),
     );
-    // 2. Validate the run-number relation for the row we are about to emit.
-    _noteRunNumber(
+    // 2. Validate the run-number relation for the row — pure, mutates nothing.
+    _checkRunNumber(
       'AlmanacDiscoveryRecord(discoveryId=${row.discoveryId})',
       runId,
       runNumber,
     );
-    // 3. Both checks passed — commit. Neither step can throw now: the merge is
-    //    done, and a re-encountered discovery row is a silent no-op (§6).
+    // 3. Every throw source is now behind us. `_techniques[…] =` is a plain
+    //    assignment; `_upsertDiscovery` in a live (non-hydrating) call is a
+    //    first store or a §6 silent no-op — `_appendUnique` never rejects — and
+    //    its own run-number reconcile is already satisfied by step 2. So the
+    //    recorder cannot end up with the technique committed and this row's
+    //    validation still pending.
     _techniques[instanceId] = merged;
     _upsertDiscovery(row);
   }
@@ -881,6 +901,14 @@ class AlmanacRecorder {
     required AffixSnapshot snapshot,
     required DateTime timestamp,
   }) {
+    // Validate the observation's run-number relation before `_upsertAffix`
+    // commits a (possibly brand-new) affix record — otherwise a clash here
+    // would leave an affix behind that did not exist before the rejected call.
+    _checkRunNumber(
+      'AffixObservation(affixId=$affixId,affixEventId=${observation.affixEventId})',
+      observation.runId,
+      observation.runNumber,
+    );
     _upsertAffix(affixId: affixId, snapshot: snapshot);
     _addAffixObservation(affixId, observation, discovered: true);
   }
@@ -890,6 +918,11 @@ class AlmanacRecorder {
     required String affixId,
     required AffixObservation observation,
   }) {
+    _checkRunNumber(
+      'AffixObservation(affixId=$affixId,affixEventId=${observation.affixEventId})',
+      observation.runId,
+      observation.runNumber,
+    );
     _upsertAffix(affixId: affixId);
     _addAffixObservation(affixId, observation, discovered: false);
   }
