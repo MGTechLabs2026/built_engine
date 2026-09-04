@@ -23,6 +23,10 @@ import 'weapon_stat_tags.dart';
 /// tag names `ItemActionInterpreter` independently agrees on, so an
 /// item's contribution and a technique's damage land on the same stat
 /// with zero import between the two plugins.
+///
+/// When the ref carries a `TechniqueVariant` instance (SP1), its
+/// `axisProfile['power']` is added to the base-family damage, floored at
+/// 1; other axes are not mapped to combat in SP1.
 class TechniqueActionInterpreter implements BuildActionInterpreter {
   const TechniqueActionInterpreter();
 
@@ -39,7 +43,10 @@ class TechniqueActionInterpreter implements BuildActionInterpreter {
       final definition = context.content.find(ref.contentId);
       if (definition == null) continue; // unknown/invalid technique -> no action, not a crash
       final technique = techniqueDefinitionFromContent(definition);
-      final action = _actionFor(technique, actor, targets, ref);
+      final variant = ref.instanceEntityId == null
+          ? null
+          : context.components.get<TechniqueVariant>(ref.instanceEntityId!);
+      final action = _actionFor(technique, actor, targets, ref, variant);
       if (action != null) actions.add(action);
     }
     return actions;
@@ -50,6 +57,7 @@ class TechniqueActionInterpreter implements BuildActionInterpreter {
     EntityId actor,
     List<EntityId> targets,
     BuildComponentRef ref,
+    TechniqueVariant? variant,
   ) {
     if (technique.tags.contains('guard')) {
       return SelfEffectAction(
@@ -58,8 +66,11 @@ class TechniqueActionInterpreter implements BuildActionInterpreter {
         sourceRef: ref,
       );
     }
-    final damage = technique.properties['damage'];
-    if (damage == null || targets.isEmpty) return null;
+    final base = technique.properties['damage'];
+    if (base == null || targets.isEmpty) return null;
+    final power = variant?.axisProfile['power'] ?? 0;
+    final folded = base + power;
+    final damage = folded < 1 ? 1 : folded;
     return AttackAction(
       actor: actor,
       targets: targets,
