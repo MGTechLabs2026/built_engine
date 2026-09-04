@@ -66,7 +66,11 @@ void main() {
       [placement(slotA, placedRef)],
       ownedRefs: [separatelyConstructedSameRef],
     );
-    expect(resolved.owned.where((r) => r == placedRef), hasLength(1));
+    // A plain length check — independent of which specific object the union
+    // kept, so it actually fails if dedup is broken (owned would have 2
+    // entries) and passes only if the two structurally-equal-but-distinct
+    // refs were correctly recognized as one (owned has 1 entry).
+    expect(resolved.owned, hasLength(1));
   });
 
   test('empty placements + empty ownedRefs -> both lists empty', () {
