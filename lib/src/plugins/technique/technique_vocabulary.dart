@@ -103,6 +103,14 @@ String techniqueInstanceSubject(EntityId instance) =>
 /// `test/tome/tome_service_test.dart`, `vertical_slice_runner.dart`).
 const techniqueReferenceType = 'technique';
 
+/// The [EffectProfile] axis key a technique variant reports its power
+/// contribution under. This is a CONTRIBUTOR-LOCAL axis key, NOT a combat
+/// stat key — `TechniqueActionInterpreter` reads it and applies the value
+/// to whatever concrete `damageStat` it derives from the technique's tags.
+/// A future generic per-stat modifier emitter must NOT treat this as a
+/// stat combat reads.
+const techniqueActivePowerKey = 'power';
+
 // ── SP0b: technique inspiration / discovery tuning ───────────────────
 // Placeholder magnitudes — tuned against `game_run` balance sweeps; each
 // is a named constant, never inlined in the resolver.

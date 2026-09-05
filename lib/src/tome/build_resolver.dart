@@ -7,10 +7,29 @@ import 'tome_placement.dart';
 /// merely *has* — not just what's hung. [active] means currently hung
 /// (what `ActiveBuild` used to mean, alone); [owned] means every owned
 /// component instance, hung or loose. `active` is a subset of `owned`
-/// by construction (see [BuildResolver.resolve]) — there is nothing to
-/// assert, it cannot be otherwise through this API.
+/// by construction (see [BuildResolver.resolve] — the union guarantees
+/// it); the constructor also asserts it, so a hand-built [ResolvedBuild]
+/// that violated the invariant fails fast rather than silently dropping
+/// the active ref from any owned-only iteration (e.g.
+/// `ItemActionInterpreter`'s stat-key union).
 class ResolvedBuild {
-  const ResolvedBuild({required this.owner, required this.active, required this.owned});
+  // Non-`const`: the assert condition (`active ⊆ owned`) is not a
+  // potentially-constant expression, so a `const` constructor would
+  // reject it (`invalid_constant`). No `const ResolvedBuild(...)` call
+  // exists in lib/ or test/ — every call site is already non-const — so
+  // dropping `const` costs nothing and makes the doc-claimed invariant
+  // structural: a hand-built ResolvedBuild that violates it fails fast
+  // rather than silently dropping the active ref from the item
+  // interpreter's owned-only stat-key union.
+  ResolvedBuild({required this.owner, required this.active, required this.owned})
+      : assert(
+          _activeSubsetOfOwned(active, owned),
+          'ResolvedBuild.active must be a subset of owned',
+        );
+
+  static bool _activeSubsetOfOwned(
+          List<BuildComponentRef> active, List<BuildComponentRef> owned) =>
+      active.every(owned.contains);
 
   final EntityId owner;
 

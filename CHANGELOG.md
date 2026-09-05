@@ -69,6 +69,15 @@ bumping the pin. Newest first.
   `ItemInstance` state is reachable from the resolved build. Legacy
   placements with a null `instanceEntityId` still resolve — scaling
   falls back to item class 1 and contributes no `statBonuses`.
+- **Two hung copies of the same item definition now each contribute
+  their scaled `attack`** to combat (design §10: "two copies … two
+  profiles, summed"); the previous `build:<itemId>` modifier source
+  silently collapsed multiple copies into a single contribution.
+- **`ItemActionInterpreter`'s per-stat modifier source is actor-scoped**
+  (`effectprofile:item:<actorValue>:<stat>`, mirroring the pre-migration
+  `build:<itemId>:<actorValue>` scoping) — the earlier global
+  `effectprofile:item:<stat>` source made interpreting a second actor's
+  build wipe the first actor's item modifiers via `removeBySource`.
 
 ### Added — Almanac (persistent player history)
 

@@ -212,13 +212,9 @@ void main() {
     // `lib/src` subdirectory except `plugins`), so these assertions are
     // redundant with it today. Kept for a directory-specific failure
     // message if this Core module ever grows a plugin dependency.
-    const pluginBarrels = [
-      'combat_plugin.dart', 'item_plugin.dart', 'technique_plugin.dart',
-      'martial_arts_plugin.dart', 'elemental_plugin.dart', 'physique_plugin.dart',
-      'auto_combat_plugin.dart', 'build_interpretation.dart', 'game.dart',
-      'almanac.dart', 'almanac_file.dart',
-    ];
-    for (final barrel in pluginBarrels) {
+    // Iterates the file-level `_pluginBarrels` const (same set group H
+    // relies on) rather than an inline copy.
+    for (final barrel in _pluginBarrels) {
       test('effect_profile/ does not reference $barrel', () {
         _assertNoSubstringInDirectory(barrel, 'lib/src/effect_profile');
       });

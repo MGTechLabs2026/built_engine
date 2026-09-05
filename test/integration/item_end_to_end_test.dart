@@ -75,7 +75,7 @@ void main() {
     expect(isItemActive(character, ItemIds.ironSword, context), isTrue);
   });
 
-  test('deterministic: two identically-seeded runs reach the same ActiveBuild', () {
+  test('deterministic: two identically-seeded runs reach the same ResolvedBuild', () {
     List<(String, String)> runOnce() {
       final context = _newContext();
       ItemPlugin().initialize(context);

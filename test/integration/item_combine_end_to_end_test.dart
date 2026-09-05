@@ -55,7 +55,7 @@ void loadDagger(PluginContext ctx) {
 }
 
 void main() {
-  test('combining a Tome-placed item scales its live combat stat via ActiveBuild', () {
+  test('combining a Tome-placed item scales its live combat stat via the resolved build', () {
     final seed = _seedForOutcome(CombineOutcome.tierUpgrade, tier: 1, inputCount: 2);
     final context = _newContext(seed);
     ItemPlugin().initialize(context);

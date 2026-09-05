@@ -77,4 +77,11 @@ void main() {
     expect(resolved.active, isEmpty);
     expect(resolved.owned, isEmpty);
   });
+
+  test('a hand-built ResolvedBuild with an active ref missing from owned asserts', () {
+    expect(
+      () => ResolvedBuild(owner: owner, active: [itemRef], owned: const []),
+      throwsA(isA<AssertionError>()),
+    );
+  });
 }

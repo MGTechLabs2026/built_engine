@@ -162,7 +162,8 @@ void main() {
     // base attack 3 + affix 5, now summed into one modifier per stat.
     expect(blade, hasLength(1));
     expect(blade.single.value, equals(8));
-    expect(blade.single.source, equals(const ModifierSource('effectprofile:item:blade')));
+    expect(blade.single.source,
+        equals(ModifierSource('effectprofile:item:${actor.value}:blade')));
 
     // re-interpreting doesn't stack the summed modifier
     interpreter.interpret(
@@ -201,5 +202,98 @@ void main() {
         context.modifiers.activeModifiersFor(actor, 'blade', context.components).toList();
     expect(blade, hasLength(1));
     expect(blade.single.value, equals(0));
+  });
+
+  test('interpreting a second actor does not wipe the first actor\'s item modifiers', () {
+    final context = _newContext();
+    context.content.loadAll(itemContentDefinitions);
+    final actorA = context.entities.create();
+    final actorB = context.entities.create();
+
+    final knifeA = ownItem(actorA, ItemIds.ironSword, context);
+    final buildA = _build(actorA, hung: [
+      BuildComponentRef(
+        referenceType: itemReferenceType,
+        contentId: ItemIds.ironSword,
+        instanceEntityId: knifeA,
+      ),
+    ]);
+    interpreter.interpret(
+        build: buildA, actor: actorA, targets: const [], context: context);
+
+    final actorAStatBefore = context.modifiers
+        .activeModifiersFor(actorA, 'blade', context.components)
+        .toList();
+    expect(actorAStatBefore, hasLength(1));
+    expect(actorAStatBefore.single.value, greaterThan(0));
+
+    // Interpret a DIFFERENT actor's build whose item contributes to the
+    // SAME stat key — under the old GLOBAL source this call's
+    // removeBySource('effectprofile:item:blade') also wiped actor A's
+    // modifier (removeBySource ignores target).
+    final knifeB = ownItem(actorB, ItemIds.ironSword, context);
+    final buildB = _build(actorB, hung: [
+      BuildComponentRef(
+        referenceType: itemReferenceType,
+        contentId: ItemIds.ironSword,
+        instanceEntityId: knifeB,
+      ),
+    ]);
+    interpreter.interpret(
+        build: buildB, actor: actorB, targets: const [], context: context);
+
+    final actorAStatAfter = context.modifiers
+        .activeModifiersFor(actorA, 'blade', context.components)
+        .toList();
+    expect(actorAStatAfter, hasLength(1));
+    expect(actorAStatAfter.single.value,
+        equals(actorAStatBefore.single.value)); // survived
+    // ...and actor B got its own, independently sourced.
+    expect(
+        context.modifiers.activeModifiersFor(actorB, 'blade', context.components),
+        hasLength(1));
+  });
+
+  test('two hung copies of one item definition each contribute their scaled attack', () {
+    final context = _newContext();
+    context.content.loadAll(itemContentDefinitions);
+    final actor = context.entities.create();
+    final copy1 = ownItem(actor, ItemIds.ironSword, context);
+    final copy2 = ownItem(actor, ItemIds.ironSword, context);
+    expect(copy1, isNot(equals(copy2))); // two distinct ItemInstances
+
+    BuildComponentRef refFor(EntityId instance) => BuildComponentRef(
+          referenceType: itemReferenceType,
+          contentId: ItemIds.ironSword,
+          instanceEntityId: instance,
+        );
+
+    // One hung copy.
+    interpreter.interpret(
+        build: _build(actor, hung: [refFor(copy1)]),
+        actor: actor,
+        targets: const [],
+        context: context);
+    final singleCopy = context.modifiers
+        .activeModifiersFor(actor, 'blade', context.components)
+        .toList()
+        .single
+        .value;
+    expect(singleCopy, equals(3)); // iron_sword's unscaled 'attack'
+
+    // Two distinct copies of the SAME definition, both hung (both in
+    // `owned` and `active`). Spec §10: two copies -> two profiles,
+    // summed. The old `build:<itemId>` source collapsed them to 1×.
+    interpreter.interpret(
+        build: _build(actor, hung: [refFor(copy1), refFor(copy2)]),
+        actor: actor,
+        targets: const [],
+        context: context);
+    final twoCopies = context.modifiers
+        .activeModifiersFor(actor, 'blade', context.components)
+        .toList()
+        .single
+        .value;
+    expect(twoCopies, equals(singleCopy * 2));
   });
 }

@@ -1,5 +1,7 @@
 import 'package:build_engine/build_engine.dart';
 
+import 'technique_vocabulary.dart';
+
 /// Per-instance variant state for one technique an owner holds. Pure
 /// data, no behaviour — the `ComponentStore` component attached to a
 /// technique instance entity.
@@ -34,8 +36,9 @@ class TechniqueVariant implements EffectContributor {
   final String? styleId;
 
   /// This variant's tiered contribution. SP1 (tiered effects) maps only
-  /// the `power` axis, to the `active` tier, under the generic `'power'`
-  /// key — the caller (`TechniqueActionInterpreter`) already knows which
+  /// the `power` axis, to the `active` tier, under the generic
+  /// [techniqueActivePowerKey] — the caller (`TechniqueActionInterpreter`)
+  /// already knows which
   /// concrete combat stat (`damageStat`) that power applies to; this
   /// profile deliberately doesn't guess it, keeping `EffectContributor`
   /// parameterless. `speed`/`precision`/`endurance` are not surfaced —
@@ -45,7 +48,7 @@ class TechniqueVariant implements EffectContributor {
     final power = axisProfile['power'];
     if (power == null || power == 0) return EffectProfile.empty;
     return EffectProfile.of({
-      EffectTier.active: {'power': power},
+      EffectTier.active: {techniqueActivePowerKey: power},
     });
   }
 }

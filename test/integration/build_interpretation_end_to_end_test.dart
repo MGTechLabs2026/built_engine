@@ -10,7 +10,7 @@ import 'package:test/test.dart';
 /// `TechniquePlugin`/`ItemPlugin` content — no hardcoded damage table, no
 /// technique-name switch:
 ///
-///   Tome -> ActiveBuild -> Build Interpreter -> Available Actions ->
+///   Tome -> ResolvedBuild -> Build Interpreter -> Available Actions ->
 ///   AutoCombat -> CombatSystem
 PluginContext _newContext() {
   final events = EventBus();
@@ -39,7 +39,7 @@ PluginContext _newContext() {
 
 void main() {
   test(
-      'Tome -> ActiveBuild -> Build Interpreter -> Available Actions -> '
+      'Tome -> ResolvedBuild -> Build Interpreter -> Available Actions -> '
       'AutoCombat -> CombatSystem, using the real Technique/Item plugins', () {
     final context = _newContext();
     final combat = CombatPlugin()..initialize(context);
@@ -64,7 +64,7 @@ void main() {
     discoverItem(character, gloves, context);
     expect(isItemUsable(character, gloves, context), isTrue);
 
-    // Real Tome, real ActiveBuild.
+    // Real Tome, real ResolvedBuild.
     context.tome.defineTome(
       TomeDefinition.namedSlots(id: 'basic_tome', slotIds: ['weapon', 'technique']),
     );

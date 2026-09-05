@@ -1,7 +1,7 @@
 import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/combat_plugin.dart';
 
-/// The generic Build -> Action contract: turns [ActiveBuild] (Core, no
+/// The generic Build -> Action contract: turns a [ResolvedBuild] (Core, no
 /// content vocabulary) into [CombatAction] candidates (Combat, no content
 /// vocabulary either) for [actor] against [targets]. Plugins implement
 /// this directly to interpret their own content — no registry, the same

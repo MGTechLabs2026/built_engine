@@ -22,7 +22,11 @@ import 'build_action_interpreter.dart';
 /// distinct modifier-source prefixes this superseded),
 /// [EffectProfileResolver] sums every distinct stat key across
 /// [ResolvedBuild.owned]/`.active` item profiles into a single
-/// `effectprofile:item:<stat>` modifier — one path, no parallel system.
+/// `effectprofile:item:<actorValue>:<stat>` modifier — one path, no
+/// parallel system. The source is actor-scoped (mirroring the
+/// pre-migration `build:<itemId>:<actorValue>` scoping) so interpreting
+/// one actor's build never wipes another actor's item modifiers via
+/// `ModifierCollection.removeBySource`.
 ///
 /// [interpret] is idempotent: re-running it for the same [build]/[actor]
 /// replaces rather than stacks each stat's modifier (`removeBySource`
@@ -68,7 +72,7 @@ class ItemActionInterpreter implements BuildActionInterpreter {
     for (final stat in stats) {
       final value =
           resolver.resolve(owned: ownedProfiles, hung: activeProfiles, stat: stat);
-      final source = ModifierSource('effectprofile:item:$stat');
+      final source = ModifierSource('effectprofile:item:${actor.value}:$stat');
       context.modifiers.removeBySource(source);
       context.modifiers.add(Modifier(
         source: source,
