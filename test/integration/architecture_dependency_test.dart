@@ -206,6 +206,28 @@ void main() {
     }
   });
 
+  group('effect_profile/ is pure Core — no plugin, no vocabulary import', () {
+    // Defence-in-depth: group H's `coreDirectories` sweep already covers
+    // `lib/src/effect_profile` automatically (it enumerates every
+    // `lib/src` subdirectory except `plugins`), so these assertions are
+    // redundant with it today. Kept for a directory-specific failure
+    // message if this Core module ever grows a plugin dependency.
+    const pluginBarrels = [
+      'combat_plugin.dart', 'item_plugin.dart', 'technique_plugin.dart',
+      'martial_arts_plugin.dart', 'elemental_plugin.dart', 'physique_plugin.dart',
+      'auto_combat_plugin.dart', 'build_interpretation.dart', 'game.dart',
+      'almanac.dart', 'almanac_file.dart',
+    ];
+    for (final barrel in pluginBarrels) {
+      test('effect_profile/ does not reference $barrel', () {
+        _assertNoSubstringInDirectory(barrel, 'lib/src/effect_profile');
+      });
+    }
+    test('effect_profile/ does not escape into any plugins/ directory', () {
+      _assertNoSubstringInDirectory('plugins/', 'lib/src/effect_profile');
+    });
+  });
+
   group('audit A1 — the headless harness is top-of-graph, never depended on',
       () {
     // Nothing under lib/ except lib/src/plugins/game/ and lib/game.dart

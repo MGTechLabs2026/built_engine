@@ -523,6 +523,76 @@ headless `game_run` harness the hook is inert (no `TechniqueVariant`s are
 minted there), so it draws no RNG and shifts no golden; a later harness
 migration changes that.
 
+## Tiered Component Effects (SP1) (`lib/src/effect_profile/`, `lib/src/tome/build_resolver.dart`)
+
+One generic answer to "when does a component's number count?" —
+replacing the ad-hoc mix of `affix:*` `Modifier`s and direct
+`axisProfile['power']` arithmetic the Item and Technique action
+interpreters had each grown on their own.
+
+**Three tiers, Core-owned, fixed at three.** `EffectTier` is an enum a
+plugin *cannot* extend, because each tier's inclusion rule is
+calculation logic, not content:
+
+- `permanent` — counted while the owner *has* the component, hung or
+  not.
+- `active` — counted only on the calculation that *uses* the component
+  (the combat action performed with it).
+- `supporting` — counted while the component is *hung* (in the active
+  build), on every calculation, whether or not the component itself is
+  the one being used.
+
+**`EffectContributor` — implement the interface, no registry.** A
+plugin's own definition/instance type implements
+`EffectContributor.effectProfile()` and folds in whatever of its own
+domain state matters (item class/grade/`statBonuses`, technique axis
+profile, …); Core never sees that state, only the returned
+`EffectProfile` — a `{EffectTier → {stat → num}}` map whose inner keys
+are open and string-typed, the same treatment `TrainingProfile
+.dimensions` and `MasteryComponent.progress` already get. This is the
+exact "implement directly, no registry" pattern `Condition` / `Effect`
+/ `CombatAction` / `TrainingExercise` already use. `EffectProfile` is
+recursively immutable (`EffectProfile.of` deep-copies into unmodifiable
+maps; the bare `const` constructor is for const literals like
+`EffectProfile.empty` only). `EffectProfileResolver` is the pure,
+storage-free reducer — mirrors `ModifierResolver` / `BuildResolver`'s
+"function, no storage" shape — computing, per stat,
+`Σ permanent` over `owned` `+ Σ supporting` over `hung`
+`+ active` of the one used component.
+
+**`ResolvedBuild`'s owned/active split.** `BuildResolver.resolve` now
+also takes a caller-supplied `ownedRefs` roster and returns
+`ResolvedBuild {owner, active, owned}` instead of a bare `ActiveBuild`.
+`active` is the hung set (everything `ActiveBuild` alone ever meant);
+`owned` is every owned component instance, hung or loose. The resolver
+builds `owned` as the **union** of `ownedRefs` and every hung ref, so
+`active ⊆ owned` is true *by construction, not by an assert checked
+after the fact* — no path through this API can violate it, even if a
+caller's `ownedRefs` omits a hung ref. Ownership is passed in, never
+fetched: `BuildResolver` (Core) never imports `ItemInstance` /
+`TechniqueVariant` (plugin types); the `build_interpretation`
+composition seam derives `ownedRefs` from each instance entity's own
+`owner` field — the single source of truth for "owner has this".
+`BuildComponentRef` gained value equality (`operator==` / `hashCode`
+over its three fields) specifically so that union deduplicates a
+hung-and-owned ref instead of listing it twice.
+`ResolvedBuild.asActiveBuild` projects back to the old shape for every
+caller that still only wants the hung set.
+
+**The one-path principle.** After this pass there is no parallel
+numeric-effect system. `ItemInstance.statBonuses` and
+`TechniqueVariant.axisProfile['power']` both flow through
+`EffectProfile` — `ItemEffectContributor` places an item's scaled
+`attack` plus its `statBonuses` in the `supporting` tier;
+`TechniqueVariant` implements `EffectContributor` and reports its
+`power` axis under the generic `'power'` key in the `active` tier
+(`TechniqueActionInterpreter` still owns the `damageStat` mapping — the
+contributor only ever emits the generic key). The two removed paths —
+the `affix:*` `Modifier` source and the interpreters' direct
+`axisProfile['power']` arithmetic — are gone, not bypassed: a
+consumer computing a build's numbers has exactly one mechanism to
+consult.
+
 ## Almanac — Persistent Player History (`lib/src/plugins/almanac/`, `lib/almanac.dart`, `lib/almanac_file.dart`)
 
 **What it is — and is not.** The Almanac is a passive, data-driven record

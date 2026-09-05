@@ -6,6 +6,70 @@ bumping the pin. Newest first.
 
 ## Unreleased
 
+### Added — Tiered Component Effects (SP1)
+
+- **`package:build_engine/build_engine.dart`** exports five new Core
+  types from `src/effect_profile/`:
+  - **`EffectTier`** — a fixed, Core-owned enum (`permanent` /
+    `active` / `supporting`). A plugin cannot add tiers: each tier's
+    inclusion rule is calculation logic, not content.
+  - **`EffectProfile`** — a component's numeric contributions grouped
+    by tier, `{EffectTier → {stat → num}}`. Recursively immutable —
+    build one from computed maps with `EffectProfile.of(...)`; the
+    bare `const` constructor is for const literals only
+    (`EffectProfile.empty`). `tier(t)`, `amount(t, stat)`, and
+    `merge(other)` (additive union) are the read/compose surface.
+  - **`EffectContributor`** — an abstract interface a plugin's own
+    definition/instance type implements to declare its tiered effects.
+    "Implement the interface, no registry" — the same pattern
+    `Condition` / `Effect` / `CombatAction` / `TrainingExercise` use.
+  - **`EffectProfileResolver`** — pure, storage-free (mirrors
+    `ModifierResolver` / `BuildResolver`). `resolve({owned, hung,
+    usedThisCalculation, stat})` sums `permanent` over `owned` +
+    `supporting` over `hung` + the `active` amount of the used
+    component.
+  - **`ResolvedBuild`** (from `src/tome/build_resolver.dart`) —
+    `{owner, active, owned}`. `active` is the hung set (what
+    `ActiveBuild` alone used to mean); `owned` is every owned
+    component instance, hung or loose. `active ⊆ owned` holds by
+    construction — `owned` is the union of the caller's `ownedRefs`
+    and every hung ref, not an assert. `asActiveBuild` projects back
+    to the old `ActiveBuild` shape.
+- **`BuildComponentRef` gained value equality** — `operator==` /
+  `hashCode` over `referenceType` / `contentId` / `instanceEntityId`
+  (previously identity-only). Needed so `ResolvedBuild`'s owned-set
+  union deduplicates a hung-and-owned ref correctly.
+
+### Changed — Tiered Component Effects (SP1)
+
+- **`ItemInstance.statBonuses` and `TechniqueVariant.axisProfile['power']`
+  now flow through `EffectProfile`** instead of being turned into
+  `Modifier`s / read as direct arithmetic. `ItemEffectContributor`
+  (new, `package:build_engine/item_plugin.dart`) composes an item's
+  scaled `attack` + per-copy `statBonuses` into the `supporting` tier;
+  `TechniqueVariant` implements `EffectContributor`, reporting
+  `axisProfile['power']` under the generic `'power'` key in the
+  `active` tier. There is now a single numeric-effect path — the
+  `affix:*` `Modifier` source and the direct `axisProfile['power']`
+  arithmetic in the interpreters are both gone.
+- **`WeaponStatTags` relocated** from `src/plugins/build_interpretation/`
+  to `src/plugins/item/`, now exported by
+  `package:build_engine/item_plugin.dart`.
+  `package:build_engine/build_interpretation.dart` keeps a compat
+  re-export, so existing imports are unaffected.
+- **`TomeService.resolve` now requires `ownedRefs`** (a
+  `List<BuildComponentRef>` the caller derives from each owned
+  instance entity's `owner` field) and **returns `ResolvedBuild`**,
+  not `ActiveBuild`. Call `.asActiveBuild` for the previous shape.
+- **`BuildActionInterpreter.interpret` takes a `ResolvedBuild`**
+  (was `ActiveBuild`) — it reads `.active` for hung components and the
+  owned/used tiers via each contributor's `EffectProfile`.
+- **`TomeManager.placeItem` now carries `instanceEntityId`** into the
+  Tome placement (`addItemToTome`), so a placed item's per-copy
+  `ItemInstance` state is reachable from the resolved build. Legacy
+  placements with a null `instanceEntityId` still resolve — scaling
+  falls back to item class 1 and contributes no `statBonuses`.
+
 ### Added — Almanac (persistent player history)
 
 - **`package:build_engine/almanac.dart`** — new platform-neutral public
