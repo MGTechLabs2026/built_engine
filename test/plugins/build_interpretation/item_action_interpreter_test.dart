@@ -20,8 +20,15 @@ PluginContext _newContext() {
   );
 }
 
-ResolvedBuild _build(EntityId owner, List<BuildComponentRef> refs) =>
-    ResolvedBuild(owner: owner, active: refs, owned: refs);
+/// [hung] refs are hung (both `active` and `owned`); [ownedOnly] refs are
+/// owned but not on the Tome (`owned`-only) — proving "not hung -> no
+/// modifier" under the new supporting-only-while-hung model.
+ResolvedBuild _build(
+  EntityId owner, {
+  List<BuildComponentRef> hung = const [],
+  List<BuildComponentRef> ownedOnly = const [],
+}) =>
+    ResolvedBuild(owner: owner, active: hung, owned: [...hung, ...ownedOnly]);
 
 void main() {
   const interpreter = ItemActionInterpreter();
@@ -30,7 +37,7 @@ void main() {
     final context = _newContext();
     context.content.loadAll(itemContentDefinitions);
     final actor = context.entities.create();
-    final build = _build(actor, const [
+    final build = _build(actor, hung: const [
       BuildComponentRef(referenceType: itemReferenceType, contentId: ItemIds.ironSword),
     ]);
 
@@ -52,7 +59,7 @@ void main() {
     final context = _newContext();
     context.content.loadAll(itemContentDefinitions);
     final actor = context.entities.create();
-    final build = _build(actor, const [
+    final build = _build(actor, hung: const [
       BuildComponentRef(referenceType: itemReferenceType, contentId: ItemIds.ironSword),
     ]);
 
@@ -69,7 +76,7 @@ void main() {
     final context = _newContext();
     context.content.loadAll(itemContentDefinitions);
     final actor = context.entities.create();
-    final build = _build(actor, const [
+    final build = _build(actor, hung: const [
       BuildComponentRef(referenceType: itemReferenceType, contentId: 'not_a_real_item'),
     ]);
 
@@ -83,7 +90,7 @@ void main() {
     final context = _newContext();
     context.content.loadAll(itemContentDefinitions);
     final actor = context.entities.create();
-    final build = _build(actor, const [
+    final build = _build(actor, hung: const [
       BuildComponentRef(referenceType: 'technique', contentId: 'basic_punch'),
     ]);
 
@@ -101,7 +108,7 @@ void main() {
       instanceEntity,
       ItemInstance(definitionId: ItemIds.ironSword, owner: actor, itemClass: 3),
     );
-    final build = _build(actor, [
+    final build = _build(actor, hung: [
       BuildComponentRef(
         referenceType: itemReferenceType,
         contentId: ItemIds.ironSword,
@@ -121,7 +128,7 @@ void main() {
     final context = _newContext();
     context.content.loadAll(itemContentDefinitions);
     final actor = context.entities.create();
-    final build = _build(actor, const [
+    final build = _build(actor, hung: const [
       BuildComponentRef(referenceType: itemReferenceType, contentId: ItemIds.ironSword),
     ]);
 
@@ -139,7 +146,7 @@ void main() {
     final copy = ownItem(actor, ItemIds.ironSword, context);
     addItemStatBonuses(copy, {'blade': 5}, context);
 
-    final build = _build(actor, [
+    final build = _build(actor, hung: [
       BuildComponentRef(
         referenceType: itemReferenceType,
         contentId: ItemIds.ironSword,
@@ -151,16 +158,18 @@ void main() {
         build: build, actor: actor, targets: const [], context: context);
 
     final blade =
-        context.modifiers.activeModifiersFor(actor, 'blade', context.components);
-    // base attack 3 + affix 5, as two separate modifiers on the same stat
-    expect(blade.map((m) => m.value).toList()..sort(), [3, 5]);
+        context.modifiers.activeModifiersFor(actor, 'blade', context.components).toList();
+    // base attack 3 + affix 5, now summed into one modifier per stat.
+    expect(blade, hasLength(1));
+    expect(blade.single.value, equals(8));
+    expect(blade.single.source, equals(const ModifierSource('effectprofile:item:blade')));
 
-    // re-interpreting doesn't stack the affix modifier
+    // re-interpreting doesn't stack the summed modifier
     interpreter.interpret(
         build: build, actor: actor, targets: const [], context: context);
     expect(
         context.modifiers.activeModifiersFor(actor, 'blade', context.components),
-        hasLength(2));
+        hasLength(1));
   });
 
   test('an unhung affixed copy grants nothing', () {
@@ -170,15 +179,27 @@ void main() {
     final copy = ownItem(actor, ItemIds.ironSword, context);
     addItemStatBonuses(copy, {'blade': 5}, context);
 
-    // empty build — the copy is owned but not on the Tome
+    // owned but not on the Tome -- supporting tier only counts while hung.
+    // A modifier is still emitted for 'blade' (the stat key surfaces from
+    // the owned profile), but EffectProfileResolver sums permanent-over-
+    // owned + supporting-over-hung, and this item contributes neither
+    // while unhung -- so its value is 0, same net effect as "no modifier"
+    // under the old per-ref direct-modifier model.
     interpreter.interpret(
-        build: _build(actor, const []),
+        build: _build(actor, ownedOnly: [
+          BuildComponentRef(
+            referenceType: itemReferenceType,
+            contentId: ItemIds.ironSword,
+            instanceEntityId: copy,
+          ),
+        ]),
         actor: actor,
         targets: const [],
         context: context);
 
-    expect(
-        context.modifiers.activeModifiersFor(actor, 'blade', context.components),
-        isEmpty);
+    final blade =
+        context.modifiers.activeModifiersFor(actor, 'blade', context.components).toList();
+    expect(blade, hasLength(1));
+    expect(blade.single.value, equals(0));
   });
 }

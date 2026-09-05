@@ -6,6 +6,7 @@ export 'src/plugins/item/item_combine.dart';
 export 'src/plugins/item/item_content.dart'
     show itemContentDefinitions, itemDefinition, itemDefinitionFromContent;
 export 'src/plugins/item/item_definition.dart';
+export 'src/plugins/item/item_effect_contributor.dart';
 export 'src/plugins/item/item_events.dart';
 export 'src/plugins/item/item_instance.dart';
 export 'src/plugins/item/item_lifecycle.dart';
@@ -14,3 +15,4 @@ export 'src/plugins/item/item_requirement.dart';
 export 'src/plugins/item/item_rules.dart';
 export 'src/plugins/item/item_training_weights.dart';
 export 'src/plugins/item/item_vocabulary.dart';
+export 'src/plugins/item/weapon_stat_tags.dart';

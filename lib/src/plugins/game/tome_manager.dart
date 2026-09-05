@@ -1,5 +1,4 @@
 import 'package:build_engine/build_engine.dart';
-import 'package:build_engine/build_interpretation.dart';
 import 'package:build_engine/combat_plugin.dart';
 import 'package:build_engine/item_plugin.dart';
 import 'package:build_engine/technique_plugin.dart';

@@ -1,10 +1,10 @@
 import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/combat_plugin.dart';
+import 'package:build_engine/item_plugin.dart';
 import 'package:build_engine/technique_plugin.dart';
 
 import 'build_action_interpreter.dart';
 import 'self_effect_action.dart';
-import 'weapon_stat_tags.dart';
 
 /// Translates `technique`-typed [ActiveBuild] components into
 /// [CombatAction]s — the plugin-level replacement for
