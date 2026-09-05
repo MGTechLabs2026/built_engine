@@ -24,9 +24,13 @@ import 'self_effect_action.dart';
 /// item's contribution and a technique's damage land on the same stat
 /// with zero import between the two plugins.
 ///
-/// When the ref carries a `TechniqueVariant` instance (SP1), its
-/// `axisProfile['power']` is added to the base-family damage, floored at
-/// 1; other axes are not mapped to combat in SP1.
+/// When the ref carries a `TechniqueVariant` instance (SP1), the variant's
+/// `EffectProfile` `active`-tier `'power'` contribution
+/// (`effectProfile().amount(EffectTier.active, 'power')`) is added to the
+/// base-family damage, floored at 1; other axes are not mapped to combat
+/// in SP1. The variant derives that number from its own `power` axis, but
+/// the interpreter no longer reads that field directly — the value flows
+/// through the general `EffectProfile`/`EffectTier.active` primitive.
 class TechniqueActionInterpreter implements BuildActionInterpreter {
   const TechniqueActionInterpreter();
 
@@ -68,7 +72,7 @@ class TechniqueActionInterpreter implements BuildActionInterpreter {
     }
     final base = technique.properties['damage'];
     if (base == null || targets.isEmpty) return null;
-    final power = variant?.axisProfile['power'] ?? 0;
+    final power = variant?.effectProfile().amount(EffectTier.active, 'power') ?? 0;
     final folded = base + power;
     final damage = folded < 1 ? 1 : folded;
     return AttackAction(

@@ -30,4 +30,37 @@ void main() {
     expect(v.axisProfile, isEmpty);
     expect(v.styleId, isNull);
   });
+
+  group('effectProfile (EffectContributor)', () {
+    test('axisProfile power maps to the active tier under the "power" key', () {
+      const variant = TechniqueVariant(
+        owner: EntityId(1), baseFamilyId: 'basic_punch',
+        descriptorIds: {'strong'}, axisProfile: {'power': 4, 'speed': -1},
+      );
+      final profile = variant.effectProfile();
+      expect(profile.amount(EffectTier.active, 'power'), 4);
+      expect(profile.tier(EffectTier.permanent), isEmpty);
+      expect(profile.tier(EffectTier.supporting), isEmpty);
+    });
+
+    test('no power axis -> active tier empty (not a missing-key crash)', () {
+      const variant = TechniqueVariant(
+        owner: EntityId(1), baseFamilyId: 'basic_guard',
+        descriptorIds: {}, axisProfile: {},
+      );
+      expect(variant.effectProfile().amount(EffectTier.active, 'power'), 0);
+    });
+
+    test('other axes (speed/precision/endurance) are not surfaced by '
+        'effectProfile — SP1 (tiered effects) introduces no new stat keys',
+        () {
+      const variant = TechniqueVariant(
+        owner: EntityId(1), baseFamilyId: 'basic_kick',
+        descriptorIds: {}, axisProfile: {'speed': 5, 'precision': 3},
+      );
+      final profile = variant.effectProfile();
+      expect(profile.tier(EffectTier.active),
+          <String, num>{}); // no 'power' key present at all
+    });
+  });
 }

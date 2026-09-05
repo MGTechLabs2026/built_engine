@@ -9,7 +9,7 @@ import 'package:build_engine/build_engine.dart';
 /// is the **stored** composed result (style centre ⊕ descriptor sum) at
 /// mint time — not recomputed on read, so a later content change to a
 /// descriptor does not silently restat existing instances.
-class TechniqueVariant {
+class TechniqueVariant implements EffectContributor {
   const TechniqueVariant({
     required this.owner,
     required this.baseFamilyId,
@@ -32,4 +32,20 @@ class TechniqueVariant {
 
   /// The style this variant is tied to; `null` for a basic technique.
   final String? styleId;
+
+  /// This variant's tiered contribution. SP1 (tiered effects) maps only
+  /// the `power` axis, to the `active` tier, under the generic `'power'`
+  /// key — the caller (`TechniqueActionInterpreter`) already knows which
+  /// concrete combat stat (`damageStat`) that power applies to; this
+  /// profile deliberately doesn't guess it, keeping `EffectContributor`
+  /// parameterless. `speed`/`precision`/`endurance` are not surfaced —
+  /// no new stat keys in this migration (spec §14.2).
+  @override
+  EffectProfile effectProfile() {
+    final power = axisProfile['power'];
+    if (power == null || power == 0) return EffectProfile.empty;
+    return EffectProfile.of({
+      EffectTier.active: {'power': power},
+    });
+  }
 }
