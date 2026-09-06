@@ -2,6 +2,7 @@
 /// `package:build_engine/src/plugins/technique/...` directly.
 library;
 
+export 'src/plugins/technique/technique_aura_contributor.dart';
 export 'src/plugins/technique/technique_content.dart'
     show techniqueContentDefinitions, techniqueDefinition, techniqueDefinitionFromContent;
 export 'src/plugins/technique/technique_definition.dart';

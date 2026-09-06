@@ -6,6 +6,7 @@ library;
 
 export 'src/aura/aura_contributor.dart';
 export 'src/aura/aura_rule.dart';
+export 'src/aura/aura_rule_from_registry.dart';
 export 'src/aura/aura_scope.dart';
 export 'src/character/character_component.dart';
 export 'src/character/character_events.dart';
