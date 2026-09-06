@@ -81,11 +81,19 @@ Settled during brainstorming (2026-09-06):
 
 ### 3.2 Explicitly out of scope
 
-- Any new `Effect` or `Condition` primitive, or new content factory. The
-  existing built-in factories (`heal`, `damage`, `modifyStat`,
-  `modifyResource`, `applyStatus`, `removeStatus`, `addTag`, `removeTag`,
-  `randomChance`, `hasTag`, `healthBelow`, `resourceAbove/Below`,
-  `statusActive`, …) cover every aura in the content pass.
+- Any new `Effect` or `Condition` primitive, or new content factory,
+  **beyond the single generic `SubjectIs`**. The existing built-in
+  factories (`heal`, `damage`, `modifyStat`, `modifyResource`,
+  `applyStatus`, `removeStatus`, `addTag`, `removeTag`, `randomChance`,
+  `hasTag`, `healthBelow`, `resourceAbove/Below`, `statusActive`, …)
+  cover every aura in the content pass.
+- **Anti-goal:** aura-oriented Core conditions such as `OwnerIs`,
+  `OpponentIs`, `ComponentIsHung`, or `AuraActive`. Any of these would be
+  scope/binding logic leaking into Core. `SubjectIs` is acceptable
+  *precisely because* it is a generic `context.subject == entity` check
+  with no aura, combat, or Tome vocabulary. All owner/opponent/hung
+  semantics stay in `AuraBinder._wire` and the interpreter's
+  `build.active` filter.
 - Any change to `RuleEngine`, `RuleContext`, or `Rule`.
 - `Tome_client` — reward affixes rolling an aura, a detail-sheet "while
   active" line, the client feeding `bind`. **SP4.**
@@ -113,7 +121,7 @@ Settled during brainstorming (2026-09-06):
 | *Rules must be data-driven where possible.* | Aura bodies are `RuleDefinition`s parsed by the existing `loadRule` DSL from JSON. No aura logic is compiled into the engine. |
 | *Never introduce speculative abstractions without a concrete use case.* | One interface, one helper condition, one binder. Concrete uses land immediately in the content pass (both scopes, both ref types). |
 | *Composition over inheritance.* | `ItemAuraContributor` / `TechniqueAuraContributor` **compose** a definition + the `ContentRegistry` and **implement** `AuraContributor`. Nothing extends anything. `AuraBinder` is a plain service. |
-| *Dependencies point downward.* | `lib/src/aura/` depends only on Core (`Rule`, `Condition`, `EntityId`). `AuraBinder` lives in `build_interpretation/` (plugin layer) and sees Combat events only by name through the content trigger registry — it does not import Combat internals; opponents are **passed in** by the caller. |
+| *Dependencies point downward.* | `lib/src/aura/` depends only on Core (`Rule`, `Condition`, `EntityId`). `AuraBinder` lives in `build_interpretation/` (plugin layer). It imports no Combat symbol and reads no `TurnStarted`/`ActionCompleted` field — the one Combat-shaped fact it uses, "the trigger descriptor's `subjectOf` yields the acting entity", is the content-registry contract (§5.5). Opponents are **passed in** by the caller, not derived from combat state. |
 
 ## 5. Design
 
@@ -178,6 +186,15 @@ exact analogue, reading `auraRuleIds` off the base `TechniqueDefinition`.
 needs no registry — but not `AuraContributor`. The asymmetry is the same
 one items already have between `ItemInstance`/`ItemEffectContributor`.)
 
+**This asymmetry is deliberate and must be explained in the code
+comments** so a later "simplification" does not inject `ContentRegistry`
+into `ItemDefinition` / `TechniqueVariant` (Core-adjacent value objects):
+
+| | `EffectContributor` | `AuraContributor` |
+|---|---|---|
+| does | value calculation | rule-**id** lookup |
+| needs | component state only — can be implemented on the state object itself | `ContentRegistry` to resolve ids → `RuleDefinition` — therefore a wrapper, never the state object |
+
 Both `ItemDefinition` and `TechniqueDefinition` gain
 `final List<String> auraRuleIds` — parsed from the content JSON `auras`
 list, `const []` default, same parsing shape as `trainingWeights` /
@@ -235,6 +252,7 @@ class AuraBinder {
     final subs = <EventSubscription>[];
     for (final aura in interpreter.auraRules(build: build, context: context)) {
       final wired = _wire(aura, owner: build.owner, opponents: opponents);
+      if (wired == null) continue; // opponent-scope aura with no opponent
       subs.add(context.rules.register(wired));
     }
     return AuraBinding(subs);
@@ -244,29 +262,57 @@ class AuraBinder {
 class AuraBinding {
   AuraBinding(this._subs);
   final List<EventSubscription> _subs;
-  void dispose() { for (final s in _subs) s.cancel(); }
+  var _disposed = false;
+
+  /// Idempotent: calling twice (or on an empty binding) never throws and
+  /// never leaves a subscription live. Combat setup/cleanup grows
+  /// early-return and error paths over time; a binding must be safe to
+  /// dispose from any of them, including a `finally` that also runs on
+  /// the happy path.
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    for (final s in _subs) s.cancel();
+    _subs.clear();
+  }
 }
 ```
 
-`_wire` produces the actual `Rule` handed to `RuleEngine.register`,
-scoping it so a content author never has to:
+**`_wire(aura, {owner, opponents}) → Rule?`** builds the `Rule` handed to
+`RuleEngine.register`, scoping it so a content author never touches
+identity. It is the **only** place owner/opponent identity enters an aura
+— the `RuleDefinition` body stays identity-free and serializable.
 
-- **`scope: self`** — `subjectOf` is pinned to `owner`; a prepended
-  `SubjectIs(owner)` guard means a `turnStarted` aura ticks only on the
+- **`scope: self`** — `subjectOf` pinned to `owner`; a prepended
+  `SubjectIs(owner)` guard so a `turnStarted` aura ticks only on the
   owner's own turn. Effects act on `context.subject == owner`.
-- **`scope: opponent`** — the aura ticks on the **owner's** turn/action
-  (guard: the triggering event's actor is `owner`, checked via a
-  binder-composed private condition reading `context.triggerEvent`), and
-  `subjectOf` resolves to the opponent so the effects land there. For
-  SP2's 1‑v‑1 headless fights the opponent is the single entry in
-  `opponents`; the plan defines the tie-break if `opponents.length > 1`
-  (default: first — the harness only ever passes one).
-- The aura's own `conditions` from content (e.g. `healthBelow`,
-  `randomChance`) are appended **after** the scope guard, so a failing
-  scope guard short-circuits first (deterministic, cheap).
+- **`scope: opponent`** —
+  - `opponents.isEmpty` → `_wire` returns `null`; the aura is **not
+    registered** (an opponent-scope aura with nobody to hit is inert, not
+    an error).
+  - `opponents.length == 1` → the only valid case. `subjectOf` pinned to
+    that opponent; guard: *the event's own actor is `owner`* so the aura
+    ticks on the owner's turn/action, not the opponent's. The "event's
+    actor" is obtained **generically** from the aura rule's already-set
+    `subjectOf` (the trigger descriptor's actor extractor, `aura.rule
+    .subjectOf`), so `_wire` needs **zero knowledge of `TurnStarted` /
+    `ActionCompleted` field shapes**. See §5.5.
+  - `opponents.length > 1` → **assertion / `ArgumentError`**. SP2's
+    harness is strictly 1‑v‑1; a future multi-enemy mode must define its
+    own opponent-selection policy explicitly rather than inherit a silent
+    "first wins". This is a deliberate compatibility guard, not a general
+    combat rule.
+- The aura's own content `conditions` (`healthBelow`, `randomChance`, …)
+  are appended **after** the scope guard, so a failing scope guard
+  short-circuits first (deterministic, cheap).
 
-`_wire` is the **only** place owner/opponent identity enters an aura —
-the `RuleDefinition` body stays identity-free and fully serializable.
+**Combat's responsibility vs the binder's.** Combat owns trigger
+registration and the event→actor (`subjectOf`) mapping (§5.6). The binder
+consumes that mapping and is *handed* the opponent set by its caller — it
+does not reconstruct combat semantics. The only Combat-shaped fact the
+binder relies on is "the trigger descriptor's `subjectOf` yields the
+acting entity", which is the registry's documented contract, not an
+event-class detail.
 
 ### 5.5 `SubjectIs` (Core — `lib/src/rule/system_conditions.dart`, with the other generic conditions)
 
@@ -280,12 +326,19 @@ class SubjectIs implements Condition {
 }
 ```
 
-Trivial, generic, no vocabulary. Used by `_wire` for the `self` guard;
-also independently useful. The "event actor is `owner`" guard for the
-`opponent` scope is a **private** condition inside `aura_binder.dart`
-(it must read `context.triggerEvent` and know the concrete event shapes
-`turnStarted` / `actionCompleted` expose an actor — plugin-layer
-knowledge that does not belong in Core).
+Trivial, generic, no vocabulary — `context.subject == entity`, nothing
+more. Used by `_wire` for the `self` guard; also independently useful.
+**Do not** grow an aura-specific condition family alongside it
+(`OwnerIs`, `OpponentIs`, `ComponentIsHung`, `AuraActive` — see §3.2
+anti-goal).
+
+The `opponent`-scope "the event's actor is `owner`" guard is a
+**private** condition in `aura_binder.dart` — but it stays event-shape
+agnostic. It is constructed with the aura rule's own actor extractor
+(`aura.rule.subjectOf`, set by the trigger descriptor) and the `owner`
+id, and evaluates `actorExtractor(context.triggerEvent) == owner`. It
+never names `TurnStarted` / `ActionCompleted` or reads their fields —
+that knowledge lives only in Combat's `registerTrigger` calls (§5.6).
 
 ### 5.6 Trigger registration (Combat)
 
@@ -308,18 +361,25 @@ live in `built_in_content_factories.dart`. Idempotent-guard like
 final build = context.tome.resolve(character, ownedRefs: ownedComponentRefs(character, context));
 events.publish(ActiveBuildResolved(build.asActiveBuild.components));
 final playerActions = interpreter.interpret(build: build, actor: character, targets: [enemyEntity], context: context);
-// NEW:
-final auras = const AuraBinder().bind(
+final auras = const AuraBinder().bind(                                   // NEW
   build: build, interpreter: interpreter, context: context, opponents: [enemyEntity],
 );
-// … existing fight setup + run …
-controller.runUntilBattleEnds();
-subscription.cancel();
-auras.dispose();   // NEW — next to the existing cancel
+try {
+  // … existing fight setup + run …
+  controller.runUntilBattleEnds();
+} finally {
+  subscription.cancel();
+  auras.dispose();                                                      // NEW
+}
 ```
 
 `enemyEntity` already exists (`spawnEnemy`'s return). `CombatStage` needs
-no new field — `const AuraBinder()` is stateless.
+no new field — `const AuraBinder()` is stateless. The binding is disposed
+in a `finally`-equivalent path so it is torn down on **every** exit from
+`runFight` — happy path, early return, or throw — and `dispose()` is
+idempotent (§5.4) so an added path that also disposes is harmless. The
+plan converts `runFight`'s current straight-line body to this
+try/finally shape (small, mechanical).
 
 ## 6. Event flow (all contracts unchanged)
 
@@ -410,11 +470,22 @@ per ref, per fight.
   (`owned`-only) aura item contributes nothing.
 - `dispose()` cancels every subscription; after dispose the aura no
   longer fires.
-- Re-`bind` after a placement change swaps the live rule set.
+- **`dispose()` is idempotent** — calling it twice, and calling it on a
+  binding that registered nothing, never throws and leaves no
+  subscription live.
+- Re-`bind` after a placement change swaps the live rule set; the prior
+  binding's `dispose()` fully detaches the old set.
 - `scope: self` aura does nothing on the opponent's `TurnStarted`; fires
   on the owner's.
-- `scope: opponent` aura hits only the passed opponent; ticks on the
-  owner's turn, not the opponent's.
+- `scope: opponent`, **1 opponent** → hits only that opponent; ticks on
+  the owner's turn/action, not the opponent's.
+- `scope: opponent`, **0 opponents** → not registered; no firing, no
+  throw.
+- `scope: opponent`, **>1 opponents** → `bind` throws `ArgumentError`
+  (SP2 compatibility guard).
+- The opponent actor-guard works for **both** `turnStarted` and
+  `actionCompleted` triggers via the generic `subjectOf` extractor — no
+  event-type branching in the binder.
 - Deterministic firing order with ≥2 active auras on the same event.
 
 **Trigger registration**
@@ -447,11 +518,13 @@ per ref, per fight.
    `ItemAuraContributor` + `TechniqueAuraContributor`. Tests.
 4. `ItemActionInterpreter.auraRules` + `TechniqueActionInterpreter.auraRules`
    + composite aggregation. Tests.
-5. `AuraBinder` / `AuraBinding` + `_wire` (both scopes). Tests.
+5. `AuraBinder` / `AuraBinding` + `_wire` (both scopes; idempotent
+   `dispose`; 0 / 1 / >1 opponent handling; generic actor-guard). Tests.
 6. Combat trigger registration (`turnStarted` / `turnEnded` /
    `actionCompleted`). Tests.
-7. `CombatStage.runFight` wiring. Integration test (self-scope aura visible
-   in the trail).
+7. `CombatStage.runFight` wiring — convert the body to try/finally so the
+   binding is disposed on every exit path. Integration test (self-scope
+   aura visible in the trail).
 8. Content pass — load aura `RuleDefinition`s in Item / Technique
    `initialize`; add `auras` to the §7 components. Regenerate goldens,
    review diff.
@@ -474,5 +547,22 @@ Commit after every step. Branch: `per-active-auras-sp2`.
 - All existing tests green (goldens deliberately regenerated, diff
   reviewed); new tests per §9.
 - `CHANGELOG.md` + `ARCHITECTURE.md` updated.
-- No new effect/condition/factory primitive; no `lib/src/aura/` →
-  plugin import.
+- No new effect/condition/factory primitive **beyond `SubjectIs`**; no
+  `lib/src/aura/` → plugin import; `aura_binder.dart` imports no Combat
+  symbol.
+- The contributor-asymmetry rationale (§5.2 table) is present in the code
+  comments of `ItemAuraContributor` / `TechniqueAuraContributor`.
+
+## 12. Acceptance invariant ("per-active" means exactly this)
+
+Implementation is complete only when a single integration test
+demonstrates the whole chain for a fixed seed + fixed decisions:
+
+| Situation | Required behaviour |
+|-----------|--------------------|
+| Component owned + loose (in `owned`, not `active`) | aura does **not** fire |
+| Component owned + hung (in `active`) | aura fires on its trigger |
+| Component unhung mid-run | aura **stops** on the next event after the re-`bind` |
+| Fight ends | every aura subscription disposed (none survive into teardown) |
+| Next fight | only fresh bindings exist — no leakage from the previous fight |
+| Same seed + same decisions, run twice | identical aura event/effect sequence (and identical `RunResult`) |
