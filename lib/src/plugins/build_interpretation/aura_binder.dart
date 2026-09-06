@@ -19,6 +19,11 @@ import 'build_action_interpreter.dart';
 /// content-trigger-registry contract, wired by `CombatPlugin` (see the
 /// SP2 spec §5.5/§5.6). Opponents are passed in by the caller, not
 /// derived from combat state.
+///
+/// An aura whose trigger descriptor has no `subjectOf` is still
+/// registered, but never fires: with a null subject/actor both the
+/// self-scope `SubjectIs(owner)` guard and the opponent-scope event-actor
+/// guard evaluate `false`.
 class AuraBinder {
   const AuraBinder();
 
@@ -29,10 +34,22 @@ class AuraBinder {
     List<EntityId> opponents = const [],
   }) {
     final subscriptions = <EventSubscription>[];
-    for (final aura in interpreter.auraRules(build: build, context: context)) {
-      final wired = _wire(aura, owner: build.owner, opponents: opponents);
-      if (wired == null) continue; // opponent-scope aura, no opponent -> inert
-      subscriptions.add(context.rules.register(wired));
+    try {
+      for (final aura in interpreter.auraRules(build: build, context: context)) {
+        final wired = _wire(aura, owner: build.owner, opponents: opponents);
+        if (wired == null) continue; // opponent-scope aura, no opponent -> inert
+        subscriptions.add(context.rules.register(wired));
+      }
+    } catch (_) {
+      // `register` makes each subscription live immediately, and a throw
+      // from a *later* `_wire` means the caller never receives an
+      // `AuraBinding` to dispose. Detach what is already live before the
+      // failure escapes, so a failed `bind` leaves no aura attached
+      // (spec §5.4: "safe to dispose from any path").
+      for (final subscription in subscriptions) {
+        subscription.cancel();
+      }
+      rethrow;
     }
     return AuraBinding(subscriptions);
   }

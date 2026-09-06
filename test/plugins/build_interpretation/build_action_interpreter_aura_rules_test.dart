@@ -58,7 +58,7 @@ void main() {
     expect(result.map((r) => r.sourceRuleId), ['a', 'b', 'c']);
   });
 
-  test('ItemActionInterpreter and TechniqueActionInterpreter yield no auras yet', () {
+  test('ItemActionInterpreter and TechniqueActionInterpreter yield no auras for an empty build', () {
     final ctx = _ctx();
     expect(const ItemActionInterpreter().auraRules(build: _emptyBuild(), context: ctx), isEmpty);
     expect(const TechniqueActionInterpreter().auraRules(build: _emptyBuild(), context: ctx), isEmpty);

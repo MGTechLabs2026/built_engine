@@ -29,7 +29,8 @@ void main() {
     for (final ref in ['basic_guard', 'basic_slash']) {
       final def = techniqueDefinitionFromContent(ctx.content.get(ref));
       for (final id in def.auraRuleIds) {
-        expect(ctx.content.rule(id), isNotNull, reason: '$ref -> $id must be loaded');
+        expect(() => ctx.content.rule(id), returnsNormally,
+            reason: '$ref -> $id must be loaded');
       }
     }
   });

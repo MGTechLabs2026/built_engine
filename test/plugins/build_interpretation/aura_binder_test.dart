@@ -10,6 +10,14 @@ class _Turn {
   final EntityId actor;
 }
 
+/// A second, differently shaped synthetic trigger — the opponent
+/// actor-guard must work on it with no event-type branching in the
+/// binder (spec §9).
+class _Action {
+  const _Action(this.actor);
+  final EntityId actor;
+}
+
 PluginContext _ctx() {
   final events = EventBus();
   final entities = EntityRegistry(events);
@@ -26,6 +34,7 @@ PluginContext _ctx() {
     content: ContentRegistry(),
   );
   c.content.registerTrigger('Turn', _Turn, (e) => (e as _Turn).actor);
+  c.content.registerTrigger('Action', _Action, (e) => (e as _Action).actor);
   return c;
 }
 
@@ -58,6 +67,17 @@ AuraRule _opponentBleed() => AuraRule(
       ),
       scope: AuraScope.opponent,
       sourceRuleId: 'aura.opp_bleed',
+    );
+
+/// Same opponent scope, but keyed off `_Action` instead of `_Turn`.
+AuraRule _opponentThorns() => AuraRule(
+      rule: Rule(
+        trigger: _Action,
+        subjectOf: (e) => (e as _Action).actor,
+        effects: const [Damage(5)],
+      ),
+      scope: AuraScope.opponent,
+      sourceRuleId: 'aura.opp_thorns',
     );
 
 void main() {
@@ -130,6 +150,49 @@ void main() {
       ),
       throwsA(isA<ArgumentError>()),
     );
+  });
+
+  test('a throw mid-bind cancels the auras already registered', () {
+    final ctx = _ctx();
+    final owner = ctx.entities.create();
+    ctx.components.add(owner, const HealthComponent(current: 50, max: 100));
+
+    // Self aura FIRST: it is registered (live) before the opponent aura's
+    // _wire throws. `bind` returns nothing, so nobody can dispose it —
+    // `bind` itself must unwind.
+    expect(
+      () => const AuraBinder().bind(
+        build: build(owner),
+        interpreter: _FixedInterpreter([_selfHeal(), _opponentBleed()]),
+        context: ctx,
+        opponents: [ctx.entities.create(), ctx.entities.create()],
+      ),
+      throwsA(isA<ArgumentError>()),
+    );
+
+    ctx.events.publish(_Turn(owner));
+    expect(ctx.components.get<HealthComponent>(owner)!.current, 50,
+        reason: 'the self aura registered before the throw must be cancelled');
+  });
+
+  test('the opponent actor-guard is trigger-type agnostic (_Action, not _Turn)', () {
+    final ctx = _ctx();
+    final owner = ctx.entities.create();
+    final enemy = ctx.entities.create();
+    ctx.components.add(enemy, const HealthComponent(current: 30, max: 30));
+
+    const AuraBinder().bind(
+      build: build(owner),
+      interpreter: _FixedInterpreter([_opponentThorns()]),
+      context: ctx,
+      opponents: [enemy],
+    );
+
+    ctx.events.publish(_Action(enemy)); // enemy acted -> guard blocks
+    expect(ctx.components.get<HealthComponent>(enemy)!.current, 30);
+
+    ctx.events.publish(_Action(owner)); // owner acted -> opponent takes 5
+    expect(ctx.components.get<HealthComponent>(enemy)!.current, 25);
   });
 
   test('dispose() detaches every subscription and is idempotent', () {
