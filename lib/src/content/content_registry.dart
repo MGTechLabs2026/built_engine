@@ -145,6 +145,14 @@ class ContentRegistry {
   RuleDefinition rule(String id) =>
       _rules[id] ?? (throw ContentNotFoundException(id));
 
+  /// Whether a rule trigger is registered under [key] (via
+  /// [registerTrigger]) — so a content plugin can conditionally
+  /// [loadRule] a rule whose trigger belongs to a plugin that may not
+  /// have been initialized, rather than letting [loadRule] throw
+  /// [UnknownContentFactoryException]. Pure registry introspection; the
+  /// registry stays free of any domain vocabulary.
+  bool hasTrigger(String key) => _triggers.containsKey(key);
+
   List<ContentDefinition> allOfType(String type) =>
       _content.values.where((d) => d.type == type).toList();
 

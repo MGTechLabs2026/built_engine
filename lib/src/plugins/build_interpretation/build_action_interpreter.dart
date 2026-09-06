@@ -27,4 +27,15 @@ abstract class BuildActionInterpreter {
     required List<EntityId> targets,
     required PluginContext context,
   });
+
+  /// The `AuraRule`s (`package:build_engine/build_engine.dart`) to keep
+  /// live while their owning component is hung — i.e. present in
+  /// `build.active`. Fed to `AuraBinder`. Abstract: every interpreter in
+  /// this repo uses `implements`, not `extends`, so a default body would
+  /// not propagate. See
+  /// `docs/superpowers/specs/2026-09-06-per-active-auras-sp2-design.md`.
+  List<AuraRule> auraRules({
+    required ResolvedBuild build,
+    required PluginContext context,
+  });
 }

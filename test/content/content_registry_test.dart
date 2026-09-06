@@ -394,6 +394,18 @@ void main() {
       expect(
           () => registry.rule('nonexistent'), throwsA(isA<ContentNotFoundException>()));
     });
+
+    test('hasTrigger reports whether a trigger key is registered', () {
+      final registry = ContentRegistry();
+      // A Core built-in trigger is always present.
+      expect(registry.hasTrigger('EntityHealed'), isTrue);
+      // A plugin trigger is absent until that plugin registers it — this
+      // is what lets a content plugin skip loadRule for a rule whose
+      // trigger belongs to a plugin that was never initialized.
+      expect(registry.hasTrigger('TurnStarted'), isFalse);
+      registry.registerTrigger('TurnStarted', Object, (e) => null);
+      expect(registry.hasTrigger('TurnStarted'), isTrue);
+    });
   });
 
   group('serialization', () {

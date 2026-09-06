@@ -6,6 +6,7 @@
 /// support this — only this package depends on all three.
 library;
 
+export 'src/plugins/build_interpretation/aura_binder.dart';
 export 'src/plugins/build_interpretation/build_action_interpreter.dart';
 export 'src/plugins/build_interpretation/composite_build_action_interpreter.dart';
 export 'src/plugins/build_interpretation/item_action_interpreter.dart';

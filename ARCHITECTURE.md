@@ -593,6 +593,44 @@ the `affix:*` `Modifier` source and the interpreters' direct
 consumer computing a build's numbers has exactly one mechanism to
 consult.
 
+## Per-active Auras (SP2) (`lib/src/aura/`, `lib/src/plugins/build_interpretation/aura_binder.dart`)
+
+SP1 let a hung component contribute *numbers*, folded once into a static
+action list. SP2 lets it contribute *behaviour over time* — a `Rule`
+that is live only while the component is in `ResolvedBuild.active`.
+
+- **`AuraContributor`** (`lib/src/aura/`) — `List<AuraRule> auraRules()`.
+  An `AuraRule` is an unmodified Core `Rule` plus an `AuraScope`
+  (`self` / `opponent`) and a diagnostics-only source id. Implemented by
+  composing wrappers (`ItemAuraContributor`, `TechniqueAuraContributor`)
+  that hold a `ContentRegistry`, because resolving a component's `auras`
+  id list into `RuleDefinition`s needs it — unlike `EffectContributor`,
+  which is pure value calculation over component state.
+- **Rule bodies are content.** Authored through the existing
+  `ContentRegistry.loadRule` DSL (`trigger` / `conditions` / `effects`),
+  referenced by id from a content entry's new `auras` field. `Combat`
+  registers the `TurnStarted` / `TurnEnded` / `ActionCompleted` trigger
+  keys.
+- **`BuildActionInterpreter.auraRules({build, context})`** collects the
+  `AuraRule`s of every ref in `build.active`; the composite aggregates
+  in interpreter-list order.
+- **`AuraBinder`** (`build_interpretation/`) registers each with
+  `RuleEngine`, injecting owner/opponent scoping in a `_wire` step so the
+  rule body stays identity-free: `self` keeps the trigger's `subjectOf`
+  and prepends `SubjectIs(owner)`; `opponent` pins `subjectOf` to the
+  single passed opponent and guards on the event's own actor being the
+  owner (via a generic, event-shape-agnostic condition). It imports no
+  Combat symbol. `AuraBinding.dispose()` is idempotent; membership is
+  fixed at `bind`. `ContentRegistry.hasTrigger` gates aura loading so
+  standalone Item/Technique plugins (no Combat) skip aura content rather
+  than throwing.
+- **Lifecycle.** `CombatStage.runFight` binds after `tome.resolve` and
+  disposes in a `finally` — one binding per fight, torn down on every
+  exit path. `Tome_client` adoption is SP4.
+- **Determinism.** Firing order = interpreter-list order → `build.active`
+  order → `auraRuleIds` order → `EventBus` subscription order. RNG-using
+  aura effects go through `RuleContext.rng`.
+
 ## Almanac — Persistent Player History (`lib/src/plugins/almanac/`, `lib/almanac.dart`, `lib/almanac_file.dart`)
 
 **What it is — and is not.** The Almanac is a passive, data-driven record

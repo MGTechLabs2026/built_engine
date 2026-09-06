@@ -1,5 +1,6 @@
 import 'package:build_engine/build_engine.dart';
 
+import 'technique_auras.dart';
 import 'technique_content.dart';
 import 'technique_descriptor_content.dart';
 import 'technique_vocabulary.dart';
@@ -10,6 +11,16 @@ import 'technique_vocabulary.dart';
 /// MartialArts. A third proof (after `ElementalPlugin`/`ItemPlugin`) that
 /// "copy Elemental, not MartialArts" produces a fully decoupled content
 /// plugin.
+///
+/// One precision on "not Combat": the plugin's *code* still depends only
+/// on Core, but its *aura content* names Combat-owned trigger keys
+/// (`TurnStarted` / `TurnEnded` / `ActionCompleted`), so those aura
+/// `RuleDefinition`s load only if `CombatPlugin.initialize` has already
+/// run on this context — `ContentRegistry.hasTrigger` guards the
+/// `loadRule` loop, skipping rather than erroring otherwise, and the
+/// outer load-once guard means a later `initialize` will not pick them up
+/// either. A composition that wants auras must therefore initialize
+/// Combat *before* this plugin (`game_run.dart` does).
 ///
 /// Registers a single-tier `ProgressionDefinition` per base technique
 /// (its LEARNING threshold) and a multi-tier `MasteryDefinition` (its
@@ -44,6 +55,20 @@ class TechniquePlugin extends GamePlugin {
     // plugin is initialize()d again on the same context afterward.
     if (context.content.find(TechniqueIds.basicPunch) == null) {
       sdk.registerContentBatch(techniqueContentDefinitions);
+      for (final json in techniqueAuraRuleDefinitions) {
+        // The aura triggers (`TurnStarted`) are registered by
+        // `CombatPlugin.initialize`. When Combat is absent (this plugin
+        // runs standalone) there are no turns for an aura to fire on, so
+        // skip loading rather than throw — `AuraBinder` only ever
+        // registers these per fight, which cannot happen without Combat
+        // anyway. Order-dependent by design: the outer load-once guard
+        // means a Combat-after-Technique composition never recovers these
+        // rules, so a composition that wants auras must initialize Combat
+        // first (see the class doc).
+        if (context.content.hasTrigger(json['trigger'] as String)) {
+          context.content.loadRule(json);
+        }
+      }
     }
 
     final firstDescriptorId =

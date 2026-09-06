@@ -1,5 +1,6 @@
 import 'package:build_engine/build_engine.dart';
 
+import 'item_auras.dart';
 import 'item_content.dart';
 import 'item_instance.dart';
 import 'item_rules.dart';
@@ -11,6 +12,16 @@ import 'item_vocabulary.dart';
 /// MartialArts, not Elemental. A second proof (after `ElementalPlugin`)
 /// that "copy Elemental, not MartialArts" produces a fully decoupled
 /// content plugin.
+///
+/// One precision on "not Combat": the plugin's *code* still depends only
+/// on Core, but its *aura content* names Combat-owned trigger keys
+/// (`TurnStarted` / `TurnEnded` / `ActionCompleted`), so those aura
+/// `RuleDefinition`s load only if `CombatPlugin.initialize` has already
+/// run on this context — `ContentRegistry.hasTrigger` guards the
+/// `loadRule` loop, skipping rather than erroring otherwise, and the
+/// outer load-once guard means a later `initialize` will not pick them up
+/// either. A composition that wants auras must therefore initialize
+/// Combat *before* this plugin (`game_run.dart` does).
 ///
 /// Tome rejection of an unusable item is enforced at `addItemToTome`
 /// (`item_lifecycle.dart`), not inside `TomeService`/`Container`:
@@ -52,6 +63,20 @@ class ItemPlugin extends GamePlugin {
     // plugin is initialize()d again on the same context afterward.
     if (context.content.find(ItemIds.knife) == null) {
       sdk.registerContentBatch(itemContentDefinitions);
+      for (final json in itemAuraRuleDefinitions) {
+        // The aura triggers (`TurnStarted`/`ActionCompleted`) are
+        // registered by `CombatPlugin.initialize`. When Combat is absent
+        // (this plugin runs standalone) there are no turns for an aura to
+        // fire on, so skip loading rather than throw — `AuraBinder` only
+        // ever registers these per fight, which cannot happen without
+        // Combat anyway. Order-dependent by design: the outer load-once
+        // guard means a Combat-after-Item composition never recovers
+        // these rules, so a composition that wants auras must initialize
+        // Combat first (see the class doc).
+        if (context.content.hasTrigger(json['trigger'] as String)) {
+          context.content.loadRule(json);
+        }
+      }
     }
 
     for (final json in itemContentDefinitions) {

@@ -1,5 +1,6 @@
 import 'package:build_engine/build_engine.dart';
 
+import 'combat_events.dart';
 import 'combat_state_component.dart';
 import 'combat_system.dart';
 import 'combatant_component.dart';
@@ -34,6 +35,16 @@ class CombatPlugin extends GamePlugin {
     sdk = PluginSdk(context);
     sdk.registerComponentCleanup<CombatantComponent>();
     sdk.registerComponentCleanup<CombatStateComponent>();
+
+    // Content-rule triggers for Combat's per-turn / per-action events, so
+    // data-defined rules (e.g. SP2 auras) can name them. Only Core's own
+    // events are registered by `ContentRegistry`'s constructor.
+    // `registerTrigger` overwrites by key, so this is safe to run again
+    // if the plugin is `initialize`d a second time.
+    context.content
+      ..registerTrigger('TurnStarted', TurnStarted, (e) => (e as TurnStarted).actor)
+      ..registerTrigger('TurnEnded', TurnEnded, (e) => (e as TurnEnded).actor)
+      ..registerTrigger('ActionCompleted', ActionCompleted, (e) => (e as ActionCompleted).actor);
   }
 
   /// Mirrors [initialize]: tears down the `EntityKilled` subscription

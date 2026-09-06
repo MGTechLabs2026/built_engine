@@ -23,6 +23,10 @@ import 'run_result.dart';
 /// `StyleCombatRules` (audit A2); this harness does not apply Shaolin
 /// Conditioning or Kunlun Burst Chain (they need per-turn resolution) —
 /// but it must never implement a *conflicting* style rule of its own.
+///
+/// Per-active auras (SP2) are bound here via `AuraBinder` right after
+/// `tome.resolve` and disposed in the fight's `finally`, so they are live
+/// only for the duration of one fight.
 class CombatStage {
   CombatStage({
     required this.character,
@@ -74,6 +78,12 @@ class CombatStage {
     events.publish(ActiveBuildResolved(build.asActiveBuild.components));
     final playerActions = interpreter.interpret(
         build: build, actor: character, targets: [enemyEntity], context: context);
+    final auraBinding = const AuraBinder().bind(
+      build: build,
+      interpreter: interpreter,
+      context: context,
+      opponents: [enemyEntity],
+    );
     // With no technique active in the Tome (the run's own starting state,
     // and any cycle where training hasn't produced one yet), `interpreter`
     // returns no player action at all — `AutoCombatController.step`
@@ -110,8 +120,12 @@ class CombatStage {
         recordTechniqueVariantUsage(ref.instanceEntityId!, context);
       }
     });
-    controller.runUntilBattleEnds();
-    subscription.cancel();
+    try {
+      controller.runUntilBattleEnds();
+    } finally {
+      subscription.cancel();
+      auraBinding.dispose();
+    }
 
     final playerHealth = context.components.get<HealthComponent>(character)!.current;
     final won = playerHealth > 0 && !controller.isActive;

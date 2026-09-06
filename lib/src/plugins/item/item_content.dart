@@ -126,6 +126,7 @@ const itemContentDefinitions = <Map<String, dynamic>>[
     'type': ItemCategories.weapon,
     'tags': ['item', 'weapon', 'blade', 'power'],
     'properties': {'attack': 7},
+    'auras': ['aura.bleed'],
     'maxClass': 9,
   },
   {
@@ -195,6 +196,7 @@ const itemContentDefinitions = <Map<String, dynamic>>[
     'type': ItemCategories.weapon,
     'tags': ['item', 'weapon', 'fist', 'power'],
     'properties': {'attack': 4},
+    'auras': ['aura.thorns'],
     'maxClass': 9,
   },
   {
@@ -202,6 +204,7 @@ const itemContentDefinitions = <Map<String, dynamic>>[
     'type': ItemCategories.weapon,
     'tags': ['item', 'weapon', 'staff', 'aff:endurance', 'rarity:common'],
     'properties': {'attack': 2},
+    'auras': ['aura.braced'],
     'training': {'control': 0.4, 'precision': 0.3, 'power': 0.3},
     'requirements': {
       'mastery': {
@@ -257,6 +260,7 @@ const itemContentDefinitions = <Map<String, dynamic>>[
     'type': ItemCategories.armor,
     'tags': ['item', 'armor', 'aff:sturdy', 'rarity:common'],
     'properties': {'defense': 2},
+    'auras': ['aura.regen_weave'],
     'training': {'consistency': 0.4, 'control': 0.3, 'reaction': 0.3},
     'requirements': {
       'mastery': {
@@ -312,6 +316,7 @@ const itemContentDefinitions = <Map<String, dynamic>>[
     'type': ItemCategories.footwear,
     'tags': ['item', 'footwear', 'aff:burst', 'rarity:common'],
     'properties': {'speed': 1},
+    'auras': ['aura.quickstep'],
     'training': {'speed': 0.5, 'reaction': 0.3, 'consistency': 0.2},
     'requirements': {
       'mastery': {'subject': 'item:training_shoes', 'minimum': 0},
@@ -634,6 +639,11 @@ ItemDefinition itemDefinitionFromContent(ContentDefinition definition) {
   final classScalingPercent =
       (definition.extra['classScalingPercent'] as num?) ?? 15;
 
+  final auraRuleIds = <String>[
+    for (final id in (definition.extra['auras'] as List?) ?? const [])
+      id as String,
+  ];
+
   List<Modifier> modifiersFor(EntityId owner) => modifiersFromProperties(
         domain: 'item',
         contentId: definition.id,
@@ -652,6 +662,7 @@ ItemDefinition itemDefinitionFromContent(ContentDefinition definition) {
     maxClass: maxClass,
     gradeEvolutionCandidates: gradeEvolutionCandidates,
     classScalingPercent: classScalingPercent,
+    auraRuleIds: auraRuleIds,
   );
 }
 
