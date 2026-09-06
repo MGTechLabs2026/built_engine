@@ -1,3 +1,4 @@
+import '../entity/entity_id.dart';
 import '../query/queries.dart';
 import 'condition.dart';
 import 'rule_context.dart';
@@ -100,4 +101,16 @@ class IsUnlocked implements Condition {
     if (entity == null) return false;
     return UnlockedQuery(subject).matches(entity, scopeOf(context));
   }
+}
+
+/// Matches when the rule's resolved [RuleContext.subject] is exactly
+/// [entity] — a generic identity check suitable for use by any rule
+/// requiring an identity guard.
+class SubjectIs implements Condition {
+  const SubjectIs(this.entity);
+
+  final EntityId entity;
+
+  @override
+  bool evaluate(RuleContext context) => context.subject == entity;
 }
