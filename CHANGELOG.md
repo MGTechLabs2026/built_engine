@@ -79,6 +79,50 @@ bumping the pin. Newest first.
   `effectprofile:item:<stat>` source made interpreting a second actor's
   build wipe the first actor's item modifiers via `removeBySource`.
 
+### Added — Per-active Auras (SP2)
+
+- **`package:build_engine/build_engine.dart`** exports three new Core
+  types from `src/aura/`:
+  - **`AuraScope`** — `{ self, opponent }`. Who an aura's effects act
+    on; read from a `RuleDefinition`'s optional `scope` key.
+  - **`AuraRule`** — an unmodified Core `Rule` body + its `AuraScope` +
+    a diagnostics-only `sourceRuleId`. Never a sort key.
+  - **`AuraContributor`** — parameterless `List<AuraRule> auraRules()`.
+    Implemented by composing wrappers (`ItemAuraContributor`,
+    `TechniqueAuraContributor`, from `item_plugin.dart` /
+    `technique_plugin.dart`) that hold a `ContentRegistry` — not by the
+    definition/instance types, since id lookup needs the registry.
+- **`SubjectIs`** (`src/rule/system_conditions.dart`) — generic
+  `context.subject == entity` condition.
+- **`package:build_engine/build_interpretation.dart`** exports
+  **`AuraBinder`** / **`AuraBinding`**. `AuraBinder.bind({build,
+  interpreter, context, opponents})` registers every hung component's
+  aura rules with `RuleEngine` and returns an idempotent-`dispose()`
+  `AuraBinding`. `bind` throws `ArgumentError` for an `opponent`-scope
+  aura with more than one opponent.
+- **`BuildActionInterpreter` gained `auraRules({build, context})`** —
+  abstract; `ItemActionInterpreter` / `TechniqueActionInterpreter`
+  implement it, `CompositeBuildActionInterpreter` aggregates.
+- **New `auras: [<ruleId>]` content field** on item and technique
+  content definitions → `ItemDefinition.auraRuleIds` /
+  `TechniqueDefinition.auraRuleIds` (`const []` when absent).
+- **`CombatPlugin.initialize` now registers the `TurnStarted` /
+  `TurnEnded` / `ActionCompleted` content-rule triggers**, so
+  data-defined rules can name Combat's per-turn / per-action events.
+- **`ContentRegistry` gained `hasTrigger(String key)`** — a generic
+  `bool` registry query (sibling of `find` / `rule`), so a content
+  plugin can conditionally `loadRule` a rule whose trigger belongs to
+  a plugin that may not be initialized (SP2 aura content skips loading
+  when Combat's `TurnStarted` / `ActionCompleted` triggers are absent).
+
+### Changed — Per-active Auras (SP2)
+
+- **`CombatStage.runFight`** binds auras (`AuraBinder`) right after
+  `tome.resolve` and disposes them in a `finally`, so an aura is live
+  for exactly one fight. Combat outcomes for a fixed seed shift where
+  aura content is now hung — a representation/behaviour addition, not a
+  balance pass; determinism (seed + decisions → same run) is preserved.
+
 ### Added — Almanac (persistent player history)
 
 - **`package:build_engine/almanac.dart`** — new platform-neutral public

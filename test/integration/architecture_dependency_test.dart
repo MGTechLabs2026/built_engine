@@ -224,6 +224,27 @@ void main() {
     });
   });
 
+  group('aura/ is pure Core — no plugin, no vocabulary import', () {
+    for (final barrel in _pluginBarrels) {
+      test('aura/ does not reference $barrel', () {
+        _assertNoSubstringInDirectory(barrel, 'lib/src/aura');
+      });
+    }
+    test('aura/ does not escape into any plugins/ directory', () {
+      _assertNoSubstringInDirectory('plugins/', 'lib/src/aura');
+    });
+  });
+
+  group('AuraBinder imports no Combat symbol', () {
+    test('aura_binder.dart does not reference combat_plugin.dart or plugins/combat/', () {
+      final src = File(
+        'lib/src/plugins/build_interpretation/aura_binder.dart',
+      ).readAsStringSync();
+      expect(src, isNot(contains('combat_plugin.dart')));
+      expect(src, isNot(contains('plugins/combat/')));
+    });
+  });
+
   group('audit A1 — the headless harness is top-of-graph, never depended on',
       () {
     // Nothing under lib/ except lib/src/plugins/game/ and lib/game.dart
