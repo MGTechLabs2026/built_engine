@@ -57,6 +57,13 @@ class TechniqueActionInterpreter implements BuildActionInterpreter {
     return actions;
   }
 
+  @override
+  List<AuraRule> auraRules({
+    required ResolvedBuild build,
+    required PluginContext context,
+  }) =>
+      const [];
+
   CombatAction? _actionFor(
     TechniqueDefinition technique,
     EntityId actor,

@@ -84,4 +84,11 @@ class ItemActionInterpreter implements BuildActionInterpreter {
     }
     return const [];
   }
+
+  @override
+  List<AuraRule> auraRules({
+    required ResolvedBuild build,
+    required PluginContext context,
+  }) =>
+      const [];
 }

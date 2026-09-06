@@ -31,4 +31,14 @@ class CompositeBuildActionInterpreter implements BuildActionInterpreter {
             context: context,
           ),
       ];
+
+  @override
+  List<AuraRule> auraRules({
+    required ResolvedBuild build,
+    required PluginContext context,
+  }) =>
+      [
+        for (final interpreter in interpreters)
+          ...interpreter.auraRules(build: build, context: context),
+      ];
 }
