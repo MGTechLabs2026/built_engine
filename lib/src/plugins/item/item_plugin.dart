@@ -1,5 +1,6 @@
 import 'package:build_engine/build_engine.dart';
 
+import 'item_auras.dart';
 import 'item_content.dart';
 import 'item_instance.dart';
 import 'item_rules.dart';
@@ -52,6 +53,17 @@ class ItemPlugin extends GamePlugin {
     // plugin is initialize()d again on the same context afterward.
     if (context.content.find(ItemIds.knife) == null) {
       sdk.registerContentBatch(itemContentDefinitions);
+      for (final json in itemAuraRuleDefinitions) {
+        // The aura triggers (`TurnStarted`/`ActionCompleted`) are
+        // registered by `CombatPlugin.initialize`. When Combat is absent
+        // (this plugin runs standalone) there are no turns for an aura to
+        // fire on, so skip loading rather than throw — `AuraBinder` only
+        // ever registers these per fight, which cannot happen without
+        // Combat anyway.
+        if (context.content.hasTrigger(json['trigger'] as String)) {
+          context.content.loadRule(json);
+        }
+      }
     }
 
     for (final json in itemContentDefinitions) {

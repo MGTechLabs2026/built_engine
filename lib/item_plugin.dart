@@ -3,6 +3,7 @@
 library;
 
 export 'src/plugins/item/item_aura_contributor.dart';
+export 'src/plugins/item/item_auras.dart';
 export 'src/plugins/item/item_combine.dart';
 export 'src/plugins/item/item_content.dart'
     show itemContentDefinitions, itemDefinition, itemDefinitionFromContent;

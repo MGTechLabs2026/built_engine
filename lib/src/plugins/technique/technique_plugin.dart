@@ -1,5 +1,6 @@
 import 'package:build_engine/build_engine.dart';
 
+import 'technique_auras.dart';
 import 'technique_content.dart';
 import 'technique_descriptor_content.dart';
 import 'technique_vocabulary.dart';
@@ -44,6 +45,17 @@ class TechniquePlugin extends GamePlugin {
     // plugin is initialize()d again on the same context afterward.
     if (context.content.find(TechniqueIds.basicPunch) == null) {
       sdk.registerContentBatch(techniqueContentDefinitions);
+      for (final json in techniqueAuraRuleDefinitions) {
+        // The aura triggers (`TurnStarted`) are registered by
+        // `CombatPlugin.initialize`. When Combat is absent (this plugin
+        // runs standalone) there are no turns for an aura to fire on, so
+        // skip loading rather than throw — `AuraBinder` only ever
+        // registers these per fight, which cannot happen without Combat
+        // anyway.
+        if (context.content.hasTrigger(json['trigger'] as String)) {
+          context.content.loadRule(json);
+        }
+      }
     }
 
     final firstDescriptorId =

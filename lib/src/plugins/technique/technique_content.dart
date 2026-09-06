@@ -158,6 +158,7 @@ const techniqueContentDefinitions = <Map<String, dynamic>>[
     'tier': EvolutionTiers.basic,
     'tags': ['technique', 'blade', 'aff:power', 'rarity:common'],
     'properties': {'damage': 8},
+    'auras': ['aura.venom'],
     'training': {'speed': 0.25, 'power': 0.35, 'precision': 0.25, 'reaction': 0.15},
     'evolution': [
       {'targetId': TechniqueIds.quickSlash, 'tags': [TrainingDimensions.speed]},
@@ -237,6 +238,7 @@ const techniqueContentDefinitions = <Map<String, dynamic>>[
     'tier': EvolutionTiers.basic,
     'tags': ['technique', 'guard', 'aff:sturdy', 'rarity:common'],
     'properties': {'defense': 4},
+    'auras': ['aura.guard_regen'],
     'training': {'reaction': 0.4, 'control': 0.3, 'consistency': 0.3},
     'evolution': [
       {'targetId': TechniqueIds.fastGuard, 'tags': [TrainingDimensions.speed]},
