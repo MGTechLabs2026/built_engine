@@ -26,7 +26,11 @@ import 'item_requirement.dart';
 /// `maxClass == null` means this item never opted into Combine at all;
 /// `gradeEvolutionCandidates` mirrors `TechniqueDefinition
 /// .evolutionCandidates` byte-for-byte (candidates travel with the
-/// content definition itself, no separate registry).
+/// content definition itself, no separate registry). [auraRuleIds] lists
+/// `RuleDefinition` ids (loaded via `ContentRegistry.loadRule`) whose
+/// rules are live only while this item is hung — resolved by
+/// `ItemAuraContributor`
+/// (`docs/superpowers/specs/2026-09-06-per-active-auras-sp2-design.md`).
 class ItemDefinition {
   const ItemDefinition({
     required this.id,
@@ -39,6 +43,7 @@ class ItemDefinition {
     this.maxClass,
     this.gradeEvolutionCandidates = const [],
     this.classScalingPercent = 15,
+    this.auraRuleIds = const [],
   });
 
   final String id;
@@ -51,6 +56,7 @@ class ItemDefinition {
   final int? maxClass;
   final List<EvolutionCandidate> gradeEvolutionCandidates;
   final num classScalingPercent;
+  final List<String> auraRuleIds;
 
   static List<Modifier> _noModifiers(EntityId owner) => const [];
 

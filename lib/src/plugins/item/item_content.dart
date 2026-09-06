@@ -634,6 +634,11 @@ ItemDefinition itemDefinitionFromContent(ContentDefinition definition) {
   final classScalingPercent =
       (definition.extra['classScalingPercent'] as num?) ?? 15;
 
+  final auraRuleIds = <String>[
+    for (final id in (definition.extra['auras'] as List?) ?? const [])
+      id as String,
+  ];
+
   List<Modifier> modifiersFor(EntityId owner) => modifiersFromProperties(
         domain: 'item',
         contentId: definition.id,
@@ -652,6 +657,7 @@ ItemDefinition itemDefinitionFromContent(ContentDefinition definition) {
     maxClass: maxClass,
     gradeEvolutionCandidates: gradeEvolutionCandidates,
     classScalingPercent: classScalingPercent,
+    auraRuleIds: auraRuleIds,
   );
 }
 

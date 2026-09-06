@@ -527,6 +527,11 @@ TechniqueDefinition techniqueDefinitionFromContent(ContentDefinition definition)
       ),
   ];
 
+  final auraRuleIds = <String>[
+    for (final id in (definition.extra['auras'] as List?) ?? const [])
+      id as String,
+  ];
+
   List<Modifier> modifiersFor(EntityId owner) => modifiersFromProperties(
         domain: 'technique',
         contentId: definition.id,
@@ -544,6 +549,7 @@ TechniqueDefinition techniqueDefinitionFromContent(ContentDefinition definition)
     evolutionCandidates: evolutionCandidates,
     trainingWeights: trainingWeights,
     modifiersFor: modifiersFor,
+    auraRuleIds: auraRuleIds,
   );
 }
 

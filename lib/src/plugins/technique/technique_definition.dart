@@ -15,7 +15,10 @@ import 'package:build_engine/build_engine.dart';
 /// (`ARCHITECTURE_AUDIT.md`'s category-7 finding) — previously a
 /// hand-written Dart constant in `technique_training_weights.dart`
 /// disconnected from `ContentRegistry`; now parsed the same way
-/// [properties] is.
+/// [properties] is. [auraRuleIds] lists `RuleDefinition` ids (loaded via
+/// `ContentRegistry.loadRule`) whose rules are live only while this
+/// technique is active — resolved by `TechniqueAuraContributor`
+/// (`docs/superpowers/specs/2026-09-06-per-active-auras-sp2-design.md`).
 class TechniqueDefinition {
   const TechniqueDefinition({
     required this.id,
@@ -27,6 +30,7 @@ class TechniqueDefinition {
     this.evolutionCandidates = const [],
     this.trainingWeights = const {},
     this.modifiersFor = _noModifiers,
+    this.auraRuleIds = const [],
   });
 
   final String id;
@@ -38,6 +42,7 @@ class TechniqueDefinition {
   final List<EvolutionCandidate> evolutionCandidates;
   final Map<String, double> trainingWeights;
   final List<Modifier> Function(EntityId owner) modifiersFor;
+  final List<String> auraRuleIds;
 
   static List<Modifier> _noModifiers(EntityId owner) => const [];
 
