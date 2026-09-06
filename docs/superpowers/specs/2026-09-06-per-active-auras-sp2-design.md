@@ -137,7 +137,7 @@ class AuraRule {
   const AuraRule({ required this.rule, required this.scope, required this.sourceRuleId });
   final Rule rule;
   final AuraScope scope;
-  final String sourceRuleId; // diagnostics + deterministic ordering tie-break
+  final String sourceRuleId; // diagnostics ONLY — never a sort key (see §8)
 }
 
 /// A component type that can declare rules which are live only while the
@@ -314,6 +314,17 @@ binder relies on is "the trigger descriptor's `subjectOf` yields the
 acting entity", which is the registry's documented contract, not an
 event-class detail.
 
+**`AuraBinding` is immutable in membership after `bind`.** A binding is
+bound to exactly the `ResolvedBuild.owner` and `opponents` list passed at
+`bind` time, and its subscription set never changes afterward. There is
+no "update this binding for the new Tome state" path — when the build
+changes (a placement moves, a new fight resolves a fresh
+`ResolvedBuild`), the sequence is always **dispose old → resolve new →
+`bind` new**. `AuraBinder` holds no state between calls (`const
+AuraBinder()`); each `bind` produces a self-contained `AuraBinding`. This
+rules out a future shortcut that mutates a live binding and silently
+crosses owner/opponent identity between fights.
+
 ### 5.5 `SubjectIs` (Core — `lib/src/rule/system_conditions.dart`, with the other generic conditions)
 
 ```dart
@@ -431,12 +442,18 @@ per ref, per fight.
 
 ## 8. Determinism
 
-- `CompositeBuildActionInterpreter.auraRules` order = child-list order →
-  `build.active` order → `auraRuleIds` order. All three are already
-  deterministic lists.
+- Aura firing order is fixed by, in this exact precedence:
+  child-list order → `build.active` order → `auraRuleIds` order →
+  `EventBus` subscription (= registration) order. All are already
+  deterministic lists / append-only.
 - `RuleEngine.register` → `EventBus.subscribeDynamic` appends; `EventBus`
   dispatches in subscription order. So for a given resolved build, aura
-  firing order within one event is fixed.
+  firing order within one event is fixed by the chain above.
+- **`AuraRule.sourceRuleId` is not part of that chain.** It exists for
+  diagnostics/logging only. Implementation code must **never** sort or
+  re-order `AuraRule`s by `sourceRuleId` (or by any other key) — doing so
+  would silently change the ordering guarantee. The list is consumed in
+  the order the interpreters produce it.
 - Every aura effect that rolls (`randomChance`, any future roll) goes
   through `RuleContext.rng` — the engine's injected `RngService`, never
   `dart:math`. A run stays reproducible from seed + initial state +
@@ -474,7 +491,11 @@ per ref, per fight.
   binding that registered nothing, never throws and leaves no
   subscription live.
 - Re-`bind` after a placement change swaps the live rule set; the prior
-  binding's `dispose()` fully detaches the old set.
+  binding's `dispose()` fully detaches the old set. A binding's
+  subscription set does not change after `bind` — the only supported flow
+  is dispose old → resolve new → `bind` new (no in-place update path).
+- Ordering is stable across `AuraRule`s with lexically out-of-order
+  `sourceRuleId`s — i.e. nothing sorts by it.
 - `scope: self` aura does nothing on the opponent's `TurnStarted`; fires
   on the owner's.
 - `scope: opponent`, **1 opponent** → hits only that opponent; ticks on
