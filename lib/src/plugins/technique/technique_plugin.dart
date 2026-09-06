@@ -12,6 +12,16 @@ import 'technique_vocabulary.dart';
 /// "copy Elemental, not MartialArts" produces a fully decoupled content
 /// plugin.
 ///
+/// One precision on "not Combat": the plugin's *code* still depends only
+/// on Core, but its *aura content* names Combat-owned trigger keys
+/// (`TurnStarted` / `TurnEnded` / `ActionCompleted`), so those aura
+/// `RuleDefinition`s load only if `CombatPlugin.initialize` has already
+/// run on this context — `ContentRegistry.hasTrigger` guards the
+/// `loadRule` loop, skipping rather than erroring otherwise, and the
+/// outer load-once guard means a later `initialize` will not pick them up
+/// either. A composition that wants auras must therefore initialize
+/// Combat *before* this plugin (`game_run.dart` does).
+///
 /// Registers a single-tier `ProgressionDefinition` per base technique
 /// (its LEARNING threshold) and a multi-tier `MasteryDefinition` (its
 /// proficiency curve) — two independent registrations under two
@@ -51,7 +61,10 @@ class TechniquePlugin extends GamePlugin {
         // runs standalone) there are no turns for an aura to fire on, so
         // skip loading rather than throw — `AuraBinder` only ever
         // registers these per fight, which cannot happen without Combat
-        // anyway.
+        // anyway. Order-dependent by design: the outer load-once guard
+        // means a Combat-after-Technique composition never recovers these
+        // rules, so a composition that wants auras must initialize Combat
+        // first (see the class doc).
         if (context.content.hasTrigger(json['trigger'] as String)) {
           context.content.loadRule(json);
         }

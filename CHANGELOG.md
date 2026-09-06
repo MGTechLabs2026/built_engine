@@ -114,6 +114,10 @@ bumping the pin. Newest first.
   plugin can conditionally `loadRule` a rule whose trigger belongs to
   a plugin that may not be initialized (SP2 aura content skips loading
   when Combat's `TurnStarted` / `ActionCompleted` triggers are absent).
+  Because the skip is permanent for that context (the plugins' load-once
+  guard never revisits it), aura content requires **Combat-first**
+  initialization order — true in `game_run.dart`, and the constraint any
+  future composition root (SP4's client wiring) must honour.
 
 ### Changed — Per-active Auras (SP2)
 
@@ -122,6 +126,10 @@ bumping the pin. Newest first.
   for exactly one fight. Combat outcomes for a fixed seed shift where
   aura content is now hung — a representation/behaviour addition, not a
   balance pass; determinism (seed + decisions → same run) is preserved.
+- **7 content ids gained an `auras` key**: `cloth_armor`,
+  `training_staff`, `training_shoes`, `warlords_iron_sword`,
+  `crushing_gauntlets` (items) and `basic_guard`, `basic_slash`
+  (techniques).
 
 ### Added — Almanac (persistent player history)
 

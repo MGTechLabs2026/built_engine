@@ -146,10 +146,9 @@ class ContentRegistry {
       _rules[id] ?? (throw ContentNotFoundException(id));
 
   /// Whether a rule trigger is registered under [key] (via
-  /// [registerTrigger]) — so a caller can skip [loadRule] for a
-  /// definition whose trigger belongs to a plugin that is not present
-  /// (e.g. a content plugin's combat-triggered aura rules when the Combat
-  /// plugin was never initialized), rather than letting [loadRule] throw
+  /// [registerTrigger]) — so a content plugin can conditionally
+  /// [loadRule] a rule whose trigger belongs to a plugin that may not
+  /// have been initialized, rather than letting [loadRule] throw
   /// [UnknownContentFactoryException]. Pure registry introspection; the
   /// registry stays free of any domain vocabulary.
   bool hasTrigger(String key) => _triggers.containsKey(key);
