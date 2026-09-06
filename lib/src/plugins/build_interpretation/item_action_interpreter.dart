@@ -90,5 +90,13 @@ class ItemActionInterpreter implements BuildActionInterpreter {
     required ResolvedBuild build,
     required PluginContext context,
   }) =>
-      const [];
+      [
+        for (final ref in build.active)
+          if (ref.referenceType == itemReferenceType)
+            if (context.content.find(ref.contentId) case final definition?)
+              ...ItemAuraContributor(
+                itemDefinitionFromContent(definition),
+                context.content,
+              ).auraRules(),
+      ];
 }
