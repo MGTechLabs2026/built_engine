@@ -66,11 +66,12 @@ Settled during brainstorming (2026-09-06):
 - An `auras: [<ruleId>, …]` content field on item and technique content
   definitions, resolved against `RuleDefinition`s loaded through the
   existing `loadRule` DSL.
-- Combat registering the `turnStarted` / `turnEnded` / `actionCompleted`
-  content triggers (only Core events are registered today).
-- `BuildActionInterpreter` contract gaining an `auraRules(…)` method
-  (default `const []`); `ItemActionInterpreter` / `TechniqueActionInterpreter`
-  overriding it; `CompositeBuildActionInterpreter` aggregating.
+- Combat registering the `TurnStarted` / `TurnEnded` / `ActionCompleted` content
+  triggers (keys match the existing `EntityDamaged` convention; only Core
+  events are registered today).
+- `BuildActionInterpreter` contract gaining an abstract `auraRules(…)`
+  method; `ItemActionInterpreter` / `TechniqueActionInterpreter` doing the
+  real work; `CompositeBuildActionInterpreter` aggregating.
 - A new `AuraBinder` / `AuraBinding` pair in `build_interpretation/`.
 - `CombatStage.runFight` binding auras after `tome.resolve` and disposing
   after the fight.
@@ -217,13 +218,19 @@ abstract class BuildActionInterpreter {
   List<CombatAction> interpret({ required ResolvedBuild build, /* … */ });
 
   /// `AuraRule`s to keep live while their owning component is hung. Only
-  /// refs in [build.active] are considered. Default: none.
+  /// refs in [build.active] are considered.
   List<AuraRule> auraRules({
     required ResolvedBuild build,
     required PluginContext context,
-  }) => const [];
+  });
 }
 ```
+
+`auraRules` is **abstract** (no default body) — every existing
+`BuildActionInterpreter` in the repo uses `implements`, not `extends`, so
+a default would not propagate anyway. All three implementers define it:
+`ItemActionInterpreter` / `TechniqueActionInterpreter` do the real work
+below; `CompositeBuildActionInterpreter` concatenates its children.
 
 - `ItemActionInterpreter.auraRules` iterates `build.active`, keeps
   `referenceType == itemReferenceType`, resolves the `ItemDefinition`
@@ -284,7 +291,7 @@ identity. It is the **only** place owner/opponent identity enters an aura
 — the `RuleDefinition` body stays identity-free and serializable.
 
 - **`scope: self`** — `subjectOf` pinned to `owner`; a prepended
-  `SubjectIs(owner)` guard so a `turnStarted` aura ticks only on the
+  `SubjectIs(owner)` guard so a `TurnStarted` aura ticks only on the
   owner's own turn. Effects act on `context.subject == owner`.
 - **`scope: opponent`** —
   - `opponents.isEmpty` → `_wire` returns `null`; the aura is **not
@@ -357,9 +364,9 @@ that knowledge lives only in Combat's `registerTrigger` calls (§5.6).
 
 | key | event | `subjectOf` |
 |-----|-------|-------------|
-| `turnStarted` | `TurnStarted` | `(e) => (e as TurnStarted).actor` |
-| `turnEnded` | `TurnEnded` | `(e) => (e as TurnEnded).actor` |
-| `actionCompleted` | `ActionCompleted` | `(e) => (e as ActionCompleted).actor` |
+| `TurnStarted` | `TurnStarted` | `(e) => (e as TurnStarted).actor` |
+| `TurnEnded` | `TurnEnded` | `(e) => (e as TurnEnded).actor` |
+| `ActionCompleted` | `ActionCompleted` | `(e) => (e as ActionCompleted).actor` |
 
 via `context.content.registerTrigger(...)`. These are Combat's events, so
 Combat owns their trigger keys — the same reason Core's built-in triggers
@@ -426,13 +433,13 @@ one gated (conditional) aura.
 
 | Component | Aura (`aura.<id>`) | trigger | scope | effect sketch |
 |-----------|--------------------|---------|-------|---------------|
-| `cloth_armor` | `aura.regen_weave` | `turnStarted` | self | `heal 1` |
-| `training_staff` | `aura.braced` | `turnStarted` | self | `applyStatus "braced"` |
-| `training_shoes` | `aura.quickstep` | `turnStarted` | self | `applyStatus "quickstep"` |
-| `warlords_iron_sword` (evo) | `aura.bleed` | `turnStarted` | opponent | `damage 1` |
-| `crushing_gauntlets` (evo) | `aura.thorns` | `actionCompleted` | opponent | `damage 2` (retaliate) |
-| `basic_guard` family | `aura.guard_regen` | `turnStarted` | self | `healthBelow 20` → `heal 2` |
-| one evolved/inspired technique family | `aura.venom` | `turnStarted` | opponent | `randomChance 0.5` → `damage 2` |
+| `cloth_armor` | `aura.regen_weave` | `TurnStarted` | self | `heal 1` |
+| `training_staff` | `aura.braced` | `TurnStarted` | self | `applyStatus "braced"` |
+| `training_shoes` | `aura.quickstep` | `TurnStarted` | self | `applyStatus "quickstep"` |
+| `warlords_iron_sword` (evo) | `aura.bleed` | `TurnStarted` | opponent | `damage 1` |
+| `crushing_gauntlets` (evo) | `aura.thorns` | `ActionCompleted` | opponent | `damage 2` (retaliate) |
+| `basic_guard` family | `aura.guard_regen` | `TurnStarted` | self | `healthBelow 20` → `heal 2` |
+| one evolved/inspired technique family | `aura.venom` | `TurnStarted` | opponent | `randomChance 0.5` → `damage 2` |
 
 Aura `RuleDefinition`s are loaded in the owning plugin's `initialize`
 (Item / Technique), alongside the existing `buildItemUsabilityRules`
@@ -504,13 +511,13 @@ per ref, per fight.
   throw.
 - `scope: opponent`, **>1 opponents** → `bind` throws `ArgumentError`
   (SP2 compatibility guard).
-- The opponent actor-guard works for **both** `turnStarted` and
-  `actionCompleted` triggers via the generic `subjectOf` extractor — no
+- The opponent actor-guard works for **both** `TurnStarted` and
+  `ActionCompleted` triggers via the generic `subjectOf` extractor — no
   event-type branching in the binder.
 - Deterministic firing order with ≥2 active auras on the same event.
 
 **Trigger registration**
-- `turnStarted` / `turnEnded` / `actionCompleted` resolve to the right
+- `TurnStarted` / `TurnEnded` / `ActionCompleted` resolve to the right
   event `Type` and `subjectOf` after `CombatPlugin.initialize`.
 
 **Integration (`game_run` / `CombatStage`)**
@@ -541,8 +548,8 @@ per ref, per fight.
    + composite aggregation. Tests.
 5. `AuraBinder` / `AuraBinding` + `_wire` (both scopes; idempotent
    `dispose`; 0 / 1 / >1 opponent handling; generic actor-guard). Tests.
-6. Combat trigger registration (`turnStarted` / `turnEnded` /
-   `actionCompleted`). Tests.
+6. Combat trigger registration (`TurnStarted` / `TurnEnded` /
+   `ActionCompleted`). Tests.
 7. `CombatStage.runFight` wiring — convert the body to try/finally so the
    binding is disposed on every exit path. Integration test (self-scope
    aura visible in the trail).
@@ -551,7 +558,7 @@ per ref, per fight.
    review diff.
 9. `CHANGELOG.md` (public surface: `AuraContributor`, `SubjectIs`,
    `AuraBinder` / `AuraBinding`, `BuildActionInterpreter.auraRules`,
-   `auras` content field, `turnStarted` / `turnEnded` / `actionCompleted`
+   `auras` content field, `TurnStarted` / `TurnEnded` / `ActionCompleted`
    triggers). `ARCHITECTURE.md` — new "Per-active auras" section. Explicit
    dependency guard test.
 
