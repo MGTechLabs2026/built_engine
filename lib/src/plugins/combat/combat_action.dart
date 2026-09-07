@@ -62,6 +62,7 @@ class AttackAction extends CombatAction {
     this.conditions = const [],
     this.costEffects = const [],
     this.sourceRef,
+    this.priority = 0,
   });
 
   @override
@@ -84,6 +85,9 @@ class AttackAction extends CombatAction {
 
   @override
   final BuildComponentRef? sourceRef;
+
+  @override
+  final num priority;
 
   @override
   List<Effect> effectsFor(EntityId target, PluginContext context) {
