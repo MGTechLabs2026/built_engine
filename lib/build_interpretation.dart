@@ -9,6 +9,8 @@ library;
 export 'src/plugins/build_interpretation/aura_binder.dart';
 export 'src/plugins/build_interpretation/build_action_interpreter.dart';
 export 'src/plugins/build_interpretation/composite_build_action_interpreter.dart';
+export 'src/plugins/build_interpretation/consumable_action_interpreter.dart';
+export 'src/plugins/build_interpretation/consumable_binder.dart';
 export 'src/plugins/build_interpretation/item_action_interpreter.dart';
 export 'src/plugins/build_interpretation/self_effect_action.dart';
 export 'src/plugins/build_interpretation/technique_action_interpreter.dart';

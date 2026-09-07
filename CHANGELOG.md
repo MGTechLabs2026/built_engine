@@ -131,6 +131,63 @@ bumping the pin. Newest first.
   `crushing_gauntlets` (items) and `basic_guard`, `basic_slash`
   (techniques).
 
+### Added — Per-fight Consumables (SP3)
+
+- **`package:build_engine/consumable_plugin.dart`** — new Core-only content
+  plugin barrel: `ConsumablePlugin`, `ConsumableDefinition`,
+  `ConsumableTarget`, the sealed `ConsumableEffectSpec` (`ConsumableHeal` /
+  `ConsumableAttack` / `ConsumableGrantModifier` /
+  `ConsumableRemoveAllStatuses`), `consumableDefinitionFromContent` /
+  `consumableDefinition`, `consumableContentDefinitions`,
+  `consumableReferenceType` (`'consumable'`), `consumableChargeResource`,
+  `ConsumableIds`.
+- **`RemoveAllStatuses`** (`Effect`, `src/rule/effect.dart`) — clears the
+  subject's `StatusComponent`. Also a `'removeAllStatuses'` content
+  factory.
+- **`GrantModifier`** (`Effect`, `src/rule/effect.dart`) — adds one
+  source-scoped `Modifier` on the subject. **`CombatAction` /
+  `PluginContext` execution path only** — no `'grantModifier'` content
+  factory; a `RuleEngine`-dispatched `GrantModifier` silently no-ops
+  (its `RuleContext.modifiers` is an unobserved default).
+- **`RuleContext.modifiers`** — the Modifier Engine is now on
+  `RuleContext` (optional factory param, defaults to a fresh
+  `ModifierCollection`). `PluginContext.ruleContextFor` supplies the real
+  one; `RuleEngine._fire` is unchanged (empty default).
+- **`AttackAction` / `SelfEffectAction` gained an optional `priority`**
+  constructor parameter (`num`, default `0`) — overrides the
+  `CombatAction.priority` scoring hint.
+- **`package:build_engine/build_interpretation.dart`** exports
+  `ConsumableActionInterpreter` and `ConsumableBinder` /
+  `ConsumableCharges`.
+- **`package:build_engine/auto_combat_plugin.dart`** exports
+  `ConsumableAwareActionScorer`.
+
+### Changed — Per-fight Consumables (SP3)
+
+- **`CombatStage.runFight`** now also binds per-fight consumable charges
+  (`ConsumableBinder.grant`) alongside the aura binding, inside one
+  exception-safe `try` (nullable locals, reverse-order disposal in
+  `finally`), and its `CombatPolicy.scored` uses
+  `ConsumableAwareActionScorer`. Fixed-seed headless outcomes shift where
+  a consumable is now reachable/used — representation + AI, not a balance
+  pass; determinism preserved. `output/` artifacts regenerated.
+- **Headless run reward pool** gains `rewardPoolConsumableIds`
+  (`heal_potion`, `firebomb`, `power_tonic`, `cleanse_tonic`);
+  `RewardStage.resolveReward` and `TomeManager.placeConsumable` handle the
+  third `referenceType`.
+
+### Fixed — Per-fight Consumables (SP3)
+
+- **A consumable-only Tome no longer stalls the fight.** A hung consumable
+  made `playerActions` non-empty, suppressing `CombatStage`'s fallback
+  strike; once the charge pool emptied, `ScoredActionSelector` force-executed
+  the unaffordable consumable every turn and its effect applied for free, so
+  the fight ran to the 10,000-step cap. `ConsumableActionInterpreter` now
+  attaches `conditions: [ResourceAbove('consumable:<id>', 0)]` to every
+  consumable action (a forced execute no-ops the effect too, not just the
+  cost), and `CombatStage.runFight` injects the fallback strike whenever the
+  build has no *non-consumable* action.
+
 ### Added — Almanac (persistent player history)
 
 - **`package:build_engine/almanac.dart`** — new platform-neutral public

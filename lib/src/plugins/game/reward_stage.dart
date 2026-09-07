@@ -1,4 +1,5 @@
 import 'package:build_engine/build_engine.dart';
+import 'package:build_engine/consumable_plugin.dart';
 import 'package:build_engine/item_plugin.dart';
 import 'package:build_engine/technique_plugin.dart';
 
@@ -64,6 +65,10 @@ class RewardStage {
           itemsDiscovered.add(item.id);
           if (isItemUsable(character, item, context)) tomeManager.placeItem(item, '$stepName reward');
           return 'item:${item.id}';
+        } else if (entry.referenceType == consumableReferenceType) {
+          final consumable = consumableDefinition(entry.contentId, context);
+          tomeManager.placeConsumable(consumable, '$stepName reward');
+          return 'consumable:${consumable.id}';
         } else {
           final technique = techniqueDefinition(entry.contentId, context);
           discoverTechnique(character, technique, context);

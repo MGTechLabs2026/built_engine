@@ -17,6 +17,7 @@ class SelfEffectAction extends CombatAction {
     this.costEffects = const [],
     this.selfEffects = const [],
     this.sourceRef,
+    this.priority = 0,
   });
 
   @override
@@ -35,6 +36,9 @@ class SelfEffectAction extends CombatAction {
 
   @override
   final BuildComponentRef? sourceRef;
+
+  @override
+  final num priority;
 
   @override
   List<Effect> effectsFor(EntityId target, PluginContext context) => selfEffects;

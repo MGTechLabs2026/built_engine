@@ -412,12 +412,16 @@ void main() {
       final evolved = <TechniqueEvolved>[];
       events.subscribe<TechniqueEvolved>(evolved.add);
 
-      // Seed 6 / `TrainAfterFirstCombatPolicy` (the train-heavy policy
+      // Seed 3 / `TrainAfterFirstCombatPolicy` (the train-heavy policy
       // this file's own "runGame smoke test" group already uses) trains
       // every cycle after the first combat and evolves multiple reward-
       // pool families across one run — a real end-to-end exercise of the
-      // guard, not just a single family's single evolution.
-      runGame(6, policy: TrainAfterFirstCombatPolicy(), eventBus: events);
+      // guard, not just a single family's single evolution. (Was seed 6
+      // until Task 9 put consumables in the reward pool; seed 6's
+      // reshuffled early rewards now leave the run dead before any
+      // technique is learned. Re-swept 1..40: seed 3 learns basic_punch
+      // + basic_slash and evolves each exactly once.)
+      runGame(3, policy: TrainAfterFirstCombatPolicy(), eventBus: events);
 
       final perFamily = <String, int>{};
       for (final e in evolved) {
@@ -444,7 +448,10 @@ void main() {
       events.subscribe<TechniqueVariantMinted>((e) => log.add(e));
       events.subscribe<TechniqueAddedToTome>((e) => log.add(e));
 
-      final result = runGame(6,
+      // Seed 3 (was seed 6 before Task 9's reward-pool consumables
+      // reshuffled the draw order; seed 6 now dies before learning any
+      // technique). Seed 3 learns basic_punch first under this policy.
+      final result = runGame(3,
           policy: TrainAfterFirstCombatPolicy(), eventBus: events);
 
       expect(result.techniquesLearned, isNotEmpty);

@@ -1,4 +1,5 @@
 import 'package:build_engine/build_engine.dart';
+import 'package:build_engine/consumable_plugin.dart';
 import 'package:build_engine/item_plugin.dart';
 import 'package:build_engine/technique_plugin.dart';
 
@@ -20,6 +21,15 @@ const rewardPoolItemIds = [
   ItemIds.trainingShoes,
 ];
 const rewardPoolTechniqueIds = [TechniqueIds.basicPunch, TechniqueIds.basicSlash, TechniqueIds.basicGuard];
+
+/// Every consumable the run can reward — reward-pool only, never in
+/// [RunStartingKit]. The real `ConsumablePlugin` content ids.
+const rewardPoolConsumableIds = [
+  ConsumableIds.healPotion,
+  ConsumableIds.firebomb,
+  ConsumableIds.powerTonic,
+  ConsumableIds.cleanseTonic,
+];
 
 /// The Tome's generic slots — any item/technique category fits any slot
 /// (Backpack-Hero-style free placement, not the old fixed weapon/armor/

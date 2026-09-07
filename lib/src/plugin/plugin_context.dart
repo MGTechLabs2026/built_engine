@@ -122,6 +122,7 @@ extension PluginContextRuleContext on PluginContext {
         events: events,
         rng: rng,
         eventCounts: rules.eventCounts,
+        modifiers: modifiers,
         resources: resources,
         mastery: mastery,
         progression: progression,

@@ -30,9 +30,26 @@ class _ForceItemReward extends DefaultRunDecisionPolicy {
   }
 }
 
+/// Item/technique occupants only. SP3 consumables are real Tome
+/// occupants, but the almanac bridge does not model them yet — it emits
+/// them with `occupantKind == 'empty'` and a non-null `occupantRefId`
+/// (`almanac_bridge.dart` only classifies technique/item). These
+/// discovery/monotonicity assertions are about the discoverable kit, so
+/// the consumable slots are filtered out here rather than special-cased
+/// at every call site.
+///
+/// SP4 debt: because this filter also feeds the replay-equivalence
+/// projection below (the `_occupants(b)` join around line 180), that
+/// projection has *no* visibility into consumable placements, and
+/// `BuildDna` does not model them either. Run-level placement
+/// determinism is still covered — by the full `RunResult` /
+/// `rewardsGranted` / `finalBuild` equality in
+/// `consumable_combat_stage_test.dart`, which does include consumable
+/// refs. SP4 must teach the bridge a `'consumable'` occupantKind *and*
+/// restore consumable coverage to this almanac-side projection.
 Set<String?> _occupants(AlmanacBuildRecord b) => {
   for (final s in b.tome.slots)
-    if (s.occupantRefId != null) s.occupantRefId,
+    if (s.occupantRefId != null && s.occupantKind != 'empty') s.occupantRefId,
 };
 
 /// A throwaway `PluginContext` with technique content loaded — just
@@ -433,8 +450,13 @@ void main() {
   test('postTraining snapshot reflects the applied training AND the '
       "subsequent manageTome() pass (newly-known technique equipped)", () {
     final recorder = AlmanacRecorder();
+    // Seed 3 (was seed 6 before Task 9 put consumables in the reward
+    // pool — seed 6's reshuffled early rewards now kill the run at cycle
+    // 0, so no training happens). Re-swept 1..40: seed 3 runs the full
+    // 200 cycles under this policy, learns basic_punch + basic_slash and
+    // evolves each once.
     final result = runGame(
-      6,
+      3,
       policy: TrainAfterFirstCombatPolicy(),
       almanac: recorder,
       runId: 'tr',
@@ -517,7 +539,8 @@ void main() {
     expect(chain.length, greaterThanOrEqualTo(3));
     Map<String, String?> occupied(AlmanacBuildRecord b) => {
       for (final s in b.tome.slots)
-        if (s.occupantRefId != null) s.slotId: s.occupantRefId,
+        if (s.occupantRefId != null && s.occupantKind != 'empty')
+          s.slotId: s.occupantRefId,
     };
     for (var i = 1; i < chain.length; i++) {
       final prev = occupied(chain[i - 1]);

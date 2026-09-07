@@ -97,10 +97,13 @@ void main() {
     });
 
     // Seed 6 itself dies before ever training (no technique reaches the
-    // Tome) — per the brief's own fallback instruction, swept 1..20 for
+    // Tome) — per the brief's own fallback instruction, swept 1..25 for
     // one where a technique is learned and used in combat before the run
-    // ends; seed 9 is the first hit and is pinned here.
-    final result = runGame(9, policy: _TrainHard(), eventBus: events);
+    // ends. Was seed 9 until Task 9 put consumables in the reward pool,
+    // which reshuffled the draw order and left seed 9 dead at cycle 0;
+    // seed 10 is now the first hit (learns basic_punch, ~37 technique
+    // actions) and is pinned here.
+    final result = runGame(10, policy: _TrainHard(), eventBus: events);
 
     expect(result.techniquesLearned, isNotEmpty);
     // Once a variant is in the Tome, the run's fights produce technique

@@ -2,6 +2,7 @@ import 'package:build_engine/almanac.dart';
 import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/build_interpretation.dart';
 import 'package:build_engine/combat_plugin.dart';
+import 'package:build_engine/consumable_plugin.dart';
 import 'package:build_engine/item_plugin.dart';
 import 'package:build_engine/martial_arts_plugin.dart';
 import 'package:build_engine/physique_plugin.dart';
@@ -93,8 +94,9 @@ void restoreHealth(EntityId character, PluginContext context) {
 ///   - `TomeService` (`context.tome`) for the Tome itself
 ///   - `CompositeBuildActionInterpreter` (Build Interpretation) to turn
 ///     `ActiveBuild` into `CombatAction`s
-///   - `AutoCombatController` + `CombatPolicy.scored()` for automatic
-///     combat — the player never picks an attack directly
+///   - `AutoCombatController` + `CombatPolicy.scored(scorer:
+///     ConsumableAwareActionScorer())` for automatic combat — the player
+///     never picks an attack directly
 ///   - `TrainingSession` + `TimingExercise` +
 ///     `techniqueTrainingExerciseFor`/`itemTrainingExerciseFor` for
 ///     training
@@ -186,12 +188,16 @@ RunResult runGame(
   PhysiquePlugin().initialize(context);
   ItemPlugin().initialize(context);
   TechniquePlugin().initialize(context);
+  ConsumablePlugin().initialize(context);
   // No dedicated "Enemy plugin" — enemies exist only for this
   // run-composition layer, so their content is loaded directly here
   // rather than via a GamePlugin.initialize.
   context.content.loadAll(enemyContentDefinitions);
-  const interpreter =
-      CompositeBuildActionInterpreter([TechniqueActionInterpreter(), ItemActionInterpreter()]);
+  const interpreter = CompositeBuildActionInterpreter([
+    TechniqueActionInterpreter(),
+    ItemActionInterpreter(),
+    ConsumableActionInterpreter(),
+  ]);
 
   // ---- New Run / character ------------------------------------------
   final character = context.characters.create();
@@ -257,6 +263,8 @@ RunResult runGame(
     [
       for (final id in rewardPoolItemIds) (referenceType: itemReferenceType, contentId: id),
       for (final id in rewardPoolTechniqueIds) (referenceType: techniqueReferenceType, contentId: id),
+      for (final id in rewardPoolConsumableIds)
+        (referenceType: consumableReferenceType, contentId: id),
     ],
     rng,
   );

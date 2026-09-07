@@ -2,6 +2,8 @@ import '../components/health_component.dart';
 import '../components/stat_component.dart';
 import '../components/status_component.dart';
 import '../components/tag_set.dart';
+import '../modifier/modifier.dart';
+import '../modifier/modifier_source.dart';
 import 'effect_events.dart';
 import 'rule_context.dart';
 
@@ -140,6 +142,71 @@ class RemoveStatus implements Effect {
     final statuses = Set<String>.of(existing.activeStatuses);
     statuses.remove(status);
     context.components.add(subject, StatusComponent(statuses));
+  }
+}
+
+/// Clears every active status on the subject — removes its
+/// [StatusComponent] outright. No-op if the subject has none, or if there
+/// is no subject. The wholesale counterpart to [RemoveStatus]'s
+/// single-key removal, for a "cleanse" / "dispel all" action with no need
+/// to enumerate names.
+class RemoveAllStatuses implements Effect {
+  const RemoveAllStatuses();
+
+  @override
+  void apply(RuleContext context) {
+    final subject = context.subject;
+    if (subject == null) return;
+    context.components.remove<StatusComponent>(subject);
+  }
+}
+
+/// Adds one source-scoped [Modifier] on the subject via the Modifier
+/// Engine. [sourceKey] namespaces the modifier so a caller can later
+/// remove exactly this contribution with
+/// `modifiers.removeBySource(ModifierSource('$sourceKey:${subject.value}'))`.
+/// Re-applying with the same subject + [sourceKey] replaces (never
+/// stacks): [apply] does `removeBySource` before `add`.
+///
+/// LIMITATION: requires `RuleContext.modifiers` to be the run's real
+/// collection. That holds when the context comes from
+/// `PluginContext.ruleContextFor` — e.g. a `CombatAction`'s effects run
+/// by `CombatSystem`, the ONLY sanctioned path. Inside a
+/// `RuleEngine`-dispatched `Rule` (`ContentRegistry.loadRule`, an SP2
+/// aura) `context.modifiers` is a fresh, unobserved `ModifierCollection`:
+/// the effect silently no-ops. Do NOT use `GrantModifier` in `Rule`
+/// content until `RuleEngine` threads a real `ModifierCollection`. There
+/// is deliberately no `'grantModifier'` content factory.
+class GrantModifier implements Effect {
+  const GrantModifier(
+    this.stat,
+    this.operation,
+    this.value, {
+    this.priority = 0,
+    this.sourceKey = 'grantmodifier',
+  });
+
+  final String stat;
+  final ModifierOperation operation;
+  final num value;
+  final int priority;
+  final String sourceKey;
+
+  @override
+  void apply(RuleContext context) {
+    final subject = context.subject;
+    if (subject == null) return;
+    final source = ModifierSource('$sourceKey:${subject.value}');
+    context.modifiers
+      ..removeBySource(source)
+      ..add(Modifier(
+        source: source,
+        target: subject,
+        stat: stat,
+        operation: operation,
+        value: value,
+        priority: priority,
+      ));
   }
 }
 

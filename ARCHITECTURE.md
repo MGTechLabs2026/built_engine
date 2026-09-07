@@ -93,6 +93,13 @@ plugins register their own conditions/effects simply by implementing the
 public `Condition`/`Effect` interfaces, the same way `GamePlugin` already
 is public.
 
+`RuleContext.modifiers` (SP3) — the Modifier Engine is now reachable from
+rules via the optional `RuleContext.modifiers` factory parameter (defaults to
+a fresh `ModifierCollection`). `PluginContext.ruleContextFor` supplies the
+real one for effects like `GrantModifier` that need to write modifiers; a
+`RuleEngine`-dispatched rule fires with the empty default and any
+`GrantModifier` effect silently no-ops.
+
 ### Modifier Engine (`lib/src/modifier/`)
 `Modifier` (`source`, `target`, `stat`, `operation`, `value`, `priority`,
 `duration`, `condition` — matching claude.md's MODIFIER SYSTEM field list
@@ -630,6 +637,80 @@ that is live only while the component is in `ResolvedBuild.active`.
 - **Determinism.** Firing order = interpreter-list order → `build.active`
   order → `auraRuleIds` order → `EventBus` subscription order. RNG-using
   aura effects go through `RuleContext.rng`.
+
+## Per-fight Consumables (SP3) (`lib/src/plugins/consumable/`, `lib/src/plugins/build_interpretation/consumable_binder.dart`)
+
+A consumable is a hung Tome component that carries a fixed number of
+*per-fight charges*. It is **not** a one-shot item: it stays in the Tome,
+and its charges are re-granted in full at the start of every battle (SP3
+deliberately diverges from the parent design's §13 "used up and removed"
+sketch). Unlike an aura (which fires content-authored rules off Combat's
+per-turn/per-action events), a consumable produces a *`CombatAction`* the
+headless auto-combat can choose to spend a charge on. The implementation
+follows the same decoupling and reuse-existing-infrastructure philosophy
+as SP2.
+
+- **Charges = a per-fight `ResourcePool` resource.** `ConsumablePlugin.initialize`
+  defines a `consumable:<contentId>` resource (`min: 0`, `max: double.infinity`)
+  per content entry. `ConsumableBinder` grants the pool onto the player at
+  fight start; multiple hung copies of the same consumable **aggregate** (the
+  per-copy `charges` is a capacity that sums over `build.active`), which is why
+  the max is unbounded. Each consumable action carries
+  `costEffects: [ConsumeResource('consumable:<id>', 1)]` and a matching
+  `conditions: [ResourceAbove('consumable:<id>', 0)]` gate.
+  `ScoredActionSelector._isAvailable` filters an action whose cost is
+  unaffordable *or* whose conditions do not pass; if every legal action is
+  unavailable it falls back to the full set, and the `ResourceAbove` condition
+  is what stops `CombatSystem.executeAction` applying the effect for free on
+  that forced path (SP3 C1).
+- **`ConsumableActionInterpreter`** (in `build_interpretation/`, composed after
+  `TechniqueActionInterpreter` / `ItemActionInterpreter`) — switches
+  exhaustively over the hung consumable's single `effect` field, a Dart 3
+  `sealed class ConsumableEffectSpec` with exactly one of four variants
+  (`ConsumableHeal`, `ConsumableAttack`, `ConsumableGrantModifier`,
+  `ConsumableRemoveAllStatuses`), and builds a `SelfEffectAction` (heal /
+  grant-modifier / remove-all-statuses) or `AttackAction` (attack) carrying
+  the content `priority` and the action's `sourceRef`. An `attack` consumable
+  with no `targets` yields no action. Exported via
+  `package:build_engine/build_interpretation.dart`.
+- **`ConsumableBinder` / `ConsumableCharges`** — per-fight lifecycle.
+  `ConsumableBinder.grant({required ResolvedBuild build, required PluginContext context})`
+  sums the per-copy `charges` per contentId over `build.active` and
+  `resources.set`s (never `add`s) each `consumable:<id>` pool, returning a
+  `ConsumableCharges` handle. `ConsumableCharges.dispose()` is idempotent and
+  empty-safe: it zeroes and `removeBySource`s **only the ids that this binding
+  granted** (`consumable:<id>:<owner>`), not every `consumable:*` entry. It is
+  not in-place reconciliation — a placement change is handled by disposing the
+  old handle, resolving the new build, and calling `grant()` again.
+- **`ConsumableAwareActionScorer`** (in `auto_combat/`, default scorer for the
+  harness's `CombatPolicy.scored`) — wraps `DefaultActionScorer` and adds an
+  effect-shape bonus: a large weight scaled by the actor's missing-health
+  fraction for any action whose `effectsFor` yields a `Heal`, a flat bonus for
+  an `ApplyStatus`. It inspects effect *types* only and never calls `.apply`.
+  The bonus is deliberately not gated on consumable provenance, so a healing
+  technique is scored the same way.
+- **`RemoveAllStatuses` + `GrantModifier` effects** — two new Core effects
+  enabling consumable payloads. `RemoveAllStatuses` removes the subject's
+  `StatusComponent`. `GrantModifier` adds one source-scoped `Modifier` on the
+  subject; it executes only via the `CombatAction` / `PluginContext` path,
+  never via `RuleEngine._fire` (which passes the default empty
+  `RuleContext.modifiers`), so a rule-dispatched `GrantModifier` silently
+  no-ops — there is deliberately **no** `'grantModifier'` content factory.
+- **Lifecycle.** `CombatStage.runFight` grants consumable charges right after
+  `AuraBinder.bind`, inside one exception-safe `try`; the `finally` disposes in
+  reverse acquisition order (`subscription` → `consumableCharges` → `auraBinding`),
+  so a throw between the two binder calls leaves neither live. The fallback
+  strike is injected whenever the build has no *non-consumable* action.
+- **Content.** Four headless reward-pool-only consumables: `heal_potion`
+  (`Heal 20`), `firebomb` (`attack`, damage 15 on `thrown`, enemy-targeted),
+  `power_tonic` (`GrantModifier` +6 on `thrown`), `cleanse_tonic`
+  (`RemoveAllStatuses`). `consumableDefinitionFromContent` is a strict parser
+  (exactly one variant, `effect`×`target` matrix enforced at parse time,
+  `ContentFieldException` → `ContentValidationException` at batch load).
+  `RewardStage.resolveReward` and `TomeManager.placeConsumable` handle the
+  third `referenceType` (`'consumable'`); there is no usability/mastery gate.
+  Fixed-seed diversity/structure fixtures shifted — no determinism assertion
+  was weakened.
 
 ## Almanac — Persistent Player History (`lib/src/plugins/almanac/`, `lib/almanac.dart`, `lib/almanac_file.dart`)
 

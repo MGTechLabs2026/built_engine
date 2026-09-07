@@ -36,9 +36,14 @@ void main() {
   group('complete run', () {
     test('a run executes headlessly from a single runGame(seed) call, producing a '
         'fully-populated RunResult', () {
-      final result = runGame(6, policy: TrainAfterFirstCombatPolicy());
+      // Seed 3 (was seed 6 until Task 9 put consumables in the reward
+      // pool — seed 6's reshuffled early draws now kill the run at cycle
+      // 0, so it never trains). Every `TrainAfterFirstCombatPolicy` run
+      // in this file moved 6 -> 3 together; re-swept 1..40, seed 3 runs
+      // the full 200 cycles and learns + evolves basic_punch/basic_slash.
+      final result = runGame(3, policy: TrainAfterFirstCombatPolicy());
 
-      expect(result.seed, equals(6));
+      expect(result.seed, equals(3));
       expect(result.characterName, equals('Player'));
       expect(result.physiqueId, isNotEmpty);
       expect(result.martialTradition, anyOf(MartialTraditions.western, MartialTraditions.eastern));
@@ -129,7 +134,7 @@ void main() {
 
   group('training', () {
     test('a training cycle runs a real TrainingSession and records a TrainingRecord', () {
-      final result = runGame(6, policy: TrainAfterFirstCombatPolicy());
+      final result = runGame(3, policy: TrainAfterFirstCombatPolicy());
 
       expect(result.trainingRecords, isNotEmpty);
     });
@@ -137,7 +142,7 @@ void main() {
 
   group('learning and evolution', () {
     test('sustained training across many cycles eventually learns and evolves a technique', () {
-      final result = runGame(6, policy: TrainAfterFirstCombatPolicy());
+      final result = runGame(3, policy: TrainAfterFirstCombatPolicy());
 
       expect(result.techniquesLearned, isNotEmpty);
       if (result.techniquesEvolved.isNotEmpty) {
@@ -165,7 +170,7 @@ void main() {
 
   group('Tome rebuild', () {
     test('the Tome is rebuilt multiple times across the run', () {
-      final result = runGame(6, policy: TrainAfterFirstCombatPolicy());
+      final result = runGame(3, policy: TrainAfterFirstCombatPolicy());
 
       expect(result.tomeHistory.length, greaterThan(2));
     });
@@ -242,6 +247,33 @@ void main() {
         isNot(equals(resultB.encounters.map((e) => e.enemyId).toList())),
       );
     });
+
+    test('regression (SP3 C1): every encounter terminates well under the step cap, '
+        'even for a consumable-only Tome', () {
+      // Before the C1 fix a hung consumable (SP3) made `playerActions`
+      // non-empty, which suppressed `CombatStage`'s always-available
+      // fallback strike. `PreferItemRewardPolicy` never trains a
+      // technique, so a cycle that rewards a consumable left the player
+      // with only that consumable action; once its per-fight charge pool
+      // emptied, `ScoredActionSelector` force-executed the unaffordable
+      // action every turn (the effect applied for free, the enemy never
+      // took damage) and the fight ran to `AutoCombatController`'s
+      // 10,000-step safety cap. Measured pre-fix: 8 of 20 seeds stalled.
+      // A per-encounter turn bound catches this on any seed, unlike the
+      // seed-pinned outcome fixtures elsewhere in this file.
+      for (var seed = 1; seed <= 40; seed++) {
+        final result = runGame(seed, policy: PreferItemRewardPolicy());
+        for (final encounter in result.encounters) {
+          expect(
+            encounter.turnsUsed,
+            lessThan(500),
+            reason: 'seed $seed, encounter "${encounter.name}" used '
+                '${encounter.turnsUsed} turns — a fight that cannot '
+                'terminate (SP3 C1 regression)',
+          );
+        }
+      }
+    });
   });
 
   group('Manage Tome: equip/unequip', () {
@@ -269,7 +301,7 @@ void main() {
       // original failure mode this guards, caught while the starting
       // Tome only had 2 unlocked slots), it would silently vanish from
       // finalBuild.
-      final result = runGame(6, policy: TrainAfterFirstCombatPolicy());
+      final result = runGame(3, policy: TrainAfterFirstCombatPolicy());
 
       expect(result.techniquesLearned, isNotEmpty);
       expect(

@@ -2,6 +2,7 @@ import 'package:build_engine/auto_combat_plugin.dart';
 import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/build_interpretation.dart';
 import 'package:build_engine/combat_plugin.dart';
+import 'package:build_engine/consumable_plugin.dart';
 import 'package:build_engine/item_plugin.dart';
 import 'package:build_engine/technique_plugin.dart';
 
@@ -26,7 +27,16 @@ import 'run_result.dart';
 ///
 /// Per-active auras (SP2) are bound here via `AuraBinder` right after
 /// `tome.resolve` and disposed in the fight's `finally`, so they are live
-/// only for the duration of one fight.
+/// only for the duration of one fight. Per-fight consumable charges (SP3)
+/// are granted here alongside the aura binding, inside the same `try`, and
+/// disposed (reverse order) in the `finally` — so a throw between the two
+/// binder calls leaves neither live.
+///
+/// The always-available fallback strike is injected whenever the resolved
+/// build produces no *non-consumable* action — not merely when it produces
+/// no action at all — because a consumable action can be self-only and is
+/// filtered out once its charge pool empties, which would otherwise leave a
+/// consumable-only Tome unable to damage the enemy (SP3 C1).
 class CombatStage {
   CombatStage({
     required this.character,
@@ -78,56 +88,82 @@ class CombatStage {
     events.publish(ActiveBuildResolved(build.asActiveBuild.components));
     final playerActions = interpreter.interpret(
         build: build, actor: character, targets: [enemyEntity], context: context);
-    final auraBinding = const AuraBinder().bind(
-      build: build,
-      interpreter: interpreter,
-      context: context,
-      opponents: [enemyEntity],
-    );
-    // With no technique active in the Tome (the run's own starting state,
-    // and any cycle where training hasn't produced one yet), `interpreter`
-    // returns no player action at all — `AutoCombatController.step`
-    // treats "no legal action for the current actor" as a hard stop, so
-    // the battle would stall at full health rather than resolve. A
-    // minimal always-available strike keeps the player able to act.
-    final effectivePlayerActions = playerActions.isEmpty
-        ? [AttackAction(actor: character, targets: [enemyEntity], baseDamage: 4, damageStat: fallbackStrikeStat(build.asActiveBuild))]
-        : playerActions;
-    final battle = combatPlugin.system.startBattle([character, enemyEntity]);
-    final controller = AutoCombatController(
-      context: context,
-      combatSystem: combatPlugin.system,
-      battle: battle,
-      availableActions: [
-        ...effectivePlayerActions,
-        AttackAction(actor: enemyEntity, targets: [character], baseDamage: enemy.damage, damageStat: enemy.damageStat),
-      ],
-      policy: CombatPolicy.scored(),
-    );
-
+    AuraBinding? auraBinding;
+    ConsumableCharges? consumableCharges;
+    EventSubscription? subscription;
+    AutoCombatController? controller;
     var turnsUsed = 0;
-    final subscription = events.subscribe<ActionCompleted>((e) {
-      if (e.battle != battle) return;
-      turnsUsed++;
-      // SP0b: attribute a performed technique action to its variant
-      // instance so training-time inspiration can weigh it. The Technique
-      // plugin stays Combat-free — this bridge lives in the harness, the
-      // same split `TechniqueActionInterpreter` uses.
-      final ref = e.action.sourceRef;
-      if (ref != null &&
-          ref.referenceType == techniqueReferenceType &&
-          ref.instanceEntityId != null) {
-        recordTechniqueVariantUsage(ref.instanceEntityId!, context);
-      }
-    });
     try {
+      auraBinding = const AuraBinder().bind(
+        build: build,
+        interpreter: interpreter,
+        context: context,
+        opponents: [enemyEntity],
+      );
+      consumableCharges = const ConsumableBinder().grant(build: build, context: context);
+
+      // The player needs at least one *damaging* action every fight. A
+      // technique action always deals damage; an item contributes
+      // modifiers, not actions. A consumable action (SP3) can be
+      // self-only (heal / buff / cleanse) and, once its per-fight charge
+      // pool empties, is filtered out entirely — so a Tome holding only
+      // consumables and no technique would leave the player unable to
+      // ever hurt the enemy, and the fight would run to the step cap
+      // (SP3 C1 regression). Add the minimal always-available strike
+      // whenever no non-consumable action is present; when a consumable
+      // *is* the only build action, the strike sits alongside it and
+      // takes over the moment the charge pool runs dry.
+      final hasNonConsumableAction = playerActions.any(
+          (a) => a.sourceRef?.referenceType != consumableReferenceType);
+      final effectivePlayerActions = hasNonConsumableAction
+          ? playerActions
+          : [
+              ...playerActions,
+              AttackAction(
+                actor: character,
+                targets: [enemyEntity],
+                baseDamage: 4,
+                damageStat: fallbackStrikeStat(build.asActiveBuild),
+              ),
+            ];
+      final battle = combatPlugin.system.startBattle([character, enemyEntity]);
+      controller = AutoCombatController(
+        context: context,
+        combatSystem: combatPlugin.system,
+        battle: battle,
+        availableActions: [
+          ...effectivePlayerActions,
+          AttackAction(actor: enemyEntity, targets: [character], baseDamage: enemy.damage, damageStat: enemy.damageStat),
+        ],
+        policy: CombatPolicy.scored(scorer: const ConsumableAwareActionScorer()),
+      );
+
+      subscription = events.subscribe<ActionCompleted>((e) {
+        if (e.battle != battle) return;
+        turnsUsed++;
+        // SP0b: attribute a performed technique action to its variant
+        // instance so training-time inspiration can weigh it. The Technique
+        // plugin stays Combat-free — this bridge lives in the harness, the
+        // same split `TechniqueActionInterpreter` uses.
+        final ref = e.action.sourceRef;
+        if (ref != null &&
+            ref.referenceType == techniqueReferenceType &&
+            ref.instanceEntityId != null) {
+          recordTechniqueVariantUsage(ref.instanceEntityId!, context);
+        }
+      });
       controller.runUntilBattleEnds();
     } finally {
-      subscription.cancel();
-      auraBinding.dispose();
+      subscription?.cancel();
+      consumableCharges?.dispose();
+      auraBinding?.dispose();
     }
 
     final playerHealth = context.components.get<HealthComponent>(character)!.current;
+    // `controller` is provably non-null here: reaching past the `finally`
+    // means the `try` completed normally (no `catch`, so any throw before
+    // the assignment has already propagated out of `runFight`), so Dart's
+    // flow analysis promotes it — no `!` needed.
     final won = playerHealth > 0 && !controller.isActive;
     encounters.add(EncounterOutcome(
       name: name,
