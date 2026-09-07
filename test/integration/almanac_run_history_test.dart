@@ -37,6 +37,16 @@ class _ForceItemReward extends DefaultRunDecisionPolicy {
 /// discovery/monotonicity assertions are about the discoverable kit, so
 /// the consumable slots are filtered out here rather than special-cased
 /// at every call site.
+///
+/// SP4 debt: because this filter also feeds the replay-equivalence
+/// projection below (the `_occupants(b)` join around line 180), that
+/// projection has *no* visibility into consumable placements, and
+/// `BuildDna` does not model them either. Run-level placement
+/// determinism is still covered — by the full `RunResult` /
+/// `rewardsGranted` / `finalBuild` equality in
+/// `consumable_combat_stage_test.dart`, which does include consumable
+/// refs. SP4 must teach the bridge a `'consumable'` occupantKind *and*
+/// restore consumable coverage to this almanac-side projection.
 Set<String?> _occupants(AlmanacBuildRecord b) => {
   for (final s in b.tome.slots)
     if (s.occupantRefId != null && s.occupantKind != 'empty') s.occupantRefId,
