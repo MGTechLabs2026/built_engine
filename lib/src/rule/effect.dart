@@ -143,6 +143,22 @@ class RemoveStatus implements Effect {
   }
 }
 
+/// Clears every active status on the subject — removes its
+/// [StatusComponent] outright. No-op if the subject has none, or if there
+/// is no subject. The wholesale counterpart to [RemoveStatus]'s
+/// single-key removal, for a "cleanse" / "dispel all" action with no need
+/// to enumerate names.
+class RemoveAllStatuses implements Effect {
+  const RemoveAllStatuses();
+
+  @override
+  void apply(RuleContext context) {
+    final subject = context.subject;
+    if (subject == null) return;
+    context.components.remove<StatusComponent>(subject);
+  }
+}
+
 /// Adds [tag] to the subject's [TagSet], creating it if the subject
 /// doesn't have one yet.
 class AddTag implements Effect {

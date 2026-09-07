@@ -46,6 +46,8 @@ void _registerBuiltInEffectFactories(ContentRegistry registry) {
   registry.registerEffectFactory('destroyEntity', (p) => const DestroyEntity());
   registry.registerEffectFactory('transformEntity',
       (p) => TransformEntity(ContentField.optionalStringSet(p, 'tags')));
+  registry.registerEffectFactory(
+      'removeAllStatuses', (p) => const RemoveAllStatuses());
 }
 
 void _registerBuiltInConditionFactories(ContentRegistry registry) {
