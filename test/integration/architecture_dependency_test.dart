@@ -245,6 +245,30 @@ void main() {
     });
   });
 
+  group('Consumable plugin is fully decoupled from every other plugin', () {
+    for (final barrel in _pluginBarrels) {
+      if (barrel == 'combat_plugin.dart') continue; // consumable/ never imports Combat either, but state it positively below
+      test('Consumable does not reference $barrel', () {
+        _assertNoSubstringInDirectory(barrel, 'lib/src/plugins/consumable');
+      });
+    }
+    test('Consumable does not reference Combat', () {
+      _assertNoSubstringInDirectory('combat_plugin.dart', 'lib/src/plugins/consumable');
+      _assertNoSubstringInDirectory('plugins/combat/', 'lib/src/plugins/consumable');
+    });
+    test('Consumable does not escape into any other plugins/ directory', () {
+      final src = Directory('lib/src/plugins/consumable')
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'))
+          .map((f) => f.readAsStringSync())
+          .join('\n');
+      for (final other in ['item', 'technique', 'combat', 'auto_combat', 'martial_arts', 'elemental', 'physique', 'build_interpretation', 'game']) {
+        expect(src, isNot(contains('plugins/$other/')), reason: 'consumable/ imports plugins/$other/');
+      }
+    });
+  });
+
   group('audit A1 — the headless harness is top-of-graph, never depended on',
       () {
     // Nothing under lib/ except lib/src/plugins/game/ and lib/game.dart

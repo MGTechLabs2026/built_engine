@@ -93,6 +93,13 @@ plugins register their own conditions/effects simply by implementing the
 public `Condition`/`Effect` interfaces, the same way `GamePlugin` already
 is public.
 
+`RuleContext.modifiers` (SP3) — the Modifier Engine is now reachable from
+rules via the optional `RuleContext.modifiers` factory parameter (defaults to
+a fresh `ModifierCollection`). `PluginContext.ruleContextFor` supplies the
+real one for effects like `GrantModifier` that need to write modifiers; a
+`RuleEngine`-dispatched rule fires with the empty default and any
+`GrantModifier` effect silently no-ops.
+
 ### Modifier Engine (`lib/src/modifier/`)
 `Modifier` (`source`, `target`, `stat`, `operation`, `value`, `priority`,
 `duration`, `condition` — matching claude.md's MODIFIER SYSTEM field list
@@ -630,6 +637,48 @@ that is live only while the component is in `ResolvedBuild.active`.
 - **Determinism.** Firing order = interpreter-list order → `build.active`
   order → `auraRuleIds` order → `EventBus` subscription order. RNG-using
   aura effects go through `RuleContext.rng`.
+
+## Per-fight Consumables (SP3) (`lib/src/plugins/consumable/`, `lib/src/plugins/build_interpretation/consumable_binder.dart`)
+
+A consumable is a single-use item that grants a limited `ChargeResource`
+during a fight, then vanishes. Unlike auras (which act on hung components),
+consumables grant *actions* that a player can spend charges to perform. The
+implementation follows the same decoupling and reuse-existing-infrastructure
+philosophy as SP2.
+
+- **Charges = a per-fight `ResourcePool` resource.** Each consumable creates
+  a `consumable:<id>` resource with `max: double.infinity`, tracked in a
+  hidden `ResourceComponent` on the player. Multiple hung copies of the same
+  consumable aggregate their charges; `ConsumeResource` effect spends them.
+  `ScoredActionSelector._isAvailable` checks charge availability before
+  offering actions.
+- **`ConsumableActionInterpreter`** (composite, like `ItemActionInterpreter`) —
+  reads a consumable definition's `effectSpecs` (sealed union of effect
+  payloads) and builds `SelfEffectAction` / `AttackAction` with an optional
+  `priority` override, same as any other build action interpreter. Exports
+  via `package:build_engine/build_interpretation.dart`.
+- **`ConsumableBinder` / `ConsumableCharges`** — per-fight lifecycle bindings.
+  `ConsumableBinder.grant(charges: Map<String, num>)` creates/patches resource
+  entries on the player in aggregate. `dispose()` is idempotent; it zeros all
+  `consumable:*` resource entries and removes all `consumable:*` source
+  modifiers via `ModifierCollection.removeBySource`. Not in-place reconciliation
+  — simply grant at fight-start, dispose at fight-end; rebuild the action list
+  if the player has no charges.
+- **`ConsumableAwareActionScorer`** — effect-shape bonuses (like Combat's
+  existing scoring hints) that reward the AI for using consumables when
+  beneficial (e.g. a heal bonus if the player is low health).
+- **`RemoveAllStatuses` + `GrantModifier` effects** — two new Core effects
+  enabling consumable payloads. `GrantModifier` adds one source-scoped
+  `Modifier` on the subject; it executes only via `CombatAction` /
+  `PluginContext` path, never via `RuleEngine` (a rule-dispatched
+  `GrantModifier` silently no-ops, its `RuleContext.modifiers` is unobserved).
+- **Lifecycle.** `CombatStage.runFight` grants consumable charges right after
+  `AuraBinder.bind` (same exception-safe `try` block, reversed-order `finally`
+  disposal), so a consumable is live for exactly one fight.
+- **Content.** Four headless reward-pool consumables: `heal_potion`,
+  `firebomb`, `power_tonic`, `cleanse_tonic`. `RewardStage.resolveReward` and
+  `TomeManager.placeConsumable` handle the third `referenceType` ('consumable').
+  Fixed-seed outcomes shift — determinism preserved.
 
 ## Almanac — Persistent Player History (`lib/src/plugins/almanac/`, `lib/almanac.dart`, `lib/almanac_file.dart`)
 
