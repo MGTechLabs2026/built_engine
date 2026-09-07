@@ -15,9 +15,20 @@ import 'self_effect_action.dart';
 /// `ConsumableEffectSpec` (SP3 §5.2). Every action carries
 /// `costEffects: [ConsumeResource(consumable:<id>, 1)]` (the per-fight
 /// charge — `ConsumableBinder` grants the pool, `ScoredActionSelector`
-/// filters when it is empty), the content `priority`, and `sourceRef`.
-/// An `attack` consumable with no `targets` yields no action, mirroring
-/// `TechniqueActionInterpreter`.
+/// filters when it is empty), a matching
+/// `conditions: [ResourceAbove(consumable:<id>, 0)]` gate, the content
+/// `priority`, and `sourceRef`. An `attack` consumable with no `targets`
+/// yields no action, mirroring `TechniqueActionInterpreter`.
+///
+/// The `ResourceAbove` condition is not redundant with the cost:
+/// `ScoredActionSelector` falls back to the full legal-action set when
+/// *every* action is unaffordable (`available.isEmpty`), and
+/// `CombatSystem.executeAction` gates costs **and** effects on
+/// `action.conditions` only. Without the condition, a consumable that is
+/// the player's sole legal action would be force-executed for free once
+/// its pool hits `0` (SP3 C1 regression). With it, that forced path
+/// no-ops the effect too, and the harness's fallback strike (see
+/// `CombatStage`) keeps the player able to act.
 class ConsumableActionInterpreter implements BuildActionInterpreter {
   const ConsumableActionInterpreter();
 
@@ -53,12 +64,15 @@ class ConsumableActionInterpreter implements BuildActionInterpreter {
     List<EntityId> targets,
     BuildComponentRef ref,
   ) {
-    final cost = [ConsumeResource(consumableChargeResource(c.id), 1)];
+    final resource = consumableChargeResource(c.id);
+    final cost = [ConsumeResource(resource, 1)];
+    final gate = <Condition>[ResourceAbove(resource, 0)];
     switch (c.effect) {
       case ConsumableHeal(:final amount):
         return SelfEffectAction(
           actor: actor,
           selfEffects: [Heal(amount)],
+          conditions: gate,
           costEffects: cost,
           priority: c.priority,
           sourceRef: ref,
@@ -70,6 +84,7 @@ class ConsumableActionInterpreter implements BuildActionInterpreter {
           targets: targets,
           baseDamage: damage,
           damageStat: stat,
+          conditions: gate,
           costEffects: cost,
           priority: c.priority,
           sourceRef: ref,
@@ -80,6 +95,7 @@ class ConsumableActionInterpreter implements BuildActionInterpreter {
           selfEffects: [
             GrantModifier(stat, operation, value, sourceKey: 'consumable:${c.id}'),
           ],
+          conditions: gate,
           costEffects: cost,
           priority: c.priority,
           sourceRef: ref,
@@ -88,6 +104,7 @@ class ConsumableActionInterpreter implements BuildActionInterpreter {
         return SelfEffectAction(
           actor: actor,
           selfEffects: const [RemoveAllStatuses()],
+          conditions: gate,
           costEffects: cost,
           priority: c.priority,
           sourceRef: ref,

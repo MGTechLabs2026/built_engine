@@ -154,8 +154,9 @@ void main() {
   });
 
   // ── Row 5 ──────────────────────────────────────────────────────────
-  test('used N times then filtered: _isAvailable false at pool 0, and the '
-      'CombatSystem cost no-ops (never goes negative)', () {
+  test('used N times then filtered: _isAvailable false at pool 0, and a forced '
+      'CombatSystem execute no-ops both cost and effect (pool never negative, '
+      'health unchanged)', () {
     final ctx = _ctx();
     final owner = _combatant(ctx, 'player', 10, 10, max: 100); // hurt: 10/100
     final enemy = _combatant(ctx, 'enemy', 1, 50);
@@ -198,15 +199,18 @@ void main() {
       same(fallbackAttack),
     );
 
-    // Force the heal through CombatSystem at pool 0: the ConsumeResource
-    // cost no-ops — the pool is untouched (never negative) and nothing
-    // throws. (The engine gates the *cost* on affordability, not the
-    // effect; the selector is the guard that keeps this path unreachable
-    // in a real fight — see the task report's row-5 note.)
+    // Force the heal through CombatSystem at pool 0. The consumable action
+    // carries `conditions: [ResourceAbove('consumable:heal_potion', 0)]`
+    // (SP3 C1), so `executeAction`'s condition check fails and it applies
+    // NEITHER the ConsumeResource cost NOR the Heal effect: the pool stays
+    // 0 (never negative), the owner's health is unchanged, and nothing
+    // throws.
     final system = CombatSystem(ctx);
     final battle = system.startBattle([owner, enemy]); // owner's turn first
+    final hpBefore = ctx.components.get<HealthComponent>(owner)!.current;
     expect(() => system.executeAction(battle, healAction), returnsNormally);
     expect(ctx.resources.currentOf(owner, _pool(ConsumableIds.healPotion)), 0);
+    expect(ctx.components.get<HealthComponent>(owner)!.current, hpBefore);
     system.dispose();
   });
 
