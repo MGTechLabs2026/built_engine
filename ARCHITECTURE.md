@@ -659,7 +659,7 @@ as SP2.
   `costEffects: [ConsumeResource('consumable:<id>', 1)]` and a matching
   `conditions: [ResourceAbove('consumable:<id>', 0)]` gate.
   `ScoredActionSelector._isAvailable` filters an action whose cost is
-  unaffordable *and* whose conditions do not pass; if every legal action is
+  unaffordable *or* whose conditions do not pass; if every legal action is
   unavailable it falls back to the full set, and the `ResourceAbove` condition
   is what stops `CombatSystem.executeAction` applying the effect for free on
   that forced path (SP3 C1).
