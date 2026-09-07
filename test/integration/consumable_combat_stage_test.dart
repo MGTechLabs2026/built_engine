@@ -3,6 +3,8 @@
 /// a fight), and per-fight setup is exception-safe.
 library;
 
+import 'dart:io';
+
 import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/combat_plugin.dart';
 import 'package:build_engine/consumable_plugin.dart';
@@ -25,17 +27,39 @@ class _FightAndTakeItems extends DefaultRunDecisionPolicy {
 }
 
 void main() {
-  test(
-      'CombatStage.runFight: partial setup (aura ok, consumable grant throws) still disposes the aura binding',
-      () {
-    // Build a minimal CombatStage-like harness is heavy; instead assert
-    // the contract at the seam Task 8 introduces: see combat_stage.dart —
-    // the finally must run consumableCharges?.dispose() then
-    // auraBinding?.dispose() with both as nullable locals assigned inside
-    // the try. A dedicated harness test is added in Task 11's acceptance
-    // file which constructs CombatStage directly with a stub interpreter
-    // whose consumable path throws.
-  }, skip: 'covered by Task 11 acceptance test (needs a throwing stub interpreter)');
+  test('CombatStage.runFight declares the aura/consumable/subscription locals '
+      'before one try and disposes them in reverse order in the finally', () {
+    // §5.7 exception-safety is proved behaviourally by
+    // `per_fight_consumable_test.dart` row 7 (AuraBinder.bind live →
+    // ConsumableBinder.grant throws → the aura binding is disposed, no
+    // consumable pool survives). Wiring a throwing interpreter through a
+    // real CombatStage additionally needs full Tome scaffolding; this
+    // structural guard catches a reordered/dropped dispose in the seam
+    // itself, which the behavioural test cannot see.
+    final src = File('lib/src/plugins/game/combat_stage.dart').readAsStringSync();
+
+    // Locals declared before the try.
+    final tryAt = src.indexOf('try {');
+    expect(tryAt, greaterThan(0));
+    for (final decl in [
+      'AuraBinding? auraBinding;',
+      'ConsumableCharges? consumableCharges;',
+      'EventSubscription? subscription;',
+    ]) {
+      final at = src.indexOf(decl);
+      expect(at, greaterThan(0), reason: 'missing local: $decl');
+      expect(at, lessThan(tryAt), reason: '$decl must precede the try');
+    }
+
+    // finally disposes in reverse acquisition order:
+    // subscription → consumableCharges → auraBinding.
+    final cancelAt = src.indexOf('subscription?.cancel()');
+    final consumableDisposeAt = src.indexOf('consumableCharges?.dispose()');
+    final auraDisposeAt = src.indexOf('auraBinding?.dispose()');
+    expect(cancelAt, greaterThan(tryAt));
+    expect(cancelAt, lessThan(consumableDisposeAt));
+    expect(consumableDisposeAt, lessThan(auraDisposeAt));
+  });
 
   test('a rewarded heal_potion is hung in the Tome and used for a Heal(20) '
       'on the player during a fight', () {

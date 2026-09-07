@@ -309,6 +309,15 @@ void main() {
       context: ctx,
       opponents: [enemy],
     );
+
+    // Positive control: while the binding is live its TurnStarted trigger
+    // heals the owner 1 (regen_weave). Without this leg the negative
+    // assertion below could pass simply because the aura never fires for
+    // this event at all.
+    ctx.events.publish(TurnStarted(battle, owner, 1));
+    expect(ctx.components.get<HealthComponent>(owner)!.current, 51,
+        reason: 'the aura binding is live before the partial setup fails');
+
     Object? caught;
     try {
       const ConsumableBinder().grant(build: badBuild, context: ctx);
@@ -321,10 +330,10 @@ void main() {
     expect(caught, isA<ContentFieldException>(),
         reason: 'grant propagates the malformed-content failure');
 
-    // The aura binding was disposed by the finally: its trigger now does
-    // nothing.
+    // The aura binding was disposed by the finally: the same trigger now
+    // does nothing (health holds at 51, not 52).
     ctx.events.publish(TurnStarted(battle, owner, 1));
-    expect(ctx.components.get<HealthComponent>(owner)!.current, 50,
+    expect(ctx.components.get<HealthComponent>(owner)!.current, 51,
         reason: 'no live aura subscription survived the partial setup');
 
     // No consumable charge pool left non-zero.
@@ -426,7 +435,133 @@ void main() {
       return ctx.components.get<StatusComponent>(owner) == null;
     }
 
-    expect(cleanse(), isTrue);
-    expect(cleanse(), cleanse());
+    // Two independent fresh-context runs both fully clear the status.
+    // (Cross-run RunResult determinism — including consumable refs in
+    // `finalBuild` / `rewardsGranted` — is covered by
+    // `consumable_combat_stage_test.dart`; this row only needs the
+    // consumable's own effect to be reproducible.)
+    final c1 = cleanse();
+    final c2 = cleanse();
+    expect(c1, isTrue);
+    expect(c2, isTrue);
+  });
+
+  // ── Supplementary coverage (SP3 §9 / §11) ─────────────────────────────
+  group('firebomb end-to-end and multi-charge spend', () {
+    test('firebomb: executing the consumable action deals 15 to the enemy from '
+        'a consumable-sourced AttackAction (targets = enemy, not self)', () {
+      final ctx = _ctx();
+      final owner = _combatant(ctx, 'player', 10, 100);
+      final enemy = _combatant(ctx, 'enemy', 1, 60);
+      final build = _hung(owner, [_ref(ConsumableIds.firebomb)]);
+
+      const ConsumableBinder().grant(build: build, context: ctx);
+      final action = _interpreter
+          .interpret(build: build, actor: owner, targets: [enemy], context: ctx)
+          .single;
+
+      expect(action, isA<AttackAction>());
+      expect(action.sourceRef?.referenceType, consumableReferenceType);
+      expect(action.sourceRef?.contentId, ConsumableIds.firebomb);
+      expect(action.targets, [enemy],
+          reason: 'firebomb is enemy-targeted, never self');
+
+      final damaged = <EntityDamaged>[];
+      ctx.events.subscribe<EntityDamaged>(damaged.add);
+
+      final system = CombatSystem(ctx);
+      final battle = system.startBattle([owner, enemy]); // owner first
+      system.executeAction(battle, action);
+      system.dispose();
+
+      expect(damaged.map((d) => (d.id, d.amount)), contains((enemy, 15)));
+      expect(ctx.components.get<HealthComponent>(enemy)!.current, 60 - 15);
+      expect(ctx.components.get<HealthComponent>(owner)!.current, 100,
+          reason: 'the thrower is untouched');
+    });
+
+    test('attack consumable with no targets yields no action', () {
+      final ctx = _ctx();
+      final owner = _combatant(ctx, 'player', 10, 100);
+      final build = _hung(owner, [_ref(ConsumableIds.firebomb)]);
+
+      final actions = _interpreter.interpret(
+          build: build, actor: owner, targets: const [], context: ctx);
+      expect(actions, isEmpty);
+    });
+
+    test('two hung heal_potion copies: the aggregate pool covers N spends and '
+        'the (N+1)th selection is gated; a forced (N+1)th execute no-ops', () {
+      final ctx = _ctx();
+      final owner = _combatant(ctx, 'player', 40, 40, max: 100); // hurt 40/100
+      final enemy = _combatant(ctx, 'enemy', 1, 50);
+      final r = _ref(ConsumableIds.healPotion);
+      final build = _hung(owner, [r, r]); // aggregate 2
+
+      const ConsumableBinder().grant(build: build, context: ctx);
+      expect(ctx.resources.currentOf(owner, _pool(ConsumableIds.healPotion)), 2);
+
+      final heal = _interpreter
+          .interpret(build: build, actor: owner, targets: [enemy], context: ctx)
+          .first;
+      final fallback = AttackAction(
+          actor: owner, targets: [enemy], baseDamage: 5, damageStat: 'fist');
+      const selector =
+          ScoredActionSelector(scorer: ConsumableAwareActionScorer());
+
+      // pool 2 → heal offered; spend a charge; pool 1 → still offered;
+      // spend the last; pool 0 → the gate fails, selector drops to attack.
+      expect(selector.selectAction(owner, [heal, fallback], null, ctx),
+          same(heal));
+      ctx.resources.consume(owner, _pool(ConsumableIds.healPotion), 1);
+      expect(selector.selectAction(owner, [heal, fallback], null, ctx),
+          same(heal));
+      ctx.resources.consume(owner, _pool(ConsumableIds.healPotion), 1);
+      expect(ctx.resources.currentOf(owner, _pool(ConsumableIds.healPotion)), 0);
+      expect(selector.selectAction(owner, [heal, fallback], null, ctx),
+          same(fallback));
+
+      // A forced (N+1)th execute at pool 0: gate fails → no cost, no heal.
+      final system = CombatSystem(ctx);
+      final battle = system.startBattle([owner, enemy]);
+      final hp = ctx.components.get<HealthComponent>(owner)!.current;
+      system.executeAction(battle, heal);
+      expect(ctx.resources.currentOf(owner, _pool(ConsumableIds.healPotion)), 0);
+      expect(ctx.components.get<HealthComponent>(owner)!.current, hp);
+      system.dispose();
+    });
+
+    test('mutation guard: without ConsumableBinder.grant the pool defaults to 0 '
+        'and the action is unavailable from turn 1', () {
+      final ctx = _ctx();
+      final owner = _combatant(ctx, 'player', 10, 10, max: 100);
+      final enemy = _combatant(ctx, 'enemy', 1, 50);
+      final build = _hung(owner, [_ref(ConsumableIds.healPotion)]);
+
+      // No grant() call.
+      expect(ctx.resources.currentOf(owner, _pool(ConsumableIds.healPotion)), 0);
+
+      final heal = _interpreter
+          .interpret(build: build, actor: owner, targets: [enemy], context: ctx)
+          .single;
+      final fallback = AttackAction(
+          actor: owner, targets: [enemy], baseDamage: 5, damageStat: 'fist');
+      const selector =
+          ScoredActionSelector(scorer: ConsumableAwareActionScorer());
+
+      // Even hurt to 10/100 (heal would out-score), the selector cannot
+      // offer the heal — its cost is unaffordable and its ResourceAbove
+      // gate fails.
+      expect(selector.selectAction(owner, [heal, fallback], null, ctx),
+          same(fallback));
+
+      final system = CombatSystem(ctx);
+      final battle = system.startBattle([owner, enemy]);
+      final hpBefore = ctx.components.get<HealthComponent>(owner)!.current;
+      system.executeAction(battle, heal); // forced: no-ops
+      expect(ctx.components.get<HealthComponent>(owner)!.current, hpBefore);
+      expect(ctx.resources.currentOf(owner, _pool(ConsumableIds.healPotion)), 0);
+      system.dispose();
+    });
   });
 }
