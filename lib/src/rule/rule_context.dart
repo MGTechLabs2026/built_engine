@@ -4,6 +4,7 @@ import '../entity/entity_id.dart';
 import '../entity/entity_registry.dart';
 import '../event/event_bus.dart';
 import '../mastery/mastery_tracker.dart';
+import '../modifier/modifier_collection.dart';
 import '../progression/progression_engine.dart';
 import '../resource/resource_pool.dart';
 import '../rng/rng_service.dart';
@@ -26,6 +27,7 @@ class RuleContext {
     required EventBus events,
     required RngService rng,
     required EventCounter eventCounts,
+    ModifierCollection? modifiers,
     ResourcePool? resources,
     MasteryTracker? mastery,
     ProgressionEngine? progression,
@@ -41,6 +43,7 @@ class RuleContext {
       events: events,
       rng: rng,
       eventCounts: eventCounts,
+      modifiers: modifiers ?? ModifierCollection(),
       resources: resources ?? ResourcePool(components: components, events: events),
       mastery: sharedMastery,
       progression: progression ??
@@ -57,6 +60,7 @@ class RuleContext {
     required this.events,
     required this.rng,
     required this.eventCounts,
+    required this.modifiers,
     required this.resources,
     required this.mastery,
     required this.progression,
@@ -77,6 +81,15 @@ class RuleContext {
   final EventBus events;
   final RngService rng;
   final EventCounter eventCounts;
+
+  /// The Modifier Engine. Supplied real by `PluginContext.ruleContextFor`
+  /// (so a `CombatAction`'s effects, run by `CombatSystem`, can grant
+  /// modifiers — see `GrantModifier`). A `RuleContext` built without one
+  /// — including `RuleEngine._fire`'s — gets a fresh, unobserved
+  /// `ModifierCollection`: do not rely on `GrantModifier` inside a
+  /// `RuleEngine`-dispatched `Rule` (SP3 spec §5.4).
+  final ModifierCollection modifiers;
+
   final ResourcePool resources;
   final MasteryTracker mastery;
   final ProgressionEngine progression;
