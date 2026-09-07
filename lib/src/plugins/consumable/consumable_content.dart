@@ -5,7 +5,9 @@ import 'consumable_vocabulary.dart';
 
 /// SP3 consumables as data — loaded into `PluginContext.content` via
 /// `PluginSdk.registerContentBatch` in `ConsumablePlugin.initialize`.
-/// Task 9 fills this out; this is the minimal single entry.
+/// The full shipped set (SP3 §7): `swift_draught` is deliberately dropped
+/// — the four here already cover every effect variant (`heal`, `attack`,
+/// `grant`, `removeAllStatuses`).
 const consumableContentDefinitions = <Map<String, dynamic>>[
   {
     'id': ConsumableIds.healPotion,
@@ -14,6 +16,35 @@ const consumableContentDefinitions = <Map<String, dynamic>>[
     'charges': 1,
     'priority': 8,
     'effect': {'heal': 20},
+  },
+  {
+    'id': ConsumableIds.firebomb,
+    'type': consumableReferenceType,
+    'tags': <String>['consumable'],
+    'charges': 1,
+    'priority': 4,
+    'target': 'enemy',
+    'effect': {
+      'attack': {'damage': 15, 'stat': 'thrown'},
+    },
+  },
+  {
+    'id': ConsumableIds.powerTonic,
+    'type': consumableReferenceType,
+    'tags': <String>['consumable'],
+    'charges': 1,
+    'priority': 6,
+    'effect': {
+      'grant': {'stat': 'thrown', 'op': 'add', 'value': 6},
+    },
+  },
+  {
+    'id': ConsumableIds.cleanseTonic,
+    'type': consumableReferenceType,
+    'tags': <String>['consumable'],
+    'charges': 1,
+    'priority': 5,
+    'effect': {'removeAllStatuses': true},
   },
 ];
 

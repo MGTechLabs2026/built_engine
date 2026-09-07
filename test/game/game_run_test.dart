@@ -36,9 +36,14 @@ void main() {
   group('complete run', () {
     test('a run executes headlessly from a single runGame(seed) call, producing a '
         'fully-populated RunResult', () {
-      final result = runGame(6, policy: TrainAfterFirstCombatPolicy());
+      // Seed 3 (was seed 6 until Task 9 put consumables in the reward
+      // pool — seed 6's reshuffled early draws now kill the run at cycle
+      // 0, so it never trains). Every `TrainAfterFirstCombatPolicy` run
+      // in this file moved 6 -> 3 together; re-swept 1..40, seed 3 runs
+      // the full 200 cycles and learns + evolves basic_punch/basic_slash.
+      final result = runGame(3, policy: TrainAfterFirstCombatPolicy());
 
-      expect(result.seed, equals(6));
+      expect(result.seed, equals(3));
       expect(result.characterName, equals('Player'));
       expect(result.physiqueId, isNotEmpty);
       expect(result.martialTradition, anyOf(MartialTraditions.western, MartialTraditions.eastern));
@@ -129,7 +134,7 @@ void main() {
 
   group('training', () {
     test('a training cycle runs a real TrainingSession and records a TrainingRecord', () {
-      final result = runGame(6, policy: TrainAfterFirstCombatPolicy());
+      final result = runGame(3, policy: TrainAfterFirstCombatPolicy());
 
       expect(result.trainingRecords, isNotEmpty);
     });
@@ -137,7 +142,7 @@ void main() {
 
   group('learning and evolution', () {
     test('sustained training across many cycles eventually learns and evolves a technique', () {
-      final result = runGame(6, policy: TrainAfterFirstCombatPolicy());
+      final result = runGame(3, policy: TrainAfterFirstCombatPolicy());
 
       expect(result.techniquesLearned, isNotEmpty);
       if (result.techniquesEvolved.isNotEmpty) {
@@ -165,7 +170,7 @@ void main() {
 
   group('Tome rebuild', () {
     test('the Tome is rebuilt multiple times across the run', () {
-      final result = runGame(6, policy: TrainAfterFirstCombatPolicy());
+      final result = runGame(3, policy: TrainAfterFirstCombatPolicy());
 
       expect(result.tomeHistory.length, greaterThan(2));
     });
@@ -269,7 +274,7 @@ void main() {
       // original failure mode this guards, caught while the starting
       // Tome only had 2 unlocked slots), it would silently vanish from
       // finalBuild.
-      final result = runGame(6, policy: TrainAfterFirstCombatPolicy());
+      final result = runGame(3, policy: TrainAfterFirstCombatPolicy());
 
       expect(result.techniquesLearned, isNotEmpty);
       expect(

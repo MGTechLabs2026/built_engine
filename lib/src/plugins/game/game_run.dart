@@ -262,6 +262,8 @@ RunResult runGame(
     [
       for (final id in rewardPoolItemIds) (referenceType: itemReferenceType, contentId: id),
       for (final id in rewardPoolTechniqueIds) (referenceType: techniqueReferenceType, contentId: id),
+      for (final id in rewardPoolConsumableIds)
+        (referenceType: consumableReferenceType, contentId: id),
     ],
     rng,
   );

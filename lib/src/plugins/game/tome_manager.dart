@@ -1,5 +1,6 @@
 import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/combat_plugin.dart';
+import 'package:build_engine/consumable_plugin.dart';
 import 'package:build_engine/item_plugin.dart';
 import 'package:build_engine/technique_plugin.dart';
 
@@ -110,6 +111,28 @@ class TomeManager {
       context.tome.remove(character, slot);
     }
     addTechniqueToTome(character, slot, technique, context);
+    snapshot(stepName);
+  }
+
+  /// Hangs [consumable] in the Tome — mirrors [placeTechnique]'s
+  /// slot/replace flow, but writes the `BuildComponentRef` directly via
+  /// `context.tome.insert` and has NO learned/usable gate: SP3
+  /// consumables carry no mastery requirement, so a rewarded consumable
+  /// always goes straight in.
+  void placeConsumable(ConsumableDefinition consumable, String stepName) {
+    final ref = BuildComponentRef(
+        referenceType: consumableReferenceType, contentId: consumable.id);
+    final slot = recordingPolicy.chooseSlot(ref, orderedUnlockedSlots());
+    final existing =
+        context.tome.inspect(character).where((p) => p.slot == slot);
+    if (existing.isNotEmpty) {
+      if (!recordingPolicy.chooseReplace(
+          slot, existing.single.buildComponentRef, ref)) {
+        return;
+      }
+      context.tome.remove(character, slot);
+    }
+    context.tome.insert(character, slot, ref);
     snapshot(stepName);
   }
 
