@@ -2,6 +2,7 @@ import 'package:build_engine/almanac.dart';
 import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/build_interpretation.dart';
 import 'package:build_engine/combat_plugin.dart';
+import 'package:build_engine/consumable_plugin.dart';
 import 'package:build_engine/item_plugin.dart';
 import 'package:build_engine/martial_arts_plugin.dart';
 import 'package:build_engine/physique_plugin.dart';
@@ -186,12 +187,16 @@ RunResult runGame(
   PhysiquePlugin().initialize(context);
   ItemPlugin().initialize(context);
   TechniquePlugin().initialize(context);
+  ConsumablePlugin().initialize(context);
   // No dedicated "Enemy plugin" — enemies exist only for this
   // run-composition layer, so their content is loaded directly here
   // rather than via a GamePlugin.initialize.
   context.content.loadAll(enemyContentDefinitions);
-  const interpreter =
-      CompositeBuildActionInterpreter([TechniqueActionInterpreter(), ItemActionInterpreter()]);
+  const interpreter = CompositeBuildActionInterpreter([
+    TechniqueActionInterpreter(),
+    ItemActionInterpreter(),
+    ConsumableActionInterpreter(),
+  ]);
 
   // ---- New Run / character ------------------------------------------
   final character = context.characters.create();
