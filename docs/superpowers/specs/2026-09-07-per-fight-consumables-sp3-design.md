@@ -252,15 +252,14 @@ and defaults to the effect's only legal value (the plan may make
 `target` implicit rather than a required-and-checked field — either is
 fine as long as an explicit contradictory `target` is rejected).
 
-`consumableDefinitionFromContent` performs this check and raises the
-registry's content-validation exception (the same one
-`itemDefinitionFromContent` raises for a malformed item) on violation.
+`consumableDefinitionFromContent` performs this check — see §5.1.3 for the
+concrete exception types.
 
-#### 5.1.3 Malformed / ambiguous `ConsumableEffectSpec`
+#### 5.1.3 Malformed / ambiguous `ConsumableEffectSpec` — and the exception contract
 
-Parsing the `effect` object (or its absence) into a `ConsumableEffectSpec`
-is strict. Every one of these is a **content-validation error**, not a
-best-effort parse:
+Parsing the `effect` object (or its absence) into a `ConsumableEffectSpec`,
+and checking `target` against §5.1.2, is strict. Every one of these is a
+**content-validation error**, not a best-effort parse:
 
 - **Zero recognized variants.** `effect` absent, `{}`, or an object with
   only unknown keys.
@@ -280,6 +279,26 @@ best-effort parse:
 
 Must be invalid: `{}`, `{"heal": 20, "attack": {"damage": 15, "stat": "thrown"}}`,
 `{"attack": {}}`.
+
+**Exception types (existing, no new class).** `consumableDefinitionFromContent`
+parses `effect` / `target` with the `ContentField.*` helpers
+(`lib/src/content/json_helpers.dart` — `requireString` / `requireNum` /
+`requireMap`, which already raise **`ContentFieldException`** on a
+missing/wrong-typed field) plus its own explicit checks for the
+consumable-specific rules (zero/multiple variants, unknown keys,
+`op` not a `ModifierOperation`, negative amounts, §5.1.2 mismatch), each
+throwing **`ContentFieldException(path, problem)`** with a `path` that
+names where in `effect` the problem is.
+
+`ConsumablePlugin.initialize` invokes `consumableDefinitionFromContent`
+per entry inside a `try { … } on ContentFieldException catch (e) { throw
+ContentValidationException(id, e); }` — **byte-for-byte the pattern
+`ContentRegistry._parse` uses** (`content_registry.dart`). So a bad
+consumable surfaces as **`ContentValidationException`** ("Invalid content
+'<id>': <field> — <problem>"), the same top-level type the generic
+content path produces. (`itemDefinitionFromContent` today does raw `as`
+casts and would cast-crash instead — SP3 does it properly; do not copy the
+item parser's un-checked style.)
 
 `consumableDefinitionFromContent` produces **exactly one**
 `ConsumableEffectSpec` or throws — there is no partial/degraded
@@ -561,6 +580,15 @@ class ConsumableCharges {
   after a partial setup.
 - Membership fixed at `grant` (no update path), mirroring `AuraBinding`.
 
+**`grant()` is not an in-place reconciliation mechanism.** It only
+`set`s the resource keys present in *its* `build.active`. A placement
+change is applied by the standard per-fight sequence — **dispose the old
+`ConsumableCharges` → resolve the new build → call `grant()` again**. The
+`dispose()` is what zeroes the keys of any consumable that dropped out of
+the build; `grant()` alone would leave such a key at its previous value.
+The harness (§5.7) and any client (SP4) must follow this order; calling
+`grant()` twice without an intervening `dispose()` is unsupported.
+
 ### 5.6 `ConsumableAwareActionScorer` (`lib/src/plugins/auto_combat/`)
 
 ```dart
@@ -792,14 +820,18 @@ Every row's `target` obeys §5.1.2 (`heal` / `grant` / `removeAllStatuses`
 - `consumableDefinitionFromContent` parses each `effect` variant to the
   right `ConsumableEffectSpec`; defaults (`charges: 1`, `priority: 0`,
   `target` = the effect's only legal value) apply on absence.
-- **Ambiguous / malformed `effect` (§5.1.3) throws** the registry
-  content-validation exception: `{}`, `effect` absent,
-  `{"heal": 20, "attack": {…}}`, `{"attack": {}}`,
-  `{"attack": {"damage": 15}}`, `{"grant": {"stat": "x"}}`,
+- **Ambiguous / malformed `effect` (§5.1.3) throws `ContentFieldException`**
+  from `consumableDefinitionFromContent`, surfaced by
+  `ConsumablePlugin.initialize` as **`ContentValidationException`** naming
+  the id (§5.1.3): `{}`, `effect` absent, `{"heal": 20, "attack": {…}}`,
+  `{"attack": {}}`, `{"attack": {"damage": 15}}`, `{"grant": {"stat": "x"}}`,
   `{"grant": {"op": "bogus", "stat": "x", "value": 1}}`, `{"heal": "20"}`,
-  `{"heal": -5}`, `{"unknownKey": 1}`, `{"heal": 20, "junk": 1}`.
-- **Invalid `effect` × `target` (§5.1.2) throws**: `heal` / `grant` /
-  `removeAllStatuses` with `target: enemy`; `attack` with `target: self`.
+  `{"heal": -5}`, `{"unknownKey": 1}`, `{"heal": 20, "junk": 1}`. Assert on
+  `ContentValidationException` (via `ConsumablePlugin.initialize`) and,
+  where a unit test calls the parser directly, on `ContentFieldException`.
+- **Invalid `effect` × `target` (§5.1.2)** fails the same way: `heal` /
+  `grant` / `removeAllStatuses` with `target: enemy`; `attack` with
+  `target: self`.
 - A valid single-variant `effect` with the matching `target` yields
   exactly one `ConsumableDefinition` with exactly one `ConsumableEffectSpec`.
 - `ConsumablePlugin.initialize`: registers the tag, loads content once
@@ -849,9 +881,12 @@ Every row's `target` obeys §5.1.2 (`heal` / `grant` / `removeAllStatuses`
 - `dispose()` zeroes every granted pool and `removeBySource`es every
   `consumable:<id>:<owner>` modifier; idempotent (twice, and on an empty
   binding).
-- Re-`grant` after a placement change resets pools to the new sum (via
-  `set`, not `add`) — dropping a copy lowers the pool, adding one raises
-  it.
+- **Lifecycle:** `dispose()` old → resolve new build → `grant()` new. A
+  test drives that sequence across a placement change: after dropping one
+  of two `heal_potion` copies, the new binding's pool is `1` (the old
+  binding's `dispose()` zeroed it, the new `grant()` re-`set` it to the
+  new sum). `grant()` called twice with no intervening `dispose()` is not
+  a supported path and is not tested as if it were.
 
 **`ConsumableAwareActionScorer`**
 - A `Heal`-bearing action scores `base + missingHealthWeight·missingFrac`;
@@ -922,7 +957,9 @@ Every row's `target` obeys §5.1.2 (`heal` / `grant` / `removeAllStatuses`
    `consumableChargeResource`, `ConsumableDefinition` +
    `ConsumableEffectSpec` + `ConsumableTarget`, `consumable_content.dart`
    parser (**strict**: §5.1.2 target/effect matrix + §5.1.3
-   exactly-one-variant, both throwing) + a minimal
+   exactly-one-variant; parser raises `ContentFieldException`,
+   `ConsumablePlugin.initialize` wraps as `ContentValidationException(id,
+   e)` exactly like `ContentRegistry._parse`) + a minimal
    `consumableContentDefinitions` (1 entry), `ConsumablePlugin` (defines
    each charge resource `max: double.infinity`). Barrel
    `lib/consumable_plugin.dart`. Tests (valid parse; every §9 invalid
