@@ -61,7 +61,7 @@ ConsumableDefinition consumableDefinitionFromContent(ContentDefinition definitio
   final extra = definition.extra;
 
   final charges = _optionalNonNegativeInt(extra, 'charges', 1);
-  final priority = (extra['priority'] as num?) ?? 0;
+  final priority = _optionalNum(extra, 'priority', 0);
 
   final effectRaw = extra['effect'];
   if (effectRaw is! Map) {
@@ -168,6 +168,16 @@ int _optionalNonNegativeInt(Map<String, dynamic> json, String key, int fallback)
   if (v is! int || v < 0) {
     throw ContentFieldException(key, 'must be a non-negative int');
   }
+  return v;
+}
+
+/// Optional numeric field: absent → [fallback]; present-but-not-a-`num` →
+/// [ContentFieldException] (so it surfaces as `ContentValidationException`
+/// at batch load, not a bare `TypeError`).
+num _optionalNum(Map<String, dynamic> json, String key, num fallback) {
+  final v = json[key];
+  if (v == null) return fallback;
+  if (v is! num) throw ContentFieldException(key, 'must be a number');
   return v;
 }
 

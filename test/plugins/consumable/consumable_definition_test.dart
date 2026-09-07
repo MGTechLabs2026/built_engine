@@ -62,28 +62,36 @@ void main() {
     });
   });
 
-  group('rejected — every one throws ContentFieldException', () {
-    Matcher throwsField() => throwsA(isA<ContentFieldException>());
+  group('rejected — every one throws ContentFieldException at the right path', () {
+    // (bad json, expected ContentFieldException.path). Pinning `.path`
+    // catches a regression that still throws but for the wrong reason.
+    final cases = <(Map<String, dynamic>, String)>[
+      ({'id': 'z1', 'type': 'consumable', 'tags': <String>[]}, 'effect'),                                   // effect absent
+      ({'id': 'z2', 'type': 'consumable', 'tags': <String>[], 'effect': <String, dynamic>{}}, 'effect'),    // {}
+      ({'id': 'z3', 'type': 'consumable', 'tags': <String>[], 'effect': {'heal': 20, 'attack': {'damage': 1, 'stat': 's'}}}, 'effect'), // two variants
+      ({'id': 'z4', 'type': 'consumable', 'tags': <String>[], 'effect': {'attack': <String, dynamic>{}}}, 'damage'),                    // missing damage
+      ({'id': 'z5', 'type': 'consumable', 'tags': <String>[], 'effect': {'attack': {'damage': 15}}}, 'stat'),                          // missing stat
+      ({'id': 'z6', 'type': 'consumable', 'tags': <String>[], 'effect': {'grant': {'stat': 'x'}}}, 'op'),                              // missing op
+      ({'id': 'z7', 'type': 'consumable', 'tags': <String>[], 'effect': {'grant': {'stat': 'x', 'op': 'bogus', 'value': 1}}}, 'effect.grant.op'), // bad op
+      ({'id': 'z8', 'type': 'consumable', 'tags': <String>[], 'effect': {'heal': '20'}}, 'heal'),          // wrong type
+      ({'id': 'z9', 'type': 'consumable', 'tags': <String>[], 'effect': {'heal': -5}}, 'heal'),            // negative
+      ({'id': 'z10', 'type': 'consumable', 'tags': <String>[], 'effect': {'unknownKey': 1}}, 'effect'),    // unknown key only
+      ({'id': 'z11', 'type': 'consumable', 'tags': <String>[], 'effect': {'heal': 20, 'junk': 1}}, 'effect.junk'), // unknown key alongside valid
+      ({'id': 'z12', 'type': 'consumable', 'tags': <String>[], 'target': 'enemy', 'effect': {'heal': 20}}, 'target'),                   // heal + enemy
+      ({'id': 'z13', 'type': 'consumable', 'tags': <String>[], 'target': 'self', 'effect': {'attack': {'damage': 5, 'stat': 's'}}}, 'target'), // attack + self
+      ({'id': 'z14', 'type': 'consumable', 'tags': <String>[], 'target': 'enemy', 'effect': {'grant': {'stat': 'x', 'op': 'add', 'value': 1}}}, 'target'), // grant + enemy
+      ({'id': 'z15', 'type': 'consumable', 'tags': <String>[], 'target': 'enemy', 'effect': {'removeAllStatuses': true}}, 'target'),    // cleanse + enemy
+      ({'id': 'z16', 'type': 'consumable', 'tags': <String>[], 'priority': 'high', 'effect': {'heal': 20}}, 'priority'),                // non-num priority
+      ({'id': 'z17', 'type': 'consumable', 'tags': <String>[], 'charges': -1, 'effect': {'heal': 20}}, 'charges'),                      // negative charges
+    ];
 
-    for (final bad in <Map<String, dynamic>>[
-      {'id': 'z1', 'type': 'consumable', 'tags': <String>[]},                                   // effect absent
-      {'id': 'z2', 'type': 'consumable', 'tags': <String>[], 'effect': <String, dynamic>{}},    // {}
-      {'id': 'z3', 'type': 'consumable', 'tags': <String>[], 'effect': {'heal': 20, 'attack': {'damage': 1, 'stat': 's'}}}, // two variants
-      {'id': 'z4', 'type': 'consumable', 'tags': <String>[], 'effect': {'attack': <String, dynamic>{}}},                    // missing damage/stat
-      {'id': 'z5', 'type': 'consumable', 'tags': <String>[], 'effect': {'attack': {'damage': 15}}},                         // missing stat
-      {'id': 'z6', 'type': 'consumable', 'tags': <String>[], 'effect': {'grant': {'stat': 'x'}}},                           // missing op/value
-      {'id': 'z7', 'type': 'consumable', 'tags': <String>[], 'effect': {'grant': {'stat': 'x', 'op': 'bogus', 'value': 1}}}, // bad op
-      {'id': 'z8', 'type': 'consumable', 'tags': <String>[], 'effect': {'heal': '20'}},          // wrong type
-      {'id': 'z9', 'type': 'consumable', 'tags': <String>[], 'effect': {'heal': -5}},            // negative
-      {'id': 'z10', 'type': 'consumable', 'tags': <String>[], 'effect': {'unknownKey': 1}},      // unknown key only
-      {'id': 'z11', 'type': 'consumable', 'tags': <String>[], 'effect': {'heal': 20, 'junk': 1}}, // unknown key alongside valid
-      {'id': 'z12', 'type': 'consumable', 'tags': <String>[], 'target': 'enemy', 'effect': {'heal': 20}},                   // heal + enemy
-      {'id': 'z13', 'type': 'consumable', 'tags': <String>[], 'target': 'self', 'effect': {'attack': {'damage': 5, 'stat': 's'}}}, // attack + self
-      {'id': 'z14', 'type': 'consumable', 'tags': <String>[], 'target': 'enemy', 'effect': {'grant': {'stat': 'x', 'op': 'add', 'value': 1}}}, // grant + enemy
-      {'id': 'z15', 'type': 'consumable', 'tags': <String>[], 'target': 'enemy', 'effect': {'removeAllStatuses': true}},    // cleanse + enemy
-    ]) {
-      test('${bad['id']}: ${bad['effect'] ?? '(no effect)'} target=${bad['target']}', () {
-        expect(() => consumableDefinitionFromContent(_load(bad)), throwsField());
+    for (final (bad, expectedPath) in cases) {
+      test('${bad['id']}: ${bad['effect'] ?? '(no effect)'} → path "$expectedPath"', () {
+        expect(
+          () => consumableDefinitionFromContent(_load(bad)),
+          throwsA(isA<ContentFieldException>()
+              .having((e) => e.path, 'path', expectedPath)),
+        );
       });
     }
   });

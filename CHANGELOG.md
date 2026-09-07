@@ -176,6 +176,18 @@ bumping the pin. Newest first.
   `RewardStage.resolveReward` and `TomeManager.placeConsumable` handle the
   third `referenceType`.
 
+### Fixed — Per-fight Consumables (SP3)
+
+- **A consumable-only Tome no longer stalls the fight.** A hung consumable
+  made `playerActions` non-empty, suppressing `CombatStage`'s fallback
+  strike; once the charge pool emptied, `ScoredActionSelector` force-executed
+  the unaffordable consumable every turn and its effect applied for free, so
+  the fight ran to the 10,000-step cap. `ConsumableActionInterpreter` now
+  attaches `conditions: [ResourceAbove('consumable:<id>', 0)]` to every
+  consumable action (a forced execute no-ops the effect too, not just the
+  cost), and `CombatStage.runFight` injects the fallback strike whenever the
+  build has no *non-consumable* action.
+
 ### Added — Almanac (persistent player history)
 
 - **`package:build_engine/almanac.dart`** — new platform-neutral public

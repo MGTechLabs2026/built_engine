@@ -35,6 +35,7 @@ const _buildInterpretationBarrel = 'build_interpretation.dart';
 const _gameBarrel = 'game.dart';
 const _almanacBarrel = 'almanac.dart';
 const _almanacFileBarrel = 'almanac_file.dart';
+const _consumableBarrel = 'consumable_plugin.dart';
 const _pluginBarrels = [
   _combatBarrel,
   _martialArtsBarrel,
@@ -47,6 +48,7 @@ const _pluginBarrels = [
   _gameBarrel,
   _almanacBarrel,
   _almanacFileBarrel,
+  _consumableBarrel,
 ];
 
 /// Asserts no `.dart` file under [directoryPath] imports the plugin
@@ -121,6 +123,11 @@ void main() {
     test('Combat does not reference AutoCombat', () {
       _assertNoPluginImport(
           'auto_combat', _autoCombatBarrel, 'lib/src/plugins/combat');
+    });
+
+    test('Combat does not reference Consumable', () {
+      _assertNoPluginImport(
+          'consumable', _consumableBarrel, 'lib/src/plugins/combat');
     });
   });
 
@@ -247,13 +254,14 @@ void main() {
 
   group('Consumable plugin is fully decoupled from every other plugin', () {
     for (final barrel in _pluginBarrels) {
-      if (barrel == 'combat_plugin.dart') continue; // consumable/ never imports Combat either, but state it positively below
+      // Skip its own barrel; Combat is asserted positively just below.
+      if (barrel == _consumableBarrel || barrel == _combatBarrel) continue;
       test('Consumable does not reference $barrel', () {
         _assertNoSubstringInDirectory(barrel, 'lib/src/plugins/consumable');
       });
     }
     test('Consumable does not reference Combat', () {
-      _assertNoSubstringInDirectory('combat_plugin.dart', 'lib/src/plugins/consumable');
+      _assertNoSubstringInDirectory(_combatBarrel, 'lib/src/plugins/consumable');
       _assertNoSubstringInDirectory('plugins/combat/', 'lib/src/plugins/consumable');
     });
     test('Consumable does not escape into any other plugins/ directory', () {

@@ -1,7 +1,6 @@
 import 'package:build_engine/build_engine.dart';
 
 import 'consumable_content.dart';
-import 'consumable_definition.dart';
 import 'consumable_vocabulary.dart';
 
 /// The Consumable plugin: per-fight limited-use items (heal potion,
@@ -35,14 +34,15 @@ class ConsumablePlugin extends GamePlugin {
 
     for (final json in consumableContentDefinitions) {
       final id = json['id'] as String;
-      final ConsumableDefinition def;
       try {
-        def = consumableDefinitionFromContent(context.content.get(id));
+        // Validate the entry (throws on a malformed spec); the parsed
+        // `.id` is always this `id`, so no need to keep the result.
+        consumableDefinitionFromContent(context.content.get(id));
       } on ContentFieldException catch (e) {
         throw ContentValidationException(id, e); // same as ContentRegistry._parse
       }
       context.resources.define(ResourceDefinition(
-        id: consumableChargeResource(def.id),
+        id: consumableChargeResource(id),
         min: 0,
         max: double.infinity,
       ));

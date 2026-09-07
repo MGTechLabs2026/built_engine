@@ -34,7 +34,10 @@ class ConsumableAwareActionScorer implements ActionScorer {
     PluginContext context,
   ) {
     var total = base.score(action, actor, preferredTarget, context);
-    final hp = context.components.get<HealthComponent>(actor);
+    // `action.actor` throughout — `ScoredActionSelector` only ever scores
+    // an action whose `actor` equals the `actor` arg, so the two agree,
+    // but reading one consistently keeps that from being a question.
+    final hp = context.components.get<HealthComponent>(action.actor);
     final missing = (hp == null || hp.max <= 0)
         ? 0.0
         : (1 - hp.current / hp.max).clamp(0.0, 1.0);

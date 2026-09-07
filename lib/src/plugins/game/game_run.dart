@@ -94,8 +94,9 @@ void restoreHealth(EntityId character, PluginContext context) {
 ///   - `TomeService` (`context.tome`) for the Tome itself
 ///   - `CompositeBuildActionInterpreter` (Build Interpretation) to turn
 ///     `ActiveBuild` into `CombatAction`s
-///   - `AutoCombatController` + `CombatPolicy.scored()` for automatic
-///     combat — the player never picks an attack directly
+///   - `AutoCombatController` + `CombatPolicy.scored(scorer:
+///     ConsumableAwareActionScorer())` for automatic combat — the player
+///     never picks an attack directly
 ///   - `TrainingSession` + `TimingExercise` +
 ///     `techniqueTrainingExerciseFor`/`itemTrainingExerciseFor` for
 ///     training

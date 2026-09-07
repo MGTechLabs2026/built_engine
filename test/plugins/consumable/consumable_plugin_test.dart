@@ -42,22 +42,31 @@ void main() {
     expect(() => ConsumablePlugin().initialize(ctx), returnsNormally);
   });
 
-  test('a malformed consumableContentDefinitions entry surfaces as ContentValidationException', () {
-    // white-box: feed a bad entry through the same parse+wrap path the
-    // plugin uses. If the shipped content is all valid, assert the shape
-    // by parsing a bad map directly and confirming the plugin would wrap
-    // it — see consumable_plugin.dart's try/catch.
-    final registry = ContentRegistry()
-      ..load({'id': 'bad', 'type': 'consumable', 'tags': <String>[], 'effect': <String, dynamic>{}});
-    expect(
-      () {
-        try {
-          consumableDefinitionFromContent(registry.get('bad'));
-        } on ContentFieldException catch (e) {
-          throw ContentValidationException('bad', e);
-        }
-      },
-      throwsA(isA<ContentValidationException>()),
-    );
+  test('a malformed consumable definition makes initialize() throw '
+      'ContentValidationException (wrapping the ContentFieldException)', () {
+    // Drive the PRODUCTION path, not a re-implementation of it. Pre-load a
+    // malformed entry under a shipped id: the plugin's "already loaded?"
+    // guard then skips registerContentBatch, its validation loop calls
+    // `context.content.get('heal_potion')` and hits this bad map, and
+    // `consumableDefinitionFromContent` throws the ContentFieldException
+    // that `initialize`'s own `on ContentFieldException` catch wraps.
+    final ctx = _ctx();
+    ctx.content.load({
+      'id': ConsumableIds.healPotion,
+      'type': 'consumable',
+      'tags': <String>[],
+      'effect': <String, dynamic>{}, // zero recognized variants
+    });
+
+    Object? thrown;
+    try {
+      ConsumablePlugin().initialize(ctx);
+    } catch (e) {
+      thrown = e;
+    }
+    // The wrapper fired — not a bare ContentFieldException and not an
+    // unwrapped TypeError leaking past `on ContentFieldException`.
+    expect(thrown, isA<ContentValidationException>());
+    expect(thrown.toString(), contains(ConsumableIds.healPotion));
   });
 }

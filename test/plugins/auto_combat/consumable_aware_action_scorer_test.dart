@@ -77,4 +77,30 @@ void main() {
     final heal = SelfEffectAction(actor: actor, selfEffects: const [Heal(20)]);
     expect(scorer.score(heal, actor, null, ctx), base.score(heal, actor, null, ctx));
   });
+
+  test('the Heal bonus is provenance-blind: a non-consumable healing action '
+      '(no sourceRef) is untouched at full HP and lifted when hurt', () {
+    // §5.6: the bonus keys on the effect shape, not on the action being
+    // consumable-sourced — a healing guard technique benefits identically.
+    final full = _ctx();
+    final fullActor = full.entities.create();
+    full.components.add(fullActor, const HealthComponent(current: 100, max: 100));
+    final healFull = SelfEffectAction(
+        actor: fullActor, selfEffects: const [Heal(15)], priority: 4);
+    expect(healFull.sourceRef, isNull);
+    expect(
+      scorer.score(healFull, fullActor, null, full),
+      base.score(healFull, fullActor, null, full),
+    );
+
+    final hurt = _ctx();
+    final hurtActor = hurt.entities.create();
+    hurt.components.add(hurtActor, const HealthComponent(current: 20, max: 100));
+    final healHurt = SelfEffectAction(
+        actor: hurtActor, selfEffects: const [Heal(15)], priority: 4);
+    expect(
+      scorer.score(healHurt, hurtActor, null, hurt),
+      greaterThan(base.score(healHurt, hurtActor, null, hurt)),
+    );
+  });
 }
