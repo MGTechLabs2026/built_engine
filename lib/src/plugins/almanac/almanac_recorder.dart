@@ -598,7 +598,11 @@ class AlmanacRecorder {
         itemIds: [
           for (final ItemInstanceSnapshot i in record.items) i.definitionId,
         ],
-        consumableIds: const <String>[],
+        consumableIds: [
+          for (final TomeSlotSnapshot s in record.tome.slots)
+            if (s.occupantKind == 'consumable' && s.occupantRefId != null)
+              s.occupantRefId!,
+        ],
         affixCategories: [
           for (final AffixSnapshot a in record.affixes)
             if (a.category != null) a.category!,
