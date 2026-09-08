@@ -44,10 +44,12 @@ import 'package:test/test.dart';
 // The scripted run — plain data, no ids, no engine runtime types.
 // -----------------------------------------------------------------------------
 
-enum _OccKind { technique, item }
+enum _OccKind { technique, item, consumable }
 
 /// One Tome occupant in a snapshot step, named by logical key: [refKey] is a
-/// technique's logical instance key or an item definition id.
+/// technique's logical instance key, an item definition id, or — for
+/// [_OccKind.consumable] — the consumable content id (no context-map entry
+/// needed: the consumable branch never indexes `tech` / `items`).
 class _Occ {
   const _Occ(this.slotId, this.kind, this.refKey);
   final String slotId;
@@ -152,7 +154,9 @@ class _EndRun extends _Step {
 /// emitting its `techniqueVariant` discovery row), 1 inspiration, 1 training
 /// session, 2 item discoveries, an `initial` /
 /// `postReward` / `postTraining` / `finalBuild` snapshot each, plus run
-/// completion and standard-milestone evaluation.
+/// completion and standard-milestone evaluation. The `postReward` snapshot
+/// also carries a `consumable` occupant, so parity is proven with that slot
+/// kind present (real occupantRefId, null instanceId, no per-copy state).
 List<_Step> _demoScript() => <_Step>[
   const _SetPhysique('phy-iron'),
   const _SetLineage('lin-west'),
@@ -183,6 +187,7 @@ List<_Step> _demoScript() => <_Step>[
   const _SnapshotBuild(BuildPhase.postReward, [
     _Occ('s1', _OccKind.technique, 'strike'),
     _Occ('s2', _OccKind.item, 'item-boots'),
+    _Occ('s3', _OccKind.consumable, 'heal_potion'),
   ]),
   const _TrainSession('subject-strike'),
   const _InspireTechnique(
@@ -288,6 +293,17 @@ AlmanacBuildRecord _buildRecordFor(
           masteryAtSnapshot: t.mastery,
         ),
       );
+    } else if (o.kind == _OccKind.consumable) {
+      slots.add(
+        TomeSlotSnapshot(
+          slotId: o.slotId,
+          occupantKind: 'consumable',
+          occupantRefId: o.refKey,
+        ),
+      );
+      // No techniques / itemSnaps entry — a consumable slot carries a real
+      // occupantRefId (the content id) and a null instanceId, with no
+      // per-copy state (Task 3 contract).
     } else {
       final _ItemCtx it = items[o.refKey]!;
       slots.add(
