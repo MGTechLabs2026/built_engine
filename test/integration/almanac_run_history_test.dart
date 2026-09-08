@@ -202,6 +202,83 @@ void main() {
     expect(project(once()), equals(project(once())));
   });
 
+  test('a consumable Tome placement is recorded as occupantKind "consumable" '
+      'and feeds the build DNA + replay-equivalence projection', () {
+    // Sweep for the first seed whose forced item/technique rewards land a
+    // consumable on the Tome (the reward pool is one flat list; a draw can
+    // yield any of the three reference types).
+    int? seedWithConsumable;
+    AlmanacState? stateWithConsumable;
+    for (var seed = 1; seed <= 40; seed++) {
+      final recorder = AlmanacRecorder();
+      runGame(
+        seed,
+        policy: const _ForceItemReward(),
+        almanac: recorder,
+        runId: 'cs',
+        runNumber: 1,
+      );
+      final hasConsumableSlot = recorder.state.builds.any(
+        (b) => b.tome.slots.any((s) => s.occupantKind == 'consumable'),
+      );
+      if (hasConsumableSlot) {
+        seedWithConsumable = seed;
+        stateWithConsumable = recorder.state;
+        break;
+      }
+    }
+    expect(
+      seedWithConsumable,
+      isNotNull,
+      reason: 'no seed in 1..40 placed a consumable under _ForceItemReward — '
+          'the reward pool or policy changed; pick a new sweep or a '
+          'consumable-forcing fixture',
+    );
+    final state = stateWithConsumable!;
+
+    // Every consumable slot is well-formed: real refId, null instanceId,
+    // and its id is a known reward-pool consumable.
+    final consumableSlots = [
+      for (final b in state.builds)
+        for (final s in b.tome.slots)
+          if (s.occupantKind == 'consumable') s,
+    ];
+    expect(consumableSlots, isNotEmpty);
+    for (final s in consumableSlots) {
+      expect(s.occupantRefId, isNotNull);
+      expect(rewardPoolConsumableIds, contains(s.occupantRefId));
+      expect(s.instanceId, isNull);
+    }
+
+    // The consumable id is in the placed-occupant projection and in the
+    // build DNA token list of the record that holds it.
+    final holder = state.builds.firstWhere(
+      (b) => b.tome.slots.any((s) => s.occupantKind == 'consumable'),
+    );
+    final consumableId = holder.tome.slots
+        .firstWhere((s) => s.occupantKind == 'consumable')
+        .occupantRefId!;
+    expect(_placedOccupants(holder), contains(consumableId));
+    expect(_discoverableOccupants(holder), isNot(contains(consumableId)));
+    expect(holder.dna.tokens, contains(consumableId.toUpperCase()));
+
+    // A second identical run replays to an equivalent projection.
+    final again = AlmanacRecorder();
+    runGame(
+      seedWithConsumable!,
+      policy: const _ForceItemReward(),
+      almanac: again,
+      runId: 'cs',
+      runNumber: 1,
+    );
+    List<String> project(AlmanacState s) => [
+      for (final b in s.builds)
+        'build|${b.runId}|${b.phase}|${b.sequence}|${b.dna.signature}|'
+            '${(_placedOccupants(b).whereType<String>().toList()..sort()).join(",")}',
+    ];
+    expect(project(again.state), equals(project(state)));
+  });
+
   test('two full runGame(almanac:) calls sharing one recorder, different '
       'runIds => 2 run records, no cross-run leak, subscriptions gone after '
       'each runGame returns', () {

@@ -1,6 +1,7 @@
 import 'package:build_engine/almanac.dart';
 import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/combat_plugin.dart';
+import 'package:build_engine/consumable_plugin.dart';
 import 'package:build_engine/item_plugin.dart';
 import 'package:build_engine/physique_plugin.dart';
 import 'package:build_engine/technique_plugin.dart';
@@ -340,11 +341,13 @@ class HeadlessGameAlmanacBridge {
     final List<TechniqueInstanceSnapshot> techniques =
         <TechniqueInstanceSnapshot>[];
     final List<ItemInstanceSnapshot> items = <ItemInstanceSnapshot>[];
+    final List<String> consumableIds = <String>[];
 
     for (final TomePlacement p in placements) {
       final BuildComponentRef ref = p.buildComponentRef;
       final bool isTechnique = ref.referenceType == techniqueReferenceType;
       final bool isItem = ref.referenceType == itemReferenceType;
+      final bool isConsumable = ref.referenceType == consumableReferenceType;
       slots.add(
         TomeSlotSnapshot(
           slotId: p.slot.id,
@@ -353,11 +356,17 @@ class HeadlessGameAlmanacBridge {
                   ? 'technique'
                   : isItem
                   ? 'item'
+                  : isConsumable
+                  ? 'consumable'
                   : 'empty',
           occupantRefId: ref.contentId,
           instanceId: ref.instanceEntityId?.value.toString(),
         ),
       );
+
+      if (isConsumable) {
+        consumableIds.add(ref.contentId);
+      }
 
       if (isTechnique && ref.instanceEntityId != null) {
         final EntityId inst = ref.instanceEntityId!;
@@ -419,7 +428,7 @@ class HeadlessGameAlmanacBridge {
         itemIds: <String>[
           for (final ItemInstanceSnapshot i in items) i.definitionId,
         ],
-        consumableIds: const <String>[],
+        consumableIds: consumableIds,
         affixCategories: const <String>[],
         axisProfiles: <Map<String, num>>[
           for (final TechniqueInstanceSnapshot t in techniques) t.axisProfile,

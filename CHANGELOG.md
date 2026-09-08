@@ -13,6 +13,11 @@ bumping the pin. Newest first.
   `affixCategories`). A build with zero consumables hashes to the **same**
   `signature` as before (the channel is additive), so no stored `BuildDna` is
   invalidated.
+- **`HeadlessGameAlmanacBridge` now records a consumable Tome placement as
+  `occupantKind: 'consumable'`** (previously an inconsistent `'empty'` with a
+  non-null `occupantRefId`) and feeds its content id into the `consumableIds`
+  DNA channel. `instanceId` is null for a consumable slot; no per-copy
+  `items` / `techniques` snapshot entry is emitted.
 
 ### Added — Tiered Component Effects (SP1)
 
