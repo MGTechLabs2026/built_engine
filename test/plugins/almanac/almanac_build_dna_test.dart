@@ -36,6 +36,7 @@ void main() {
       physiqueId: 'jade-body',
       techniqueFamilies: <String>['strike', 'palm', 'strike'],
       itemIds: <String>['boots', 'ring'],
+      consumableIds: const <String>[],
       affixCategories: <String>['offense', 'defense'],
       axisProfiles: <Map<String, num>>[
         <String, num>{'power': 4, 'speed': -2},
@@ -58,6 +59,7 @@ void main() {
           physiqueId: 'phy',
           techniqueFamilies: <String>['a', 'b', 'c'],
           itemIds: <String>['x', 'y', 'z'],
+          consumableIds: const <String>[],
           affixCategories: <String>['p', 'q'],
           axisProfiles: <Map<String, num>>[
             // Multi-key literal, keys in deliberately non-sorted order.
@@ -72,6 +74,7 @@ void main() {
           physiqueId: 'phy',
           techniqueFamilies: <String>['c', 'a', 'b', 'a'],
           itemIds: <String>['z', 'x', 'y'],
+          consumableIds: const <String>[],
           affixCategories: <String>['q', 'p'],
           axisProfiles: <Map<String, num>>[
             <String, num>{'o': 1},
@@ -86,6 +89,94 @@ void main() {
       },
     );
 
+    test('consumable reorder-invariance: shuffled consumableIds give the same '
+        'tokens and signature', () {
+      final BuildDna a = buildDna(
+        lineageId: 'lin',
+        physiqueId: 'phy',
+        techniqueFamilies: const <String>[],
+        itemIds: const <String>[],
+        consumableIds: <String>['heal_potion', 'firebomb', 'heal_potion'],
+        affixCategories: const <String>[],
+        axisProfiles: const <Map<String, num>>[],
+      );
+      final BuildDna b = buildDna(
+        lineageId: 'lin',
+        physiqueId: 'phy',
+        techniqueFamilies: const <String>[],
+        itemIds: const <String>[],
+        consumableIds: <String>['firebomb', 'heal_potion'],
+        affixCategories: const <String>[],
+        axisProfiles: const <Map<String, num>>[],
+      );
+      expect(b.tokens, a.tokens);
+      expect(b.signature, a.signature);
+    });
+
+    test('change-sensitivity: adding a consumable id changes the signature', () {
+      final BuildDna base = buildDna(
+        lineageId: 'lin',
+        physiqueId: 'phy',
+        techniqueFamilies: const <String>[],
+        itemIds: <String>['boots'],
+        consumableIds: const <String>[],
+        affixCategories: const <String>[],
+        axisProfiles: const <Map<String, num>>[],
+      );
+      final BuildDna changed = buildDna(
+        lineageId: 'lin',
+        physiqueId: 'phy',
+        techniqueFamilies: const <String>[],
+        itemIds: <String>['boots'],
+        consumableIds: <String>['heal_potion'],
+        affixCategories: const <String>[],
+        axisProfiles: const <Map<String, num>>[],
+      );
+      expect(changed.signature, isNot(base.signature));
+    });
+
+    test('consumable tokens land between itemIds and affixCategories', () {
+      final BuildDna dna = buildDna(
+        lineageId: 'lin',
+        physiqueId: 'phy',
+        techniqueFamilies: const <String>[],
+        itemIds: <String>['boots'],
+        consumableIds: <String>['heal_potion'],
+        affixCategories: <String>['offense'],
+        axisProfiles: const <Map<String, num>>[],
+      );
+      expect(dna.tokens, <String>[
+        'LIN',
+        'PHY',
+        'BOOTS',
+        'HEAL_POTION',
+        'OFFENSE',
+      ]);
+    });
+
+    test('zero consumables: signature unchanged vs the pre-channel token list', () {
+      // The channel is additive: an empty consumableIds contributes no
+      // token, so this is byte-identical to the historical projection.
+      final BuildDna dna = buildDna(
+        lineageId: 'lin',
+        physiqueId: 'phy',
+        techniqueFamilies: <String>['b', 'a', 'a'],
+        itemIds: <String>['z'],
+        consumableIds: const <String>[],
+        affixCategories: const <String>[],
+        axisProfiles: <Map<String, num>>[
+          <String, num>{'x': 2},
+          <String, num>{'y': -5},
+          <String, num>{'w': 1},
+        ],
+      );
+      final List<String> expectedTokens = <String>[
+        'LIN', 'PHY', 'A', 'B', 'Z', 'W', 'X', 'Y',
+      ];
+      expect(dna.tokens, expectedTokens);
+      expect(dna.signature, _hex8(_fnv1a32(expectedTokens.join('|'))));
+    });
+
     test('change-sensitivity: adding an item id changes the signature', () {
       final BuildDna base = sample();
       final BuildDna changed = buildDna(
@@ -93,6 +184,7 @@ void main() {
         physiqueId: 'jade-body',
         techniqueFamilies: <String>['strike', 'palm', 'strike'],
         itemIds: <String>['boots', 'ring', 'amulet'],
+        consumableIds: const <String>[],
         affixCategories: <String>['offense', 'defense'],
         axisProfiles: <Map<String, num>>[
           <String, num>{'power': 4, 'speed': -2},
@@ -109,6 +201,7 @@ void main() {
         physiqueId: 'p',
         techniqueFamilies: const <String>[],
         itemIds: const <String>[],
+        consumableIds: const <String>[],
         affixCategories: const <String>[],
         axisProfiles: <Map<String, num>>[
           <String, num>{'a': 10, 'b': 8, 'c': 5, 'd': 5},
@@ -119,6 +212,7 @@ void main() {
         physiqueId: 'p',
         techniqueFamilies: const <String>[],
         itemIds: const <String>[],
+        consumableIds: const <String>[],
         affixCategories: const <String>[],
         axisProfiles: <Map<String, num>>[
           <String, num>{'a': 10, 'b': 8, 'c': 5, 'd': 6},
@@ -157,6 +251,7 @@ void main() {
         physiqueId: 'phy',
         techniqueFamilies: <String>['b', 'a', 'a'],
         itemIds: <String>['z'],
+        consumableIds: const <String>[],
         affixCategories: const <String>[],
         axisProfiles: <Map<String, num>>[
           <String, num>{'x': 2},
@@ -188,6 +283,7 @@ void main() {
           physiqueId: 'p',
           techniqueFamilies: const <String>[],
           itemIds: const <String>[],
+          consumableIds: const <String>[],
           affixCategories: <String>['zeta'],
           axisProfiles: <Map<String, num>>[
             <String, num>{'alpha': 10, 'bravo': 8, 'charlie': 5, 'delta': 5},

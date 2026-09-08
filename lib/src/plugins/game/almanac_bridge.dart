@@ -419,6 +419,7 @@ class HeadlessGameAlmanacBridge {
         itemIds: <String>[
           for (final ItemInstanceSnapshot i in items) i.definitionId,
         ],
+        consumableIds: const <String>[],
         affixCategories: const <String>[],
         axisProfiles: <Map<String, num>>[
           for (final TechniqueInstanceSnapshot t in techniques) t.axisProfile,

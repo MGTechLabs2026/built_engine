@@ -6,6 +6,14 @@ bumping the pin. Newest first.
 
 ## Unreleased
 
+### Changed — SP4a (Almanac consumable build-DNA)
+
+- **`buildDna(...)` gained a required `consumableIds` channel** — sorted-unique
+  upper-cased tokens at a fixed position (after `itemIds`, before
+  `affixCategories`). A build with zero consumables hashes to the **same**
+  `signature` as before (the channel is additive), so no stored `BuildDna` is
+  invalidated.
+
 ### Added — Tiered Component Effects (SP1)
 
 - **`package:build_engine/build_engine.dart`** exports five new Core
