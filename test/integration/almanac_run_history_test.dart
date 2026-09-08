@@ -30,24 +30,19 @@ class _ForceItemReward extends DefaultRunDecisionPolicy {
   }
 }
 
-/// Item/technique occupants only. SP3 consumables are real Tome
-/// occupants, but the almanac bridge does not model them yet — it emits
-/// them with `occupantKind == 'empty'` and a non-null `occupantRefId`
-/// (`almanac_bridge.dart` only classifies technique/item). These
-/// discovery/monotonicity assertions are about the discoverable kit, so
-/// the consumable slots are filtered out here rather than special-cased
-/// at every call site.
-///
-/// SP4 debt: because this filter also feeds the replay-equivalence
-/// projection below (the `_occupants(b)` join around line 180), that
-/// projection has *no* visibility into consumable placements, and
-/// `BuildDna` does not model them either. Run-level placement
-/// determinism is still covered — by the full `RunResult` /
-/// `rewardsGranted` / `finalBuild` equality in
-/// `consumable_combat_stage_test.dart`, which does include consumable
-/// refs. SP4 must teach the bridge a `'consumable'` occupantKind *and*
-/// restore consumable coverage to this almanac-side projection.
-Set<String?> _occupants(AlmanacBuildRecord b) => {
+/// Item + technique occupants — the *discoverable kit*. Consumables are
+/// deliberately excluded: they are real Tome occupants but carry no
+/// discovery subject, so a discovery-delta assertion must not see them.
+Set<String?> _discoverableOccupants(AlmanacBuildRecord b) => {
+  for (final s in b.tome.slots)
+    if (s.occupantRefId != null &&
+        (s.occupantKind == 'item' || s.occupantKind == 'technique'))
+      s.occupantRefId,
+};
+
+/// Every non-empty placement — consumables included. The full placed set
+/// the replay-equivalence projection must reproduce byte-for-byte.
+Set<String?> _placedOccupants(AlmanacBuildRecord b) => {
   for (final s in b.tome.slots)
     if (s.occupantRefId != null && s.occupantKind != 'empty') s.occupantRefId,
 };
@@ -187,7 +182,7 @@ void main() {
               '${f.won}|${f.turnsUsed}',
       for (final b in s.builds)
         'build|${b.runId}|${b.phase}|${b.sequence}|${b.dna.signature}|'
-            '${(_occupants(b).whereType<String>().toList()..sort()).join(",")}',
+            '${(_placedOccupants(b).whereType<String>().toList()..sort()).join(",")}',
       for (final d in s.discoveries) 'disc|${d.type}|${d.contentId}|${d.runId}',
       for (final m in s.milestones) 'mile|${m.type}|${m.runId}|${m.contextId}',
     ];
@@ -408,7 +403,7 @@ void main() {
     // snapshot is taken.
     final newlyPlaced = <String?>{};
     for (final b in postRewards) {
-      newlyPlaced.addAll(_occupants(b).difference(_occupants(initial)));
+      newlyPlaced.addAll(_discoverableOccupants(b).difference(_discoverableOccupants(initial)));
     }
     expect(newlyPlaced, isNotEmpty);
     // Every newly-placed occupant was discovered in this run.
@@ -499,7 +494,7 @@ void main() {
     final finalBuild = state.builds.singleWhere(
       (b) => b.phase == BuildPhase.finalBuild,
     );
-    expect(_occupants(finalBuild).containsAll(_occupants(initial)), isTrue);
+    expect(_placedOccupants(finalBuild).containsAll(_placedOccupants(initial)), isTrue);
     // SP1: finalBuild's technique occupants are base-family ids; the
     // evolved identity is the variant's descriptor set. Assert the final
     // build carries at least one technique instance snapshot with
@@ -560,7 +555,7 @@ void main() {
       }
       // Weaker whole-set monotonicity too (an occupant may change slots).
       expect(
-        _occupants(chain[i]).containsAll(_occupants(chain[i - 1])),
+        _placedOccupants(chain[i]).containsAll(_placedOccupants(chain[i - 1])),
         isTrue,
       );
     }
