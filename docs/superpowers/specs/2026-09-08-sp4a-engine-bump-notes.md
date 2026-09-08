@@ -85,6 +85,9 @@ decomposition)
 | D3 | Bump strategy? | **Staged, one sub-project per step**, re-greening the client gate at each stop. |
 | D4 | Client fixture drift when the bump shifts a seed's combat outcome / a golden? | **Update fixtures to observed values**, provided determinism *properties* (same seed + same submitted decisions → identical result) still hold. A property failure is a real bug — stop. |
 | D5 | `AlmanacBuildRecord` shape for the consumable occupant kind (§6 old open question)? | **Slots-only + a `BuildDna` channel. No typed `ConsumablePlacementSnapshot` collection** — no concrete consumer needs one now (see §5.1). |
+| D6 | One spec or two (was §9.1)? | **Two cross-linked specs.** Engine repo: `2026-09-08-sp4a-engine-bump-design.md` — owns the engine API/content/Almanac changes, authoritative for the contracts the client consumes. Client repo: `…-sp4a-client-bump-design.md` — owns the staged bumps + compatibility work, references the engine spec + exact engine commits. The client spec must not assume an engine API not yet merged and verified. |
+| D7 | Client bump PR granularity (was §9.2)? | **Five sequential, independently-green PRs** — one per engine stage (SP0a, SP0b, SP1, SP2, SP3). Each targets a specific engine commit, contains only that stage's compatibility work, and passes the client test/build gate before the next bump begins. Independently reviewable, bisectable, revertable. |
+| D8 | SP4b ordering (was §9.3)? | **SP4b starts only after SP4a is fully complete.** Chain: engine SP4a merged → client SP4a merged and green → SP4b. SP4b targets final engine HEAD + the fully migrated client. No SP4b or client-Almanac surfacing work interleaves with the SP0a–SP3 bump sequence. |
 
 **SP4b (deferred, not this doc):** tiered reward affixes via `EffectContributor`;
 `component_detail_sheet` grouping effects by tier; the client composition root
@@ -488,23 +491,15 @@ the property itself breaks (two identical runs diverge), **stop — real bug.**
 - If any stage cannot re-green without one of the above → stop, revisit the
   SP4a/SP4b line.
 
-## 9. Remaining open questions (genuine — not answerable from the repo)
+## 9. Open questions — all resolved (2026-09-08 follow-up)
 
-1. **One spec or two.** A single `2026-09-08-sp4a-engine-bump-design.md`
-   covering Part A + Part B, **vs.** two specs (`…-sp4a-almanac-consumable-dna`
-   in the engine repo, `…-sp4a-client-engine-bump` for the client) given they
-   land in different repos with separate test gates and review cycles. Leaning
-   two, cross-linked — Part A can land and be reviewed while Part B is still
-   staging.
-2. **Client branch integration.** Does `sp4a-engine-bump` in `Tome_client` land
-   as one squashed PR after all five stages green, or five sequential PRs (one
-   per stage) so each engine bump is independently revertable? Affects plan
-   task granularity, not design.
-3. **SP4b prerequisite ordering.** SP4b's client composition migration (mint /
-   hang variants, adopt binders) will want the SP1 game-run migration
-   (`2026-09-04`) as its blueprint. Confirm SP4b is scoped to *follow* SP4a
-   fully (client on HEAD) rather than interleave — assumed yes, worth stating in
-   the SP4a spec's "what comes next".
+| Was | Resolution |
+|-----|------------|
+| 9.1 One spec or two | **D6** — two cross-linked specs (engine repo authoritative for contracts; client repo owns the staged bumps). |
+| 9.2 Client branch/PR granularity | **D7** — five sequential, independently-green PRs, one per engine stage, each targeting a specific engine commit. |
+| 9.3 SP4b ordering | **D8** — strict chain: engine SP4a merged → client SP4a merged & green → SP4b (targets final HEAD). No interleaving. |
+
+No open questions remain. Proceed to the formal design specs.
 
 ## 10. Audit summary
 
@@ -558,12 +553,20 @@ five bump stages ✔ · SP4a/SP4b boundary frozen (§8) ✔ · no engine code ch
 **READY FOR FORMAL SP4a DESIGN** — the SP0a→SP3 chain is fully audited against
 engine + client source; the single client compile break is pinned to three
 lines in `combat_adapter.dart`; every other milestone is compile-clean and
-behaviourally inert for the client under SP4a's frozen scope. The three items in
-§9 are process/packaging choices, not design gaps — resolve them when opening the
-`-design.md` (or defer §9.2/§9.3 to the implementation plan).
+behaviourally inert for the client under SP4a's frozen scope. All §9 questions
+resolved (D6–D8).
 
 ## 13. Next step
 
-Resolve §9.1 (one spec vs. two) → write the formal design doc(s) → spec
-self-review → user review gate → `superpowers:writing-plans` (Part A tasks in
-this repo; Part B tasks as the five staged bumps in `Tome_client`).
+Two cross-linked design specs (D6):
+
+- **`docs/superpowers/specs/2026-09-08-sp4a-engine-bump-design.md`** (this repo)
+  — Part A implementation design + the authoritative *consumed-contract
+  register* (per stage: bump ref + frozen public-API list the client relies on).
+- **`…-sp4a-client-bump-design.md`** (`Tome_client` repo) — the five sequential
+  bump PRs (D7), each citing the engine spec's contract register + its stage's
+  engine commit.
+
+Then: spec self-review → user review gate → `superpowers:writing-plans`
+(Part A tasks here; Part B as the five staged client PRs). SP4b only after the
+full chain is merged and green (D8).
