@@ -262,6 +262,17 @@ void main() {
     expect(_discoverableOccupants(holder), isNot(contains(consumableId)));
     expect(holder.dna.tokens, contains(consumableId.toUpperCase()));
 
+    // Spec §4.3: a consumable placement contributes NO per-copy snapshot
+    // entry — it is a slot only, never an items/techniques row.
+    expect(
+      holder.items.map((i) => i.definitionId),
+      isNot(contains(consumableId)),
+    );
+    expect(
+      holder.techniques.map((t) => t.baseFamilyId),
+      isNot(contains(consumableId)),
+    );
+
     // A second identical run replays to an equivalent projection.
     final again = AlmanacRecorder();
     runGame(
@@ -600,7 +611,8 @@ void main() {
     // full monotonic superset chain
     //   initial ⊆ postReward₁ ⊆ … ⊆ postTraining ⊆ finalBuild
     // over the occupied (slotId → occupantRefId) set — no equipped
-    // item/technique is silently lost between two snapshots within a run.
+    // item/technique/consumable is silently lost between two snapshots
+    // within a run.
     // Selected and ordered by explicit fields only; no buildId is parsed.
     final chain =
         state.builds.where((b) => b.runId == 'tr').toList()..sort((x, y) {

@@ -134,9 +134,11 @@ BuildDna buildDna({
 - **`required`, not optional-with-default.** `buildDna` has one in-repo caller
   (`almanac_bridge.dart:413`) and one recorder-internal caller
   (`almanac_recorder.dart:591`). A required parameter forces both to be updated
-  deliberately (the recorder caller passes `const []` — it composes DNA from
-  already-projected record fields that carry no consumable channel yet; that is
-  correct and is noted at the call site). Mirrors how `techniqueFamilies` /
+  deliberately (the recorder's `_withDna` back-fill derives `consumableIds` from
+  `record.tome.slots` where `occupantKind == 'consumable'` — a strict improvement
+  over passing `const []`: it keeps `_withDna` consistent with the bridge and
+  preserves the ARCHITECTURE 'recomputable from the stored record' invariant,
+  using only an already-projected record field). Mirrors how `techniqueFamilies` /
   `itemIds` are already required.
 
 ### 4.3 `HeadlessGameAlmanacBridge._buildSnapshot`
@@ -420,7 +422,8 @@ Engine repo, `dart test` / `dart analyze`.
 - `lib/src/plugins/almanac/almanac_build_dna.dart` — `consumableIds` param +
   token + docstring.
 - `lib/src/plugins/almanac/almanac_recorder.dart` — the internal `buildDna(...)`
-  call (`:591`) passes `consumableIds: const []` with a why-comment.
+  call in `_withDna` derives `consumableIds` from `record.tome.slots`
+  (`occupantKind == 'consumable'`).
 - `lib/src/plugins/game/almanac_bridge.dart` — import; `occupantKind` arm;
   `consumableIds:` feed.
 - `lib/src/plugins/almanac/almanac_models.dart` — `TomeSlotSnapshot` docstring

@@ -18,6 +18,11 @@ bumping the pin. Newest first.
   non-null `occupantRefId`) and feeds its content id into the `consumableIds`
   DNA channel. `instanceId` is null for a consumable slot; no per-copy
   `items` / `techniques` snapshot entry is emitted.
+- **`AlmanacRecorder`'s empty-DNA back-fill (`recordBuildSnapshot` → `_withDna`)
+  now reads `'consumable'` slots from `record.tome.slots`**, so a hand-built
+  record's recomputed DNA matches what `HeadlessGameAlmanacBridge` would have
+  produced. Matters for any consumer that submits a record with an empty
+  `BuildDna` and a consumable placement.
 
 ### Added — Tiered Component Effects (SP1)
 

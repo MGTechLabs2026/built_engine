@@ -783,7 +783,7 @@ JS-safe) over a build's shape, recomputable from the stored record.
 `signature != buildId` — two builds with the same shape share a signature
 but keep distinct ids.
 The shape covered is lineage, physique, technique families, item ids,
-consumable ids, and affix categories; a Tome slot's `occupantKind` is one
+consumable ids, affix categories, and up to three dominant axis names; a Tome slot's `occupantKind` is one
 of `technique` / `item` / `consumable` / `empty`, and a `consumable` slot
 records its content id but no per-copy instance.
 
