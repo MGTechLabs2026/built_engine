@@ -2,10 +2,21 @@
 
 **Date:** 2026-09-08
 **Status:** design — pending user review
-**Repo:** `build_engine` (`Tome:RougelikeGame`), HEAD `1dc7e5d`
+**Repo:** `build_engine` (`Tome:RougelikeGame`), HEAD `1dc7e5d` *at spec-writing time* — see the HEAD-reference note below
 **Parent:** `2026-09-02-tiered-component-effects-design.md` §1.2 (SP0–SP4 decomposition)
 **Brainstorm notes:** `2026-09-08-sp4a-engine-bump-notes.md` (full SP0a→SP3 audit; read for the evidence behind §5's register)
 **Sibling spec:** `Tome_client:…-sp4a-client-bump-design.md` — the five staged dependency bumps; it cites §5 of this doc as the frozen contract per stage.
+
+---
+
+> **HEAD reference (updated post-merge, 2026-09-09).** At spec-writing time,
+> engine HEAD was `1dc7e5d` (the SP3 merge). The subsequent SP4a engine Part A
+> merge advanced HEAD to `b43b4147bb9224b01ed5818ad0fea5b03408586b` (`b43b414`).
+> The §5 consumed-contract register for the client bump is **unchanged**; the new
+> HEAD adds only the client-inert Almanac consumable-DNA changes (Part A, §4).
+> Where `1dc7e5d` still appears below it is a deliberate historical reference —
+> the SP3 merge, and the as-of ref for the "~line NNN" source locators. The
+> client bump's final stage pins `b43b414`.
 
 ---
 
@@ -358,7 +369,12 @@ policies never touch it (the client uses no engine decision policy).
   Verify a client build hanging one produces identical combat numbers pre/post
   bump — a drift there means an aura path leaked in; **stop**.
 
-### Stage 5 — SP3 (per-fight consumables) · pin `1dc7e5d` (engine HEAD)
+### Stage 5 — SP3 (per-fight consumables) · pin `b43b414` — *SP3 + SP4a engine Part A — final engine bump*
+
+`b43b4147bb9224b01ed5818ad0fea5b03408586b` is current engine HEAD: the SP3 merge
+(`1dc7e5d`, the HEAD at spec-writing time) plus the client-inert SP4a engine
+Part A Almanac merge. The relied-on / not-relied-on lists below are the SP3
+contract and are **unchanged** by Part A.
 
 - **Relied on:** nothing new. `RuleContext.modifiers` default keeps
   `RuleEngine._fire` identical; `AttackAction` / `SelfEffectAction` gain an
@@ -382,8 +398,9 @@ policies never touch it (the client uses no engine decision policy).
 
 ### After Stage 5
 
-Client is on engine HEAD, gate green. Part A (this repo) is merged. **Only then**
-does SP4b begin, targeting engine HEAD + the fully migrated client (notes D8).
+Client is on engine HEAD (`b43b414`), gate green. Part A (this repo) is merged.
+**Only then** does SP4b begin, targeting engine HEAD + the fully migrated client
+(notes D8).
 
 ## 6. Testing (Part A)
 
@@ -448,8 +465,9 @@ Engine repo, `dart test` / `dart analyze`.
 
 ## 9. Spec self-review
 
-- **Placeholders:** none. Every "~line NNN" is an as-of-`1dc7e5d` locator, not a
-  TODO.
+- **Placeholders:** none. Every "~line NNN" is an as-of-`1dc7e5d` locator
+  (spec-writing HEAD; current HEAD `b43b414` adds only the client-inert Part A
+  changes), not a TODO.
 - **Internal consistency:** §4.2 required-param choice is consistent with §7's
   two-call-site edit; §4.4's helper split is consistent with §5 Stage 3's
   "consumables have no discovery subject".
