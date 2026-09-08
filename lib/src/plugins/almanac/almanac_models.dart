@@ -389,8 +389,10 @@ class AffixSnapshot extends _AlmanacValue {
   List<Object?> get props => [affixId, stat, value, category];
 }
 
-/// One slot of a tome layout. [occupantKind] is `'technique'`, `'item'`, or
-/// `'empty'` (stored as an opaque string, not interpreted here).
+/// One slot of a tome layout. [occupantKind] is `'technique'`, `'item'`,
+/// `'consumable'`, or `'empty'`. A `'consumable'` slot carries a real
+/// [occupantRefId] but a null [instanceId] — a consumable has no per-copy
+/// instanced entity (its charges are a per-fight resource, not stored state).
 class TomeSlotSnapshot extends _AlmanacValue {
   const TomeSlotSnapshot({
     required this.slotId,

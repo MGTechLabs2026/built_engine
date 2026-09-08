@@ -6,6 +6,24 @@ bumping the pin. Newest first.
 
 ## Unreleased
 
+### Changed — SP4a (Almanac consumable build-DNA)
+
+- **`buildDna(...)` gained a required `consumableIds` channel** — sorted-unique
+  upper-cased tokens at a fixed position (after `itemIds`, before
+  `affixCategories`). A build with zero consumables hashes to the **same**
+  `signature` as before (the channel is additive), so no stored `BuildDna` is
+  invalidated.
+- **`HeadlessGameAlmanacBridge` now records a consumable Tome placement as
+  `occupantKind: 'consumable'`** (previously an inconsistent `'empty'` with a
+  non-null `occupantRefId`) and feeds its content id into the `consumableIds`
+  DNA channel. `instanceId` is null for a consumable slot; no per-copy
+  `items` / `techniques` snapshot entry is emitted.
+- **`AlmanacRecorder`'s empty-DNA back-fill (`recordBuildSnapshot` → `_withDna`)
+  now reads `'consumable'` slots from `record.tome.slots`**, so a hand-built
+  record's recomputed DNA matches what `HeadlessGameAlmanacBridge` would have
+  produced. Matters for any consumer that submits a record with an empty
+  `BuildDna` and a consumable placement.
+
 ### Added — Tiered Component Effects (SP1)
 
 - **`package:build_engine/build_engine.dart`** exports five new Core

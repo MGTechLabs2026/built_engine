@@ -3,10 +3,12 @@ import 'almanac_models.dart';
 /// Computes a deterministic, RNG-free build-DNA signature.
 ///
 /// [BuildDna.tokens] is a canonical, order-independent projection of a build's
-/// defining ids (lineage, physique, sorted-unique technique families / item ids
-/// / affix categories, then up to three dominant axis names). Their `|`-joined
-/// form is hashed with FNV-1a (32-bit) into [BuildDna.signature], lowercase
-/// 8-char hex. A derived projection only — never an identity or dedup key.
+/// defining ids: lineage, physique, then sorted-unique technique families,
+/// item ids, consumable ids, and affix categories (in that fixed order —
+/// the order is part of the signature), then up to three dominant axis
+/// names. Their `|`-joined form is hashed with FNV-1a (32-bit) into
+/// [BuildDna.signature], lowercase 8-char hex. A derived projection only —
+/// never an identity or dedup key.
 ///
 /// Callers are expected to pass ids and family/category names already in their
 /// canonical casing: dedup happens on the raw string before upper-casing, so
@@ -16,6 +18,7 @@ BuildDna buildDna({
   required String physiqueId,
   required Iterable<String> techniqueFamilies,
   required Iterable<String> itemIds,
+  required Iterable<String> consumableIds,
   required Iterable<String> affixCategories,
   required Iterable<Map<String, num>> axisProfiles,
 }) {
@@ -24,6 +27,7 @@ BuildDna buildDna({
     physiqueId.toUpperCase(),
     ..._sortedUniqueUpper(techniqueFamilies),
     ..._sortedUniqueUpper(itemIds),
+    ..._sortedUniqueUpper(consumableIds),
     ..._sortedUniqueUpper(affixCategories),
     ..._topAxisTokens(axisProfiles),
   ];

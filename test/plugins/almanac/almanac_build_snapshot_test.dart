@@ -167,6 +167,45 @@ void main() {
       expect(dna.signature, isNotEmpty);
     });
 
+    test('an empty DNA back-fill includes consumable slots from the tome '
+        'layout', () {
+      final recorder =
+          AlmanacRecorder()..recordBuildSnapshot(
+            buildRecordWithoutDna(
+              runId: 'run-1',
+              buildId: 'b0',
+              lineageId: 'western',
+              physiqueId: 'phy-a',
+              items: [itemSnapshot(definitionId: 'iron_sword')],
+              tome: TomeLayoutSnapshot(
+                width: 2,
+                height: 1,
+                slots: const [
+                  TomeSlotSnapshot(
+                    slotId: 's0',
+                    occupantKind: 'item',
+                    occupantRefId: 'iron_sword',
+                  ),
+                  TomeSlotSnapshot(
+                    slotId: 's1',
+                    occupantKind: 'consumable',
+                    occupantRefId: 'heal_potion',
+                  ),
+                ],
+              ),
+            ),
+          );
+
+      final dna = recorder.state.builds.single.dna;
+      expect(dna.tokens, [
+        'WESTERN',
+        'PHY-A',
+        'IRON_SWORD',
+        'HEAL_POTION',
+      ]);
+      expect(dna.signature, isNotEmpty);
+    });
+
     test('a supplied DNA is left exactly as the caller computed it', () {
       final dna = BuildDna(tokens: const ['CUSTOM'], signature: 'deadbeef');
       final recorder =
