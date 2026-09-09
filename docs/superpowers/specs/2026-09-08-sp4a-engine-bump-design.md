@@ -316,9 +316,18 @@ policies never touch it (the client uses no engine decision policy).
   - `ItemInstance.statBonuses` (field) and `addItemStatBonuses` (writer) —
     **retained**; now feed `ItemEffectContributor`'s `supporting` tier instead
     of an `affix:*` `Modifier`. Client reads/writes stay valid.
-  - `WeaponStatTags` — relocated to `item_plugin.dart`; compat re-export from
-    `build_interpretation.dart` retained, so `show WeaponStatTags` imports keep
-    working.
+  - `WeaponStatTags` — relocated to `item_plugin.dart`; `build_interpretation.dart`
+    **also** still re-exports it. Correction (verified against the SP4a client
+    bump, 2026-09-09): because *both* barrels export the symbol, a narrowing
+    `import '…/build_interpretation.dart' show WeaponStatTags;` still **compiles**
+    but is now `unnecessary_import` — which fails `flutter analyze` (exit 1) and
+    any CI gate that runs it. A client file carrying such a line *and* an
+    unrelated `item_plugin.dart` import must **drop the `show` line** (the symbol
+    stays in scope via `item_plugin.dart`); behaviour-inert. In the SP4a client
+    bump this hit `lib/core/engine/item_adapter.dart` and
+    `lib/core/engine/reward_adapter.dart` — i.e. the SP1 client break was
+    `combat_adapter.dart` ×3 **plus** those two one-line deletions, not
+    `combat_adapter.dart` alone.
 - **Present but NOT relied on:** `EffectTier`, `EffectProfile`,
   `EffectContributor`, `EffectProfileResolver`, `ItemEffectContributor`
   (directly), `BuildComponentRef` value equality (as a client concern), the
