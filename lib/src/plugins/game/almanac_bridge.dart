@@ -1,3 +1,4 @@
+import 'package:build_engine/affix_plugin.dart';
 import 'package:build_engine/almanac.dart';
 import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/combat_plugin.dart';
@@ -52,6 +53,18 @@ class HeadlessGameAlmanacBridge {
   final Map<BuildPhase, int> _buildSeq = <BuildPhase, int>{};
   int _usageSeq = 0;
   int _trainingSeq = 0;
+  final List<AffixSnapshot> _affixSnapshots = <AffixSnapshot>[];
+
+  /// First `AffixSnapshot` seen per `affixId` in this run. The Almanac
+  /// keeps exactly one canonical snapshot per `affixId` and refuses a
+  /// conflicting one; the acquisition's resolved `stat` legitimately
+  /// varies by target (the same affix on a blade weapon vs a fist weapon),
+  /// so the first sighting is the canonical one handed to the recorder —
+  /// the same "first write wins, later equal writes are no-ops" rule the
+  /// discovery ledger already follows. Every acquisition still contributes
+  /// its own `AffixObservation`, keyed `(affixId, affixEventId)`.
+  final Map<String, AffixSnapshot> _canonicalAffixSnapshots =
+      <String, AffixSnapshot>{};
   String? _lineageId;
   String? _physiqueId;
   String? _finalBuildId;
@@ -101,6 +114,7 @@ class HeadlessGameAlmanacBridge {
     _subs.add(events.subscribe<EncounterStarted>(_onEncounterStarted));
     _subs.add(events.subscribe<EncounterResolved>(_onEncounterResolved));
     _subs.add(events.subscribe<TrainingResultRecorded>(_onTrainingResult));
+    _subs.add(events.subscribe<AffixAcquired>(_onAffixAcquired));
     _subs.add(events.subscribe<RunEnded>(_onRunEnded));
     // NOT observed: RunStarted (pre-profile telemetry), RewardSelected
     // (a decision published before the Tome mutation), TomeChanged (the
@@ -264,6 +278,32 @@ class HeadlessGameAlmanacBridge {
     );
   }
 
+  void _onAffixAcquired(AffixAcquired e) {
+    if (_disposed) return;
+    final AffixAcquisition a = e.acquisition;
+    final AffixSnapshot snapshot = AffixSnapshot(
+      affixId: a.affixId,
+      stat: a.stat,
+      value: a.value,
+      category: a.category,
+    );
+    _affixSnapshots.add(snapshot);
+    final AffixSnapshot canonical = _canonicalAffixSnapshots.putIfAbsent(
+      a.affixId,
+      () => snapshot,
+    );
+    _recorder.recordAffixDiscovered(
+      affixId: a.affixId,
+      observation: AffixObservation(
+        affixEventId: a.affixEventId,
+        runId: a.runId,
+        runNumber: a.runNumber,
+      ),
+      snapshot: canonical,
+      timestamp: DateTime.now(),
+    );
+  }
+
   void _onRunEnded(RunEnded e) {
     if (_disposed) return;
     // A driver that publishes `RunEnded` without ever supplying a run profile
@@ -417,7 +457,7 @@ class HeadlessGameAlmanacBridge {
       physiqueId: _physiqueId!,
       techniques: techniques,
       items: items,
-      affixes: const <AffixSnapshot>[],
+      affixes: List<AffixSnapshot>.unmodifiable(_affixSnapshots),
       tome: TomeLayoutSnapshot(width: null, height: null, slots: slots),
       dna: buildDna(
         lineageId: _lineageId!,
@@ -429,7 +469,10 @@ class HeadlessGameAlmanacBridge {
           for (final ItemInstanceSnapshot i in items) i.definitionId,
         ],
         consumableIds: consumableIds,
-        affixCategories: const <String>[],
+        affixCategories: <String>[
+          for (final s in _affixSnapshots)
+            if (s.category != null) s.category!,
+        ],
         axisProfiles: <Map<String, num>>[
           for (final TechniqueInstanceSnapshot t in techniques) t.axisProfile,
         ],
