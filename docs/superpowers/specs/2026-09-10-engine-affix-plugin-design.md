@@ -134,7 +134,7 @@ New `lib/src/plugins/affix/`:
 | `affix_definition.dart` | `class AffixDefinition { String id; String label; String category; AffixLean lean; AffixMechanic mechanic; }` + `affixDefinitionFromContent(ContentDefinition)` (reads `extra['label']`, `extra['category']`, the `lean:*` tag, `extra['mechanic']`) + `affixDefinition(String id, PluginContext) => affixDefinitionFromContent(context.content.get(id))`. Immutable; no caching; mirrors `itemDefinitionFromContent`. |
 | `affix_content.dart` | `const affixContentDefinitions = <Map<String,dynamic>>[ … ]` — the 33 ported entries (§8). |
 | `affix_resolver.dart` | `AffixRewardContext`, `AffixResolution`, `AffixResolvedSlot`, `resolveRewardAffixes(...)` (§5). |
-| `affix_application.dart` | `applyAffixMechanic(AffixDefinition, AffixApplicationTarget, PluginContext) → ({String? stat})` (§6). |
+| `affix_application.dart` | `applyAffixMechanic(AffixDefinition, AffixApplicationTarget, PluginContext) → ({String stat})` (§6). |
 | `affix_acquisition.dart` | `RunRef`, `AffixAcquisitionIdSource` (the one stateful type — instance per run), `AffixAcquisition` (plain engine record), `acquireAffixes(...)` (§6.4–6.5). **No `almanac.dart` import.** |
 
 ### 4.1 Content shape
