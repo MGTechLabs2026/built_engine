@@ -6,3 +6,4 @@ export 'src/plugins/affix/affix_mechanic.dart';
 export 'src/plugins/affix/affix_types.dart';
 export 'src/plugins/affix/affix_definition.dart'
     show AffixDefinition, affixDefinitionFromContent, affixDefinition;
+export 'src/plugins/affix/affix_content.dart' show affixContentDefinitions;
