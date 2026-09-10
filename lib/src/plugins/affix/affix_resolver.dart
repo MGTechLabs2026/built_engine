@@ -1,6 +1,5 @@
 import 'package:build_engine/build_engine.dart';
 
-import '../../rng/weighted_pick.dart';
 import 'affix_definition.dart';
 import 'affix_types.dart';
 

@@ -5,7 +5,7 @@ import 'package:test/test.dart';
 ContentRegistry _content() => ContentRegistry()..loadAll(affixContentDefinitions);
 
 class _CountingRng extends RngService {
-  _CountingRng(int seed) : super(seed);
+  _CountingRng(super.seed);
   int doubles = 0;
   @override
   double nextDouble() {
