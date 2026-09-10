@@ -24,7 +24,7 @@ Every task's requirements implicitly include this section. Values are copied ver
 - **RNG draw order (normative):** for each slot in position order (prefix, then suffix) — one `rng.nextDouble()` for the no-affix check, then, if kept, `weightedPick`'s single `rng.nextDouble()`.
 - **`affixEventId` has one owner: `AffixAcquisitionIdSource`** — a `build_engine` type, one instance per logical run, deterministic monotonic counter. `acquireAffixes` is its only caller. Ids are unique **within one logical run** (identified by its `runId`); distinct logical runs must supply distinct `runId`s — no global-uniqueness guarantee, no allocator anywhere else.
 - **`AffixAcquisition` is a plain engine record** — `affixId`, `affixEventId`, `runId`, `runNumber`, `stat` (non-null `String`), `value` (`num`), `category` (`String`). `affix_acquisition.dart` does not import `almanac.dart`; no affix-plugin file has any path to `src/plugins/almanac/`.
-- **`stat` mapping:** `WeaponStatBonus` → the `WeaponStatTags.matchOrFallback` result; `ImmediateHeal` → `'heal'`; `BankProgression` → `'bank_progression'`. (`AffixSnapshot.stat` is a frozen non-nullable `String`.)
+- **`stat` mapping:** `AffixAcquisition.stat` / `AffixSnapshot.stat` is a non-null, **target-independent mechanic-kind** string — `WeaponStatBonus` → `'weapon_stat_bonus'`; `ImmediateHeal` → `'heal'`; `BankProgression` → `'bank_progression'`. For `WeaponStatBonus` the resolved `WeaponStatTags.matchOrFallback` value is still applied to `ItemInstance.statBonuses` (the gameplay bind), but it is **not** stored in `AffixAcquisition.stat` or `AffixSnapshot.stat` — `AffixSnapshot` holds one canonical snapshot per `affixId`, so a per-target value would break cross-run / hydrated recording. (`AffixSnapshot.stat` is a frozen non-nullable `String`.)
 - **`recordAffixUsed` stays unused** — discovery only.
 - **No Almanac schema change.** `AffixSnapshot` / `AffixObservation` / `AlmanacAffixRecord` / `recordAffixDiscovered` used as-is. Idempotency key stays `(affixId, affixEventId)`.
 - **Content port is verbatim** — 33 entries from `Tome_client/lib/core/engine/reward_affix.dart` (11 item prefixes, 9 item suffixes, 7 technique prefixes, 6 technique suffixes), preserving label, magnitude, lean. Ids are minted `af_*` tokens, never derived from the label; the two cross-pool labels (`Flowing`, `of Still Water`) get distinct ids.
@@ -1034,7 +1034,7 @@ git commit -m "feat(affix): resolveRewardAffixes — deterministic 2-slot select
   - `sealed class AffixApplicationTarget { const AffixApplicationTarget(); }`
   - `class ItemInstanceTarget extends AffixApplicationTarget { const ItemInstanceTarget({required EntityId instance, required String itemId}); final EntityId instance; final String itemId; }`
   - `class CharacterTarget extends AffixApplicationTarget { const CharacterTarget({required EntityId character}); final EntityId character; }`
-  - `({String stat}) applyAffixMechanic(AffixDefinition def, AffixApplicationTarget target, PluginContext context)` — `stat` is always non-null: the resolved weapon stat for `WeaponStatBonus`, `'heal'` for `ImmediateHeal`, `'bank_progression'` for `BankProgression`. A mechanic/target mismatch throws `ArgumentError`.
+  - `({String stat}) applyAffixMechanic(AffixDefinition def, AffixApplicationTarget target, PluginContext context)` — `stat` is always non-null and target-independent: `'weapon_stat_bonus'` for `WeaponStatBonus`, `'heal'` for `ImmediateHeal`, `'bank_progression'` for `BankProgression`. `WeaponStatBonus` still binds the `WeaponStatTags.matchOrFallback` result to `ItemInstance.statBonuses`; only the returned/recorded `stat` is the mechanic kind. Throws `ArgumentError` when the mechanic cannot be applied: a mechanic/target mismatch, or an `ImmediateHeal` whose target character has no `HealthComponent` (a failed application returns no result, so `acquireAffixes` mints no `affixEventId` for it).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1099,14 +1099,15 @@ AffixDefinition _bank2(PluginContext ctx) {
 }
 
 void main() {
-  test('WeaponStatBonus binds to the ItemInstance and returns the resolved stat', () {
+  test('WeaponStatBonus binds the resolved stat to the ItemInstance, returns the mechanic kind', () {
     final ctx = _ctx();
     ItemPlugin().initialize(ctx);
     final owner = ctx.entities.create();
     final instance = ownItem(owner, ItemIds.knife, ctx); // knife has a 'blade' tag
     final r = applyAffixMechanic(
         _keen(ctx), ItemInstanceTarget(instance: instance, itemId: ItemIds.knife), ctx);
-    expect(r.stat, 'blade');
+    expect(r.stat, 'weapon_stat_bonus');
+    // the mechanical bind still uses the WeaponStatTags-resolved tag
     expect(ctx.components.get<ItemInstance>(instance)!.statBonuses['blade'], 3);
   });
 
@@ -1121,13 +1122,13 @@ void main() {
     expect(ctx.components.get<ItemInstance>(instance)!.statBonuses['blade'], 6);
   });
 
-  test('ImmediateHeal raises HealthComponent.current, clamped, returns stat "heal"', () {
+  test('ImmediateHeal raises HealthComponent.current by amount, clamped to max, returns stat "heal"', () {
     final ctx = _ctx();
     final c = ctx.entities.create();
     ctx.components.add(c, const HealthComponent(current: 90, max: 100));
     final r = applyAffixMechanic(_heal12(ctx), CharacterTarget(character: c), ctx);
     expect(r.stat, 'heal');
-    expect(ctx.components.get<HealthComponent>(c)!.current, 100); // clamped to max
+    expect(ctx.components.get<HealthComponent>(c)!.current, 100); // 90 + 12 clamped to max
   });
 
   test('BankProgression adds upgrade points, returns stat "bank_progression"', () {
@@ -1152,6 +1153,16 @@ void main() {
         () => applyAffixMechanic(
             _heal12(ctx), ItemInstanceTarget(instance: instance, itemId: ItemIds.knife), ctx),
         throwsArgumentError);
+  });
+
+  test('ImmediateHeal without a HealthComponent throws ArgumentError and mutates nothing', () {
+    final ctx = _ctx();
+    final c = ctx.entities.create(); // no HealthComponent attached
+    expect(
+      () => applyAffixMechanic(_heal12(ctx), CharacterTarget(character: c), ctx),
+      throwsArgumentError,
+    );
+    expect(ctx.components.get<HealthComponent>(c), isNull);
   });
 }
 ```
@@ -1194,13 +1205,21 @@ class CharacterTarget extends AffixApplicationTarget {
 }
 
 /// Applies [def]'s single [AffixMechanic] to [target] and returns the
-/// canonical `stat` string for the Almanac snapshot — always non-null:
-/// the resolved weapon stat for [WeaponStatBonus], `'heal'` for
-/// [ImmediateHeal], `'bank_progression'` for [BankProgression].
+/// canonical `stat` string for the Almanac snapshot — always non-null
+/// and **target-independent**: the mechanic *kind*
+/// (`'weapon_stat_bonus'` / `'heal'` / `'bank_progression'`).
+/// [WeaponStatBonus] still binds the *resolved* [WeaponStatTags] stat to
+/// [ItemInstance.statBonuses] via `addItemStatBonuses` — only the
+/// returned `stat` is the kind, because `AffixSnapshot` holds exactly
+/// one canonical snapshot per `affixId` and a per-target value would
+/// break cross-run / hydrated recording.
 ///
-/// A mechanic / target mismatch throws [ArgumentError] — unreachable
-/// from validated content (the `affix_pool:*` tag fixes the domain), a
-/// belt-and-braces guard against a composition bug.
+/// Throws [ArgumentError] when the mechanic cannot be applied: a
+/// mechanic / target mismatch (unreachable from validated content — the
+/// `affix_pool:*` tag fixes the domain), or an [ImmediateHeal] whose
+/// target character has no [HealthComponent]. A failed application never
+/// returns a `(stat: ...)` result, so `acquireAffixes` never mints an
+/// `affixEventId` for it.
 ({String stat}) applyAffixMechanic(
   AffixDefinition def,
   AffixApplicationTarget target,
@@ -1212,27 +1231,30 @@ class CharacterTarget extends AffixApplicationTarget {
       if (target is! ItemInstanceTarget) {
         throw ArgumentError('WeaponStatBonus (${def.id}) needs an ItemInstanceTarget');
       }
-      final stat = WeaponStatTags.matchOrFallback(
+      final resolvedStat = WeaponStatTags.matchOrFallback(
         itemDefinition(target.itemId, context).tags,
         'item:${target.itemId}',
       );
-      addItemStatBonuses(target.instance, {stat: amount}, context);
-      return (stat: stat);
+      addItemStatBonuses(target.instance, {resolvedStat: amount}, context);
+      return (stat: 'weapon_stat_bonus');
 
     case ImmediateHeal(:final amount):
       if (target is! CharacterTarget) {
         throw ArgumentError('ImmediateHeal (${def.id}) needs a CharacterTarget');
       }
       final health = context.components.get<HealthComponent>(target.character);
-      if (health != null) {
-        context.components.add(
-          target.character,
-          HealthComponent(
-            current: math.min(health.current + amount, health.max),
-            max: health.max,
-          ),
+      if (health == null) {
+        throw ArgumentError(
+          'ImmediateHeal (${def.id}) requires a HealthComponent on the target character',
         );
       }
+      context.components.add(
+        target.character,
+        HealthComponent(
+          current: math.min(health.current + amount, health.max),
+          max: health.max,
+        ),
+      );
       return (stat: 'heal');
 
     case BankProgression(:final amount):
@@ -1343,10 +1365,11 @@ void main() {
 
     expect(out, hasLength(1));
     expect(out.single.affixId, 'af_keen');
-    expect(out.single.stat, 'blade');
+    expect(out.single.stat, 'weapon_stat_bonus'); // target-independent mechanic kind
     expect(out.single.value, 3);
     expect(out.single.category, 'item_prefix');
     expect(out.single.runId, 'run-1');
+    // the gameplay bind still uses the WeaponStatTags-resolved tag
     expect(ctx.components.get<ItemInstance>(instance)!.statBonuses['blade'], 3);
   });
 
@@ -1477,7 +1500,7 @@ class AffixAcquisition {
   final String affixEventId; // from AffixAcquisitionIdSource — opaque, never parsed
   final String runId;
   final int runNumber;
-  final String stat; // resolved weapon stat, or 'heal' / 'bank_progression'
+  final String stat; // target-independent mechanic kind: 'weapon_stat_bonus' / 'heal' / 'bank_progression'
   final num value; // == the affix's AffixMechanic.amount
   final String category; // the affix definition's category, verbatim
 }

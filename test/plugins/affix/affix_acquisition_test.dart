@@ -109,6 +109,52 @@ void main() {
     expect(out.map((a) => a.affixId), ['af_keen', 'af_of_the_ember']);
   });
 
+  test('a failed mechanic application does not advance the id source', () {
+    final ctx = _ctx();
+    ItemPlugin().initialize(ctx);
+    AffixPlugin().initialize(ctx);
+    const run = RunRef(runId: 'run-1', runNumber: 1);
+
+    // The affixEventId a fresh source produces for the first successful
+    // acquisition of `af_keen` — without touching the string format.
+    String firstIdFrom(AffixAcquisitionIdSource src) {
+      final owner = ctx.entities.create();
+      final instance = ownItem(owner, ItemIds.knife, ctx);
+      return acquireAffixes(
+        resolution: AffixResolution([
+          _slot(0, 'prefix', affixDefinition('af_keen', ctx)),
+          _slot(1, 'suffix', null),
+        ]),
+        target: ItemInstanceTarget(instance: instance, itemId: ItemIds.knife),
+        idSource: src,
+        run: run,
+        context: ctx,
+      ).single.affixEventId;
+    }
+
+    final pristine = firstIdFrom(AffixAcquisitionIdSource());
+
+    final afterFailure = AffixAcquisitionIdSource();
+    // Heal affix on a character with no HealthComponent -> applyAffixMechanic
+    // throws before acquireAffixes reaches idSource.next().
+    expect(
+      () => acquireAffixes(
+        resolution: AffixResolution([
+          _slot(0, 'prefix', affixDefinition('af_grounding', ctx)), // heal 12
+          _slot(1, 'suffix', null),
+        ]),
+        target: CharacterTarget(character: ctx.entities.create()),
+        idSource: afterFailure,
+        run: run,
+        context: ctx,
+      ),
+      throwsArgumentError,
+    );
+
+    // The failed call consumed nothing: the source still yields its first id.
+    expect(firstIdFrom(afterFailure), pristine);
+  });
+
   test('acquireAffixes consumes no RNG', () {
     final rng = _CountingRng();
     final ctx = _ctx(rng: rng);

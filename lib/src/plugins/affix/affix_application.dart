@@ -35,9 +35,12 @@ class CharacterTarget extends AffixApplicationTarget {
 /// `AffixSnapshot` holds exactly one canonical snapshot per `affixId`
 /// and a per-target value would break cross-run / hydrated recording.
 ///
-/// A mechanic / target mismatch throws [ArgumentError] — unreachable
-/// from validated content (the `affix_pool:*` tag fixes the domain), a
-/// belt-and-braces guard against a composition bug.
+/// Throws [ArgumentError] when the mechanic cannot be applied: a
+/// mechanic / target mismatch (unreachable from validated content — the
+/// `affix_pool:*` tag fixes the domain), or an [ImmediateHeal] whose
+/// target character has no [HealthComponent]. A failed application never
+/// returns a `(stat: ...)` result, so `acquireAffixes` never mints an
+/// `affixEventId` for it.
 ({String stat}) applyAffixMechanic(
   AffixDefinition def,
   AffixApplicationTarget target,
@@ -61,15 +64,21 @@ class CharacterTarget extends AffixApplicationTarget {
         throw ArgumentError('ImmediateHeal (${def.id}) needs a CharacterTarget');
       }
       final health = context.components.get<HealthComponent>(target.character);
-      if (health != null) {
-        context.components.add(
-          target.character,
-          HealthComponent(
-            current: math.min(health.current + amount, health.max),
-            max: health.max,
-          ),
+      if (health == null) {
+        // An acquisition must not report success when its gameplay
+        // mutation cannot happen. Fail loud rather than mint a record
+        // for a heal that never landed. Never fabricate a HealthComponent.
+        throw ArgumentError(
+          'ImmediateHeal (${def.id}) requires a HealthComponent on the target character',
         );
       }
+      context.components.add(
+        target.character,
+        HealthComponent(
+          current: math.min(health.current + amount, health.max),
+          max: health.max,
+        ),
+      );
       return (stat: 'heal');
 
     case BankProgression(:final amount):

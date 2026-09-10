@@ -81,13 +81,32 @@ void main() {
     expect(ctx.components.get<ItemInstance>(instance)!.statBonuses['blade'], 6);
   });
 
-  test('ImmediateHeal raises HealthComponent.current, clamped, returns stat "heal"', () {
+  test('ImmediateHeal raises HealthComponent.current by amount, returns stat "heal"', () {
+    final ctx = _ctx();
+    final c = ctx.entities.create();
+    ctx.components.add(c, const HealthComponent(current: 50, max: 100));
+    final r = applyAffixMechanic(_heal12(ctx), CharacterTarget(character: c), ctx);
+    expect(r.stat, 'heal');
+    expect(ctx.components.get<HealthComponent>(c)!.current, 62); // 50 + 12
+  });
+
+  test('ImmediateHeal clamps HealthComponent.current to max', () {
     final ctx = _ctx();
     final c = ctx.entities.create();
     ctx.components.add(c, const HealthComponent(current: 90, max: 100));
-    final r = applyAffixMechanic(_heal12(ctx), CharacterTarget(character: c), ctx);
-    expect(r.stat, 'heal');
-    expect(ctx.components.get<HealthComponent>(c)!.current, 100); // clamped to max
+    applyAffixMechanic(_heal12(ctx), CharacterTarget(character: c), ctx);
+    expect(ctx.components.get<HealthComponent>(c)!.current, 100); // 90 + 12 clamped to max
+  });
+
+  test('ImmediateHeal without a HealthComponent throws ArgumentError and mutates nothing', () {
+    final ctx = _ctx();
+    final c = ctx.entities.create(); // no HealthComponent attached
+    expect(
+      () => applyAffixMechanic(_heal12(ctx), CharacterTarget(character: c), ctx),
+      throwsArgumentError,
+    );
+    // A failed gameplay mutation must not leave any success state behind.
+    expect(ctx.components.get<HealthComponent>(c), isNull);
   });
 
   test('BankProgression adds upgrade points, returns stat "bank_progression"', () {
