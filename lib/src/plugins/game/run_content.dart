@@ -22,6 +22,12 @@ const rewardPoolItemIds = [
 ];
 const rewardPoolTechniqueIds = [TechniqueIds.basicPunch, TechniqueIds.basicSlash, TechniqueIds.basicGuard];
 
+// No affix roster constant lives here by design (spec §7): reward-affix
+// pools are enumerated at resolve time from the AffixPlugin's own
+// `type: 'affix'` content via `context.content.withTag('affix_pool:*')`.
+// AffixPlugin is the single source of affix content; the harness keeps no
+// duplicate list.
+
 /// Every consumable the run can reward — reward-pool only, never in
 /// [RunStartingKit]. The real `ConsumablePlugin` content ids.
 const rewardPoolConsumableIds = [

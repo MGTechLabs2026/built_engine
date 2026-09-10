@@ -57,14 +57,15 @@ AffixDefinition _bank2(PluginContext ctx) {
 }
 
 void main() {
-  test('WeaponStatBonus binds to the ItemInstance and returns the resolved stat', () {
+  test('WeaponStatBonus binds the resolved stat to the ItemInstance, returns the mechanic kind', () {
     final ctx = _ctx();
     ItemPlugin().initialize(ctx);
     final owner = ctx.entities.create();
     final instance = ownItem(owner, ItemIds.knife, ctx); // knife has a 'blade' tag
     final r = applyAffixMechanic(
         _keen(ctx), ItemInstanceTarget(instance: instance, itemId: ItemIds.knife), ctx);
-    expect(r.stat, 'blade');
+    expect(r.stat, 'weapon_stat_bonus');
+    // the mechanical bind still uses the WeaponStatTags-resolved tag
     expect(ctx.components.get<ItemInstance>(instance)!.statBonuses['blade'], 3);
   });
 

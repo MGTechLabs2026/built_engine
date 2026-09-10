@@ -49,6 +49,67 @@ void main() {
     fail('no seed in 0..24 rolled an affix — widen the range');
   });
 
+  test('a shared / hydrated recorder survives a 2nd affix-bearing run '
+      '(no AlmanacIntegrityException)', () {
+    // seed 1 rolls `af_of_the_avalanche` on `gloves` (weapon stat tag
+    // `fist`); seed 5 rolls the same affix on `iron_sword` (weapon stat
+    // tag `blade`). Before the D13 amendment the per-target `stat` made
+    // the 2nd run feed a conflicting `AffixSnapshot` for that `affixId`
+    // and `AlmanacRecorder` threw `AlmanacIntegrityException`. Now every
+    // snapshot for an `affixId` is byte-identical (`stat` is the
+    // target-independent mechanic kind), so the cross-run path is clean.
+    const seedA = 1;
+    const seedB = 5;
+
+    // ---- one AlmanacRecorder shared across two runs ----
+    final shared = AlmanacRecorder();
+    expect(
+      () => runGame(seedA,
+          policy: const _TakeItemRewards(),
+          almanac: shared,
+          runId: 'run-a',
+          runNumber: 1),
+      returnsNormally,
+    );
+    expect(
+      () => runGame(seedB,
+          policy: const _TakeItemRewards(),
+          almanac: shared,
+          runId: 'run-b',
+          runNumber: 2),
+      returnsNormally,
+    );
+    expect(shared.state.affixes, isNotEmpty);
+    // the affix acquired in BOTH runs, on different item types, is one
+    // record with one canonical snapshot.
+    final avalanche = shared.state.affixes
+        .where((a) => a.affixId == 'af_of_the_avalanche')
+        .toList();
+    expect(avalanche, hasLength(1),
+        reason: 'af_of_the_avalanche rolls in seed 1 (gloves) and seed 5 (iron_sword)');
+    expect(avalanche.single.snapshot.stat, 'weapon_stat_bonus');
+    expect(avalanche.single.discoveryObservations.length, greaterThanOrEqualTo(2));
+
+    // ---- persist -> hydrate -> continue ----
+    final firstOnly = AlmanacRecorder();
+    runGame(seedA,
+        policy: const _TakeItemRewards(),
+        almanac: firstOnly,
+        runId: 'run-a',
+        runNumber: 1);
+    final saved = firstOnly.state;
+    final hydrated = AlmanacRecorder(saved);
+    expect(
+      () => runGame(seedB,
+          policy: const _TakeItemRewards(),
+          almanac: hydrated,
+          runId: 'run-b',
+          runNumber: 2),
+      returnsNormally,
+    );
+    expect(hydrated.state.affixes, isNotEmpty);
+  });
+
   test('re-recording the same acquisition is idempotent', () {
     for (var seed = 0; seed < 25; seed++) {
       final recorder = AlmanacRecorder();

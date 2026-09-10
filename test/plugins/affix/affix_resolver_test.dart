@@ -84,4 +84,40 @@ void main() {
     r.slots.map((s) => s.slotKind).toList();
     expect(rng.doubles, before);
   });
+
+  test('AffixResolution.slots is unmodifiable', () {
+    final r = _resolve(3, AffixDomain.item, null);
+    expect(
+      () => r.slots.add(
+        const AffixResolvedSlot(position: 2, slotKind: 'prefix', affix: null),
+      ),
+      throwsUnsupportedError,
+    );
+  });
+
+  test('a preceding reward-pool pick from the same RngService is unperturbed '
+      'by a following affix resolution (§5.3)', () {
+    // Stream A: one pool-pick draw, THEN resolve affixes on the same service.
+    final rngA = RngService(9);
+    final poolPickA = rngA.nextInt(1000);
+    resolveRewardAffixes(
+      ctx: const AffixRewardContext(
+          domain: AffixDomain.item, physiqueTradition: null),
+      rng: rngA,
+      content: _content(),
+    );
+    // Stream B: same seed, the pool-pick draw only.
+    final rngB = RngService(9);
+    final poolPickB = rngB.nextInt(1000);
+    expect(poolPickA, poolPickB,
+        reason: 'the affix draw runs after the pool pick and never reaches backwards');
+  });
+
+  test('unknown non-null tradition rolls identically to null (flat weighting)', () {
+    for (var seed = 0; seed < 50; seed++) {
+      expect(_resolve(seed, AffixDomain.item, 'martian'),
+          equals(_resolve(seed, AffixDomain.item, null)),
+          reason: 'seed $seed: an unknown tradition must not bias the draw');
+    }
+  });
 }

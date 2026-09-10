@@ -17,6 +17,11 @@ class AffixRewardContext {
   const AffixRewardContext({required this.domain, required this.physiqueTradition});
 
   final AffixDomain domain;
+
+  /// The headless harness supplies the fighter's *martial* tradition here
+  /// (`'western'` / `'eastern'`); the client supplies its physique-derived
+  /// tradition. The resolver only needs the `'western'` / `'eastern'` /
+  /// other trichotomy — any other non-null value (or null) weights flat.
   final String? physiqueTradition;
 }
 
@@ -49,8 +54,10 @@ class AffixResolvedSlot {
 /// always exactly two slots, `[prefix, suffix]`. Resolved once at reward
 /// generation and carried by value through preview and TAKE.
 class AffixResolution {
-  const AffixResolution(this.slots);
+  AffixResolution(List<AffixResolvedSlot> slots)
+      : slots = List<AffixResolvedSlot>.unmodifiable(slots);
 
+  /// Immutable — wrapped in an unmodifiable view at construction.
   final List<AffixResolvedSlot> slots;
 
   @override

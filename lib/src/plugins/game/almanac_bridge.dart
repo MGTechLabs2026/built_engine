@@ -54,17 +54,6 @@ class HeadlessGameAlmanacBridge {
   int _usageSeq = 0;
   int _trainingSeq = 0;
   final List<AffixSnapshot> _affixSnapshots = <AffixSnapshot>[];
-
-  /// First `AffixSnapshot` seen per `affixId` in this run. The Almanac
-  /// keeps exactly one canonical snapshot per `affixId` and refuses a
-  /// conflicting one; the acquisition's resolved `stat` legitimately
-  /// varies by target (the same affix on a blade weapon vs a fist weapon),
-  /// so the first sighting is the canonical one handed to the recorder —
-  /// the same "first write wins, later equal writes are no-ops" rule the
-  /// discovery ledger already follows. Every acquisition still contributes
-  /// its own `AffixObservation`, keyed `(affixId, affixEventId)`.
-  final Map<String, AffixSnapshot> _canonicalAffixSnapshots =
-      <String, AffixSnapshot>{};
   String? _lineageId;
   String? _physiqueId;
   String? _finalBuildId;
@@ -288,10 +277,6 @@ class HeadlessGameAlmanacBridge {
       category: a.category,
     );
     _affixSnapshots.add(snapshot);
-    final AffixSnapshot canonical = _canonicalAffixSnapshots.putIfAbsent(
-      a.affixId,
-      () => snapshot,
-    );
     _recorder.recordAffixDiscovered(
       affixId: a.affixId,
       observation: AffixObservation(
@@ -299,7 +284,7 @@ class HeadlessGameAlmanacBridge {
         runId: a.runId,
         runNumber: a.runNumber,
       ),
-      snapshot: canonical,
+      snapshot: snapshot,
       timestamp: DateTime.now(),
     );
   }

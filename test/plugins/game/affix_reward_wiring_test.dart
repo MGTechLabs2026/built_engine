@@ -46,7 +46,7 @@ void main() {
     final a = runGame(3, policy: const _TakeItemRewards(), eventBus: bus);
     final b = runGame(3, policy: const _TakeItemRewards());
     expect(a.rewardsGranted, b.rewardsGranted,
-        reason: 'affix resolution must not perturb the run RNG sequence');
+        reason: 'affix resolution is deterministic per seed');
 
     // One AffixAcquired per `+af_` segment across every reward string.
     final affixSegments = a.rewardsGranted

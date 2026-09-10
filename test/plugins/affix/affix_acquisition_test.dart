@@ -55,7 +55,7 @@ void main() {
 
     expect(out, hasLength(1));
     expect(out.single.affixId, 'af_keen');
-    expect(out.single.stat, 'blade');
+    expect(out.single.stat, 'weapon_stat_bonus');
     expect(out.single.value, 3);
     expect(out.single.category, 'item_prefix');
     expect(out.single.runId, 'run-1');

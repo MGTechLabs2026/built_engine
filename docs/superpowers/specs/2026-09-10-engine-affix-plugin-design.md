@@ -47,7 +47,7 @@ Settled during brainstorming (2026-09-10):
 | D10 | **`recordAffixUsed` stays unused** — v1 is discovery-only. An item affix "biting while hung" is not a use event. Explicit non-goal (§11). |
 | D11 | **Content port:** the 33 affix entries in `reward_affix.dart` move into `affix_content.dart` verbatim in label, magnitude, and lean — 11 item prefixes, 9 item suffixes, 7 technique prefixes, 6 technique suffixes. Two labels appear in two pools each (`Flowing`, `of Still Water`), so 33 entries / 31 distinct labels. Ids are freshly minted opaque tokens (`af_keen`, `af_of_the_ember`, …), **never derived from the label** (requirements §4.1). |
 | D12 | **Full end-to-end harness wiring** — `reward_stage.dart`, `run_content.dart`, `run_events.dart`, `almanac_bridge.dart`, `game_run.dart` — so a `runGame` exercises roll → apply → record, and `_buildSnapshot`'s currently-stubbed `affixes` / `affixCategories` carry real values (§7). |
-| D13 | **`AffixAcquisition` is a plain engine-domain record** — `affixId` (`String`), `affixEventId` (`String`), `runId` (`String`), `runNumber` (`int`), `stat` (**non-null `String`**), `value` (`num`), `category` (`String`). `stat` is a canonical engine-defined semantic identifier for the Almanac, **never a display label**: `WeaponStatBonus` → the `WeaponStatTags.matchOrFallback(...)` result, `ImmediateHeal` → `'heal'`, `BankProgression` → `'bank_progression'`. It matches the frozen non-nullable `AffixSnapshot.stat`. The record carries no `almanac.dart` type; `affix_acquisition.dart` does not import `almanac.dart` and the affix plugin has **zero** Almanac coupling. The composition boundary builds `AffixObservation` / `AffixSnapshot` from these fields. |
+| D13 | **`AffixAcquisition` is a plain engine-domain record** — `affixId` (`String`), `affixEventId` (`String`), `runId` (`String`), `runNumber` (`int`), `stat` (**non-null `String`**), `value` (`num`), `category` (`String`). `stat` is a canonical engine-defined semantic identifier for the Almanac, **never a display label**, and is the **target-independent mechanic-kind string**: `WeaponStatBonus` → `'weapon_stat_bonus'` (**not** the resolved weapon stat), `ImmediateHeal` → `'heal'`, `BankProgression` → `'bank_progression'`. It matches the frozen non-nullable `AffixSnapshot.stat`. Rationale: `AffixSnapshot` holds exactly one canonical snapshot per `affixId` for the life of an `AlmanacRecorder` (`_upsertAffix`→`_fill` rejects a non-equal snapshot for the same `affixId`), so a per-target `stat` value is unrepresentable — a 2nd affix-bearing run (shared or hydrated recorder) that rolls the same affix on a different item type would feed a conflicting snapshot and raise `AlmanacIntegrityException`. The engine **still binds the resolved `WeaponStatTags` stat to `ItemInstance.statBonuses`** via `addItemStatBonuses`; only the Almanac snapshot's `stat` is the target-independent kind. The record carries no `almanac.dart` type; `affix_acquisition.dart` does not import `almanac.dart` and the affix plugin has **zero** Almanac coupling. The composition boundary builds `AffixObservation` / `AffixSnapshot` from these fields. |
 | D14 | **`AffixAcquired` carries the whole `AffixAcquisition`** (plus `rewardBaseId`). The composition boundary forwards/records that one canonical result and never reconstructs affix mechanics or the snapshot from labels, `category` strings, or client constants — so the engine's applied mechanics and the Almanac record cannot diverge. |
 
 ---
@@ -272,13 +272,19 @@ technique-domain rewards pass `CharacterTarget`.
 ```
 
 The returned `stat` is **always a non-null `String`** — the frozen `AffixSnapshot`
-schema (`final String stat`, non-nullable) requires one for every recorded affix. For
-the non-stat mechanics it is the mechanic *kind* string, which reads correctly in the
-Almanac's `category · stat +value` display (`technique_prefix · heal +12`).
+schema (`final String stat`, non-nullable) requires one for every recorded affix — and
+is **always the mechanic *kind* string**, `'weapon_stat_bonus'` / `'heal'` /
+`'bank_progression'`, never a per-target resolved value. It reads correctly in the
+Almanac's `category · stat +value` display (`technique_prefix · heal +12`,
+`item_prefix · weapon_stat_bonus +3`). For `WeaponStatBonus` the resolved
+`WeaponStatTags` tag is still computed locally and bound to `ItemInstance.statBonuses`
+via `addItemStatBonuses` — it is just not what the function returns, because
+`AffixSnapshot` holds exactly one canonical snapshot per `affixId` and a per-target
+`stat` would break cross-run / hydrated recording (D13).
 
 | `def.mechanic` | Action | Returns `stat` |
 |---|---|---|
-| `WeaponStatBonus(a)` | require `ItemInstanceTarget`; `stat = WeaponStatTags.matchOrFallback(itemDefinition(t.itemId, context).tags, 'item:${t.itemId}')`; `addItemStatBonuses(t.instance, {stat: a}, context)` | that resolved `stat` |
+| `WeaponStatBonus(a)` | require `ItemInstanceTarget`; `resolvedStat = WeaponStatTags.matchOrFallback(itemDefinition(t.itemId, context).tags, 'item:${t.itemId}')`; `addItemStatBonuses(t.instance, {resolvedStat: a}, context)` | `'weapon_stat_bonus'` |
 | `ImmediateHeal(a)` | require `CharacterTarget`; read `HealthComponent`, write back `current: min(current + a, max)` | `'heal'` |
 | `BankProgression(a)` | require `CharacterTarget`; `context.resources.add(t.character, ItemResources.upgradePoints, a)` | `'bank_progression'` |
 
@@ -342,7 +348,7 @@ class AffixAcquisition {
   final String affixEventId;   // from AffixAcquisitionIdSource (§6.5) — opaque, never parsed
   final String runId;
   final int runNumber;
-  final String stat;           // resolved weapon stat for WeaponStatBonus; 'heal' / 'bank_progression' for the non-stat mechanics (AffixSnapshot.stat is a required non-null String)
+  final String stat;           // mechanic kind: 'weapon_stat_bonus' / 'heal' / 'bank_progression' (target-independent; AffixSnapshot.stat is a required non-null String)
   final num value;             // == the affix's AffixMechanic.amount
   final String category;       // the affix definition's category, verbatim
 }
@@ -591,9 +597,10 @@ Maps 1:1 onto the client forward request's §13. The engine milestone is complet
 - [ ] `ImmediateHeal` → `HealthComponent.current` rises by `amount`, clamped to `max`.
 - [ ] `BankProgression` → `ItemResources.upgradePoints` rises by `amount`.
 - [ ] recorded `AffixSnapshot` fields equal the canonical `AffixDefinition`
-      (`value == mechanic.amount`, `category` verbatim, `stat` = the resolved weapon
-      stat for `WeaponStatBonus` and the mechanic kind `'heal'` / `'bank_progression'`
-      for the non-stat mechanics) — never a client constant.
+      (`value == mechanic.amount`, `category` verbatim, `stat` = the mechanic-kind
+      string `'weapon_stat_bonus'` / `'heal'` / `'bank_progression'`, target-independent)
+      — never a client constant, and never a per-target resolved weapon stat (which the
+      one-canonical-snapshot-per-`affixId` rule cannot represent).
 
 **Acquisition identity** (single owner, per-run uniqueness)
 - [ ] `AffixAcquisitionIdSource` is the **only** type in the codebase that constructs an

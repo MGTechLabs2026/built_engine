@@ -357,6 +357,8 @@ void main() {
       'lib/src/plugins/physique',
       'lib/src/plugins/elemental',
       'lib/src/plugins/auto_combat',
+      'lib/src/plugins/consumable',
+      'lib/src/plugins/affix',
     ];
     for (final dir in gameplayPluginDirs) {
       test('$dir does not reference the Almanac', () {

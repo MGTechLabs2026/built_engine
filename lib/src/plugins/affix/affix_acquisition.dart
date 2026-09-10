@@ -1,6 +1,7 @@
 // lib/src/plugins/affix/affix_acquisition.dart
 //
-// NOTE: this file must NOT import `package:build_engine/almanac.dart`.
+// NOTE: this file must NOT import the Almanac barrel
+// (`package:build_engine/almanac`) or anything under `src/plugins/almanac`.
 // It returns plain records; the composition boundary builds the Almanac
 // value objects.
 import 'package:build_engine/build_engine.dart';
@@ -30,7 +31,7 @@ class AffixAcquisitionIdSource {
 }
 
 /// A plain engine-domain result — one per acquired affix. Carries no
-/// `almanac.dart` type; the composition boundary builds
+/// Almanac-module type; the composition boundary builds
 /// `AffixObservation` / `AffixSnapshot` from these fields.
 class AffixAcquisition {
   const AffixAcquisition({
@@ -47,7 +48,7 @@ class AffixAcquisition {
   final String affixEventId; // from AffixAcquisitionIdSource — opaque, never parsed
   final String runId;
   final int runNumber;
-  final String stat; // resolved weapon stat, or 'heal' / 'bank_progression'
+  final String stat; // mechanic kind: 'weapon_stat_bonus' / 'heal' / 'bank_progression'
   final num value; // == the affix's AffixMechanic.amount
   final String category; // the affix definition's category, verbatim
 }

@@ -36,13 +36,39 @@ class AffixPlugin extends GamePlugin {
       sdk.registerContentBatch(affixContentDefinitions);
     }
 
-    // Validate every loaded affix through the production parse path, then check
-    // the pool ⇔ mechanic-family correspondence.
+    // Validate every loaded affix through the production parse path, then run
+    // the full §9 checks: amount > 0, exactly one lean:* tag, exactly one
+    // affix_pool:* tag, pool tag ⇔ category, and pool ⇔ mechanic-family.
     final loadedAffixes = context.content.withTag('affix');
     for (final contentDef in loadedAffixes) {
       final defId = contentDef.id;
       try {
         final def = affixDefinitionFromContent(contentDef);
+
+        if (def.mechanic.amount <= 0) {
+          throw ContentFieldException('mechanic.amount', 'must be > 0');
+        }
+
+        final tags = contentDef.tags;
+        if (tags.where((t) => t.startsWith('lean:')).length != 1) {
+          throw ContentFieldException('tags', 'expected exactly one lean:* tag');
+        }
+
+        final poolTags =
+            tags.where((t) => t.startsWith('affix_pool:')).toList();
+        if (poolTags.length != 1) {
+          throw ContentFieldException(
+            'tags',
+            'expected exactly one affix_pool:* tag',
+          );
+        }
+        if (poolTags.single != 'affix_pool:${def.category}') {
+          throw ContentFieldException(
+            'tags',
+            'affix_pool tag ${poolTags.single} must equal affix_pool:${def.category}',
+          );
+        }
+
         final isItemPool = def.category == AffixCategories.itemPrefix ||
             def.category == AffixCategories.itemSuffix;
         final isStatMechanic = def.mechanic is WeaponStatBonus;

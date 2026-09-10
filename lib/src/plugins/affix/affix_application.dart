@@ -25,9 +25,15 @@ class CharacterTarget extends AffixApplicationTarget {
 }
 
 /// Applies [def]'s single [AffixMechanic] to [target] and returns the
-/// canonical `stat` string for the Almanac snapshot — always non-null:
-/// the resolved weapon stat for [WeaponStatBonus], `'heal'` for
-/// [ImmediateHeal], `'bank_progression'` for [BankProgression].
+/// canonical `stat` string for the Almanac snapshot — always non-null
+/// and target-independent: the mechanic *kind* string
+/// (`'weapon_stat_bonus'` for [WeaponStatBonus], `'heal'` for
+/// [ImmediateHeal], `'bank_progression'` for [BankProgression]).
+/// [WeaponStatBonus] still binds the *resolved* [WeaponStatTags] stat to
+/// [ItemInstance.statBonuses] via `addItemStatBonuses` — only the
+/// returned `stat` is the target-independent kind, because
+/// `AffixSnapshot` holds exactly one canonical snapshot per `affixId`
+/// and a per-target value would break cross-run / hydrated recording.
 ///
 /// A mechanic / target mismatch throws [ArgumentError] — unreachable
 /// from validated content (the `affix_pool:*` tag fixes the domain), a
@@ -43,12 +49,12 @@ class CharacterTarget extends AffixApplicationTarget {
       if (target is! ItemInstanceTarget) {
         throw ArgumentError('WeaponStatBonus (${def.id}) needs an ItemInstanceTarget');
       }
-      final stat = WeaponStatTags.matchOrFallback(
+      final resolvedStat = WeaponStatTags.matchOrFallback(
         itemDefinition(target.itemId, context).tags,
         'item:${target.itemId}',
       );
-      addItemStatBonuses(target.instance, {stat: amount}, context);
-      return (stat: stat);
+      addItemStatBonuses(target.instance, {resolvedStat: amount}, context);
+      return (stat: 'weapon_stat_bonus');
 
     case ImmediateHeal(:final amount):
       if (target is! CharacterTarget) {

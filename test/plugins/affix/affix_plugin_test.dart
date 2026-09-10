@@ -52,4 +52,59 @@ void main() {
     });
     expect(() => AffixPlugin().initialize(ctx), throwsA(isA<ContentValidationException>()));
   });
+
+  group('§9 content-parse validation rejects', () {
+    void expectRejected(Map<String, dynamic> badEntry) {
+      final ctx = _ctx();
+      // Pre-load under a shipped id so the load-once guard skips the batch
+      // and the validation loop hits this entry.
+      ctx.content.load(badEntry);
+      expect(() => AffixPlugin().initialize(ctx),
+          throwsA(isA<ContentValidationException>()));
+    }
+
+    test('mechanic.amount <= 0', () {
+      expectRejected({
+        'id': 'af_keen',
+        'type': 'affix',
+        'tags': ['affix', 'affix_pool:item_prefix', 'lean:neutral'],
+        'label': 'Keen',
+        'category': 'item_prefix',
+        'mechanic': {'kind': 'weapon_stat_bonus', 'amount': 0},
+      });
+    });
+
+    test('affix_pool tag disagrees with category', () {
+      expectRejected({
+        'id': 'af_keen',
+        'type': 'affix',
+        'tags': ['affix', 'affix_pool:item_suffix', 'lean:neutral'],
+        'label': 'Keen',
+        'category': 'item_prefix',
+        'mechanic': {'kind': 'weapon_stat_bonus', 'amount': 3},
+      });
+    });
+
+    test('two lean:* tags', () {
+      expectRejected({
+        'id': 'af_keen',
+        'type': 'affix',
+        'tags': ['affix', 'affix_pool:item_prefix', 'lean:neutral', 'lean:force'],
+        'label': 'Keen',
+        'category': 'item_prefix',
+        'mechanic': {'kind': 'weapon_stat_bonus', 'amount': 3},
+      });
+    });
+
+    test('no affix_pool:* tag', () {
+      expectRejected({
+        'id': 'af_keen',
+        'type': 'affix',
+        'tags': ['affix', 'lean:neutral'],
+        'label': 'Keen',
+        'category': 'item_prefix',
+        'mechanic': {'kind': 'weapon_stat_bonus', 'amount': 3},
+      });
+    });
+  });
 }

@@ -24,17 +24,19 @@ class AffixDefinition {
 }
 
 AffixLean _leanFromTags(Set<String> tags) {
-  for (final tag in tags) {
-    if (tag.startsWith('lean:')) {
-      return switch (tag.substring(5)) {
-        'neutral' => AffixLean.neutral,
-        'force' => AffixLean.force,
-        'flow' => AffixLean.flow,
-        _ => throw ContentFieldException('tags', 'unknown lean tag: $tag'),
-      };
-    }
+  final leanTags = tags.where((t) => t.startsWith('lean:')).toList();
+  if (leanTags.isEmpty) {
+    throw ContentFieldException('tags', 'missing a lean:* tag');
   }
-  throw ContentFieldException('tags', 'missing a lean:* tag');
+  if (leanTags.length > 1) {
+    throw ContentFieldException('tags', 'multiple lean:* tags');
+  }
+  return switch (leanTags.single.substring(5)) {
+    'neutral' => AffixLean.neutral,
+    'force' => AffixLean.force,
+    'flow' => AffixLean.flow,
+    _ => throw ContentFieldException('tags', 'unknown lean tag: ${leanTags.single}'),
+  };
 }
 
 AffixDefinition affixDefinitionFromContent(ContentDefinition d) {
