@@ -1,3 +1,4 @@
+import 'package:build_engine/affix_plugin.dart';
 import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/consumable_plugin.dart';
 import 'package:build_engine/item_plugin.dart';
@@ -24,6 +25,10 @@ class RewardStage {
     required this.tomeManager,
     required this.itemsDiscovered,
     required this.rewardPool,
+    required this.physiqueTradition,
+    required this.runId,
+    required this.runNumber,
+    required this.affixIdSource,
   });
 
   final EntityId character;
@@ -31,6 +36,13 @@ class RewardStage {
   final RecordingDecisionPolicy recordingPolicy;
   final EventBus events;
   final TomeManager tomeManager;
+
+  /// `'western'` / `'eastern'` / null — the fighter's tradition, used
+  /// only to weight the affix draw.
+  final String? physiqueTradition;
+  final String runId;
+  final int runNumber;
+  final AffixAcquisitionIdSource affixIdSource;
 
   /// Shared with `runGame`'s own starting-kit grant — the same list
   /// object, so both sides' appends are visible to each other and to
@@ -60,11 +72,15 @@ class RewardStage {
         rewardIndex++;
         if (entry.referenceType == itemReferenceType) {
           final item = itemDefinition(entry.contentId, context);
-          ownItem(character, item.id, context);
+          final instance = ownItem(character, item.id, context);
           discoverItem(character, item, context);
           itemsDiscovered.add(item.id);
           if (isItemUsable(character, item, context)) tomeManager.placeItem(item, '$stepName reward');
-          return 'item:${item.id}';
+          return 'item:${item.id}${_acquireRewardAffixes(
+            AffixDomain.item,
+            ItemInstanceTarget(instance: instance, itemId: item.id),
+            'item:${item.id}',
+          )}';
         } else if (entry.referenceType == consumableReferenceType) {
           final consumable = consumableDefinition(entry.contentId, context);
           tomeManager.placeConsumable(consumable, '$stepName reward');
@@ -72,12 +88,45 @@ class RewardStage {
         } else {
           final technique = techniqueDefinition(entry.contentId, context);
           discoverTechnique(character, technique, context);
-          return 'technique:${technique.id}';
+          return 'technique:${technique.id}${_acquireRewardAffixes(
+            AffixDomain.technique,
+            CharacterTarget(character: character),
+            'technique:${technique.id}',
+          )}';
         }
       case RewardKind.upgradePoint:
         context.resources.add(character, ItemResources.upgradePoints, 1);
         return 'upgrade_point';
     }
+  }
+
+  /// Resolve the reward's affix slots (engine RNG), apply their canonical
+  /// mechanics, mint acquisition identity, publish one [AffixAcquired]
+  /// per acquired affix, and return the `+<affixId>` suffix for the
+  /// reward string. Empty when no affix rolls.
+  String _acquireRewardAffixes(
+    AffixDomain domain,
+    AffixApplicationTarget target,
+    String rewardBaseId,
+  ) {
+    final resolution = resolveRewardAffixes(
+      ctx: AffixRewardContext(domain: domain, physiqueTradition: physiqueTradition),
+      rng: context.rng,
+      content: context.content,
+    );
+    final acquisitions = acquireAffixes(
+      resolution: resolution,
+      target: target,
+      idSource: affixIdSource,
+      run: RunRef(runId: runId, runNumber: runNumber),
+      context: context,
+    );
+    final suffix = StringBuffer();
+    for (final acquisition in acquisitions) {
+      events.publish(AffixAcquired(acquisition: acquisition, rewardBaseId: rewardBaseId));
+      suffix.write('+${acquisition.affixId}');
+    }
+    return suffix.toString();
   }
 
   void grantReward(String stepName, int cycleIndex) {

@@ -1,3 +1,4 @@
+import 'package:build_engine/affix_plugin.dart';
 import 'package:build_engine/almanac.dart';
 import 'package:build_engine/build_engine.dart';
 import 'package:build_engine/build_interpretation.dart';
@@ -189,6 +190,7 @@ RunResult runGame(
   ItemPlugin().initialize(context);
   TechniquePlugin().initialize(context);
   ConsumablePlugin().initialize(context);
+  AffixPlugin().initialize(context);
   // No dedicated "Enemy plugin" — enemies exist only for this
   // run-composition layer, so their content is loaded directly here
   // rather than via a GamePlugin.initialize.
@@ -268,6 +270,9 @@ RunResult runGame(
     ],
     rng,
   );
+  final affixIdSource = AffixAcquisitionIdSource();
+  final affixRunId = runId ?? 'seed:$seed';
+  final affixRunNumber = runNumber ?? 0;
   final rewardStage = RewardStage(
     character: character,
     context: context,
@@ -276,6 +281,10 @@ RunResult runGame(
     tomeManager: tomeManager,
     itemsDiscovered: itemsDiscovered,
     rewardPool: rewardPool,
+    physiqueTradition: traditionId,
+    runId: affixRunId,
+    runNumber: affixRunNumber,
+    affixIdSource: affixIdSource,
   );
   final trainingStage = TrainingStage(
     character: character,

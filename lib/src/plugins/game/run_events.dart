@@ -1,3 +1,4 @@
+import 'package:build_engine/affix_plugin.dart';
 import 'package:build_engine/build_engine.dart';
 
 import 'run_decision_policy.dart';
@@ -31,6 +32,7 @@ import 'run_decision_policy.dart';
 /// | Encounter result | [EncounterResolved] | new |
 /// | Reward offered | [RewardOffered] | new |
 /// | Reward selected | [RewardSelected] | new |
+/// | Affix acquired | [AffixAcquired] | new — one per acquired affix on an item/technique reward |
 /// | Slot unlocked | [SlotUnlocked] | new |
 /// | Upgrade point spent | [UpgradePointSpent] | new |
 /// | Status snapshot (health/slots/inventory) | [RunStatus] | new — published once per cycle |
@@ -95,6 +97,19 @@ class RewardSelected {
 class SlotUnlocked {
   const SlotUnlocked(this.slot);
   final SlotId slot;
+}
+
+/// One affix acquired on an item/technique reward. Telemetry only —
+/// carries the whole canonical [AffixAcquisition] so the Almanac bridge
+/// records it without reconstructing anything. Same tier as
+/// [RewardSelected].
+class AffixAcquired {
+  const AffixAcquired({required this.acquisition, required this.rewardBaseId});
+
+  final AffixAcquisition acquisition;
+
+  /// The reward's base id string, e.g. `'item:iron_sword'`.
+  final String rewardBaseId;
 }
 
 class UpgradePointSpent {
