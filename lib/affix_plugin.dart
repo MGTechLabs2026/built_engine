@@ -9,3 +9,5 @@ export 'src/plugins/affix/affix_definition.dart'
 export 'src/plugins/affix/affix_content.dart' show affixContentDefinitions;
 export 'src/plugins/affix/affix_plugin.dart' show AffixPlugin;
 export 'src/plugins/affix/affix_resolver.dart';
+export 'src/plugins/affix/affix_application.dart'
+    show applyAffixMechanic, AffixApplicationTarget, ItemInstanceTarget, CharacterTarget;
