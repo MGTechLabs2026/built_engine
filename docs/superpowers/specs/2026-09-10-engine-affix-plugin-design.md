@@ -1,6 +1,6 @@
 # Engine-Owned Affix API — `AffixPlugin`
 
-**Status:** design, pending review
+**Status:** implemented — feat/engine-affix-plugin, commits 86ed228..97bf1d6
 **Date:** 2026-09-10
 **Revised:** 2026-09-10 — acquisition identity given a single engine owner (`AffixAcquisitionIdSource`); `AffixAcquired` carries the whole `AffixAcquisition`; the affix plugin drops its `almanac.dart` dependency (`AffixAcquisition` is a plain engine record).
 **Repo:** `built_engine` (`MGTechLabs2026/built_engine`)
