@@ -41,7 +41,7 @@ Settled during brainstorming (2026-09-10):
 | D4 | **Reward-slot selection is a small engine function on the resolver, pools are content.** The affinity weighting (`neutral` weight 2, favoured `lean` 3, opposite 1) and the per-slot `noAffixChance` are engine-owned rule code — exactly the logic being deleted from the client. The eligible affix ids per `(domain, slotKind)` are content (`affix_pool:*` tags). `RewardDefinition`/`RewardCandidate`/`RewardResolver` are **not** reused — their static `weight` cannot express affinity weighting, and bending them here is the over-design the requirements §5.1 warns against. |
 | D5 | **`AffixResolution` is immutable and ordered** — a fixed-length-2 `List<AffixResolvedSlot>`, each `{position, slotKind, affix?}` where `slotKind ∈ {'prefix','suffix'}` is a **presentation hint on the slot**, not domain identity, and `affix == null` means "no affix for this slot". This gives the client its positional name-assembly convention (`<prefix> base <suffix>`) without the client owning affix identity or slot policy. |
 | D6 | **One `affixEventId` per acquired affix.** A reward that fills both slots produces two `AffixAcquisition`s with two distinct event ids; a one-slot reward produces one; a no-affix reward produces none. This is the natural granularity for the Almanac's `(affixId, affixEventId)` idempotency key and makes "two genuine acquisitions" vs "replay of one acquisition" unambiguous. |
-| D7 | **Acquisition identity has exactly one owner: `AffixAcquisitionIdSource`**, a `build_engine` type (requirements §10 producer contract). One instance is created **per run by the engine reward/run layer** — headless: `game_run.dart` builds it next to `RngService(seed)` and threads it through `RewardStage`; client: the `lib/core/engine/` integration boundary builds it as per-run engine state and injects it into `RewardAdapter` like any other engine adapter. `acquireAffixes(...)` is the **only** caller of `idSource.next(...)`. `RewardAdapter` holds no counter and no allocator, never constructs an `affixEventId`, and only forwards `AffixAcquisition.affixEventId` verbatim to the recorder. The source is a deterministic monotonic counter — no RNG; per-run scope makes cross-run ids non-colliding. A replay re-sends an existing `AffixAcquisition` and never reaches the source. |
+| D7 | **Acquisition identity has exactly one owner: `AffixAcquisitionIdSource`**, a `build_engine` type (requirements §10 producer contract). One instance is created **per run by the engine reward/run layer** — headless: `game_run.dart` builds it next to `RngService(seed)` and threads it through `RewardStage`; client: the `lib/core/engine/` integration boundary builds it as per-run engine state and injects it into `RewardAdapter` like any other engine adapter. `acquireAffixes(...)` is the **only** caller of `idSource.next(...)`. `RewardAdapter` holds no counter and no allocator, never constructs an `affixEventId`, and only forwards `AffixAcquisition.affixEventId` verbatim to the recorder. The source is a deterministic monotonic counter — no RNG. **Uniqueness boundary:** the sequence guarantees distinct `affixEventId`s *within one logical run*; a logical run is identified by its `runId`, and distinct logical runs must supply distinct `runId`s (the engine does not guarantee uniqueness if a caller deliberately reuses a `runId`). A replay re-sends an existing `AffixAcquisition` and never reaches the source. |
 | D8 | **Resolve once, at reward generation.** `resolveRewardAffixes(...)` is the sole RNG path; its result is carried by value through preview and TAKE. There is no re-resolve-on-read API. Preview consumes no RNG, writes no Almanac, mutates no state (requirements §7). |
 | D9 | **RNG draw order is specified and engine-owned** (§5.3), so the headless harness and the client produce identical sequences from a seed. |
 | D10 | **`recordAffixUsed` stays unused** — v1 is discovery-only. An item affix "biting while hung" is not a use event. Explicit non-goal (§11). |
@@ -375,7 +375,7 @@ parameter then — never a second, hidden randomness source.
 ```dart
 /// Engine type, in `affix_acquisition.dart`. The ONLY type that constructs an
 /// `affixEventId`. Deterministic monotonic counter — no RNG. One instance per
-/// run, so ids from unrelated runs cannot collide even by coincidence.
+/// logical run; the sequence makes acquisition ids distinct *within* that run.
 class AffixAcquisitionIdSource {
   int _seq = 0;
   String next({required RunRef run, required int slotPosition}) =>
@@ -385,7 +385,7 @@ class AffixAcquisitionIdSource {
 
 - **Defined and advanced only inside `build_engine`.** The `_seq++` lives here and
   nowhere else.
-- **One instance per run, created by the engine reward/run layer:**
+- **One instance per logical run, created by the engine reward/run layer:**
   - headless harness — `game_run.dart` builds it next to `RngService(seed)` and passes
     it into `RewardStage`, which forwards it to every `acquireAffixes` call in that run.
   - client — the `lib/core/engine/` integration boundary owns it as per-run engine
@@ -394,11 +394,19 @@ class AffixAcquisitionIdSource {
     only `acquireAffixes` does. `RewardAdapter` has no counter, no allocator, and no
     code path that constructs an `affixEventId`.
 - **Deterministic** — a plain integer counter, no RNG (keeps "exactly one RNG").
-- **Per-run scoped** — a fresh instance per run. `RunRef` is folded into the returned
-  string for defence in depth, but the string is opaque downstream: the
-  `AffixAcquisition` carries `runId` / `runNumber` as explicit fields and *those*,
-  never the id, are how a relationship is read (matches the Almanac module's "no key is
-  ever parsed" discipline).
+- **Uniqueness contract (precise):**
+  - `runId` is the authoritative *logical-run* identity — opaque, caller-supplied.
+  - the acquisition sequence guarantees **distinct `affixEventId`s within one logical
+    run**: for a fixed `runId`, each `next(...)` call yields a fresh `slotPosition:_seq`
+    tail.
+  - **distinct logical runs must supply distinct `runId`s.** If a caller deliberately
+    reuses a `runId` across two separate `AffixAcquisitionIdSource` instances, the
+    engine does **not** guarantee the resulting ids differ — that is a caller contract,
+    not this type's responsibility. No UUID, timestamp, second RNG, or global allocator
+    is introduced to paper over a reused `runId`.
+  - the string is **opaque downstream**: the `AffixAcquisition` carries `runId` /
+    `runNumber` as explicit fields and *those*, never the id, are how run identity is
+    read (matches the Almanac module's "no key is ever parsed" discipline).
 - **Genuine repeat vs replay:**
   - two real acquisitions of `af_keen` in one run → two `.next()` calls → two distinct
     `affixEventId`s → one `AlmanacAffixRecord`, two discovery observations (client "Test A").
@@ -581,7 +589,7 @@ Maps 1:1 onto the client forward request's §13. The engine milestone is complet
       (`value == mechanic.amount`, `category` verbatim, `stat` set for weapon bonus /
       null for heal/bank) — never a client constant.
 
-**Acquisition identity** (single owner)
+**Acquisition identity** (single owner, per-run uniqueness)
 - [ ] `AffixAcquisitionIdSource` is the **only** type in the codebase that constructs an
       `affixEventId`, and it lives in `build_engine`.
 - [ ] `acquireAffixes` mints one `affixEventId` per filled slot via `idSource.next(...)`;
@@ -591,13 +599,20 @@ Maps 1:1 onto the client forward request's §13. The engine milestone is complet
       `affixEventId` assignment finds nothing.
 - [ ] replaying an `AffixAcquisition` does **not** call `idSource.next(...)` and does
       not change its `affixEventId`.
-- [ ] two genuine acquisitions of one affix in a run → two distinct `affixEventId`s →
-      one `AlmanacAffixRecord`, two discovery observations.
+- [ ] one fresh `AffixAcquisitionIdSource` is used per **logical run**; a logical run is
+      identified by its `runId`.
+- [ ] two genuine acquisitions within the same logical run get **distinct**
+      `affixEventId`s → one `AlmanacAffixRecord`, two discovery observations.
+- [ ] `affixEventId` is **not** required to be globally unique when a caller
+      deliberately reuses the same `runId`; distinct logical runs supplying distinct
+      `runId`s is a caller contract, not `AffixAcquisitionIdSource`'s responsibility.
 - [ ] acquisition identity stays engine-owned even when the **client** is the caller of
       `acquireAffixes` (the client only supplies the engine-provided `idSource` and
       forwards the result).
-- [ ] a fresh `AffixAcquisitionIdSource` per run — ids from different runs never collide.
-- [ ] `acquireAffixes` and `AffixAcquisitionIdSource` consume no RNG.
+- [ ] no UUID, timestamp, second RNG, or global allocator is introduced;
+      `acquireAffixes` and `AffixAcquisitionIdSource` consume no RNG.
+- [ ] `affixEventId` stays opaque downstream — nothing parses it for run identity; run
+      identity is read from `runId` / `runNumber`.
 
 **Event & recording boundary**
 - [ ] `AffixAcquired` carries the whole `AffixAcquisition`; the bridge builds
@@ -633,7 +648,7 @@ When this merges, the client's Task 0 pins the new revision and maps its
 | taken-reward result carrying `affixId` + `affixEventId` | `AffixAcquisition` — plain engine record (§6.4, D13) |
 | slot container shape (`prefix?`/`suffix?` vs list vs handles) | ordered `List<AffixResolvedSlot>` length 2, `slotKind` hint (§5.2) |
 | one event vs one-per-affix | one `affixEventId` per acquired affix (D6) |
-| who mints `affixEventId` | engine `AffixAcquisitionIdSource`, one instance per run; the client only supplies it to `acquireAffixes` and forwards the result (D7, §6.5) |
+| who mints `affixEventId` | engine `AffixAcquisitionIdSource`, one instance per logical run; the client only supplies it to `acquireAffixes` and forwards the result. Ids are unique *within* a logical run; the client must give each logical run a distinct `runId` (D7, §6.5) |
 | `AlmanacRecorder.recordAffixDiscovered`, `AlmanacRepository`, `AlmanacSerialization` | unchanged `almanac.dart` — client builds `AffixObservation` / `AffixSnapshot` from `AffixAcquisition` and calls the recorder |
 
 The client's `RewardAdapter` calls `resolveRewardAffixes` in `offerLoot()` (storing the
@@ -642,5 +657,7 @@ passing the per-run `AffixAcquisitionIdSource` it was injected with from the
 `lib/core/engine/` boundary — then hands each returned `AffixAcquisition` to its
 `AlmanacSession`, which builds the `AffixObservation` / `AffixSnapshot` and calls
 `recordAffixDiscovered`. `RewardAdapter` mints nothing, holds no counter, and never
-constructs an `affixEventId`. `_applyTechniqueAffix`, the `Affix` / `AffixEffect` /
-`AffixLean` client types, and `reward_affix.dart` are deleted.
+constructs an `affixEventId`. The one obligation on the client is to pass a `runId` that
+is distinct per logical run (it already tracks run id/number for `AffixObservation`); the
+engine handles within-run acquisition uniqueness. `_applyTechniqueAffix`, the `Affix` /
+`AffixEffect` / `AffixLean` client types, and `reward_affix.dart` are deleted.
