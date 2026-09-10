@@ -267,15 +267,20 @@ technique-domain rewards pass `CharacterTarget`.
 ### 6.2 `applyAffixMechanic`
 
 ```dart
-({String? stat}) applyAffixMechanic(
+({String stat}) applyAffixMechanic(
   AffixDefinition def, AffixApplicationTarget target, PluginContext context)
 ```
 
+The returned `stat` is **always a non-null `String`** — the frozen `AffixSnapshot`
+schema (`final String stat`, non-nullable) requires one for every recorded affix. For
+the non-stat mechanics it is the mechanic *kind* string, which reads correctly in the
+Almanac's `category · stat +value` display (`technique_prefix · heal +12`).
+
 | `def.mechanic` | Action | Returns `stat` |
 |---|---|---|
-| `WeaponStatBonus(a)` | require `ItemInstanceTarget`; `stat = WeaponStatTags.matchOrFallback(itemDefinition(t.itemId, context).tags, 'item:${t.itemId}')`; `addItemStatBonuses(t.instance, {stat: a}, context)` | that `stat` |
-| `ImmediateHeal(a)` | require `CharacterTarget`; read `HealthComponent`, write back `current: min(current + a, max)` | `null` |
-| `BankProgression(a)` | require `CharacterTarget`; `context.resources.add(t.character, ItemResources.upgradePoints, a)` | `null` |
+| `WeaponStatBonus(a)` | require `ItemInstanceTarget`; `stat = WeaponStatTags.matchOrFallback(itemDefinition(t.itemId, context).tags, 'item:${t.itemId}')`; `addItemStatBonuses(t.instance, {stat: a}, context)` | that resolved `stat` |
+| `ImmediateHeal(a)` | require `CharacterTarget`; read `HealthComponent`, write back `current: min(current + a, max)` | `'heal'` |
+| `BankProgression(a)` | require `CharacterTarget`; `context.resources.add(t.character, ItemResources.upgradePoints, a)` | `'bank_progression'` |
 
 A mechanic/target mismatch (`WeaponStatBonus` with a `CharacterTarget`, or either
 non-stat mechanic with an `ItemInstanceTarget`) throws `ArgumentError` — it is a
@@ -337,7 +342,7 @@ class AffixAcquisition {
   final String affixEventId;   // from AffixAcquisitionIdSource (§6.5) — opaque, never parsed
   final String runId;
   final int runNumber;
-  final String? stat;          // set for WeaponStatBonus after resolution; null for heal / bank
+  final String stat;           // resolved weapon stat for WeaponStatBonus; 'heal' / 'bank_progression' for the non-stat mechanics (AffixSnapshot.stat is a required non-null String)
   final num value;             // == the affix's AffixMechanic.amount
   final String category;       // the affix definition's category, verbatim
 }
@@ -586,8 +591,9 @@ Maps 1:1 onto the client forward request's §13. The engine milestone is complet
 - [ ] `ImmediateHeal` → `HealthComponent.current` rises by `amount`, clamped to `max`.
 - [ ] `BankProgression` → `ItemResources.upgradePoints` rises by `amount`.
 - [ ] recorded `AffixSnapshot` fields equal the canonical `AffixDefinition`
-      (`value == mechanic.amount`, `category` verbatim, `stat` set for weapon bonus /
-      null for heal/bank) — never a client constant.
+      (`value == mechanic.amount`, `category` verbatim, `stat` = the resolved weapon
+      stat for `WeaponStatBonus` and the mechanic kind `'heal'` / `'bank_progression'`
+      for the non-stat mechanics) — never a client constant.
 
 **Acquisition identity** (single owner, per-run uniqueness)
 - [ ] `AffixAcquisitionIdSource` is the **only** type in the codebase that constructs an
